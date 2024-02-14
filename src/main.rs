@@ -10,11 +10,12 @@ use crossterm::{
     style::{Print, Stylize},
     terminal::{self, Clear, ClearType},
 };
-use list::List;
+use list::{Entry, FileList};
 use std::{
+    collections::HashMap,
     fs,
     io::{self, Error, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     thread,
     time::Duration,
 };
@@ -25,12 +26,13 @@ struct CleanUp;
 
 #[derive(PartialEq)]
 enum AppState {
-    Selection(List),
+    Selection(FileList),
     Quit,
 }
 
 struct Display {
     window_height: usize,
+    path: PathBuf,
     error: Option<String>,
     state: AppState,
 }
@@ -41,15 +43,35 @@ impl Drop for CleanUp {
     }
 }
 
-fn read_entries(path: &PathBuf) -> Vec<String> {
+// #[test]
+// fn test() {
+//     let prd = "/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates/db 24/db 24.7";
+//     let entries = read_entries(Path::new(prd));
+
+//     let debug = entries;
+// }
+
+fn read_entries(path: &Path) -> Vec<Entry> {
     match fs::read_dir(path) {
         Ok(entries) => entries
             .filter_map(|entry| {
-                entry
-                    .ok()
-                    .and_then(|e| e.path().file_name()?.to_str()?.to_owned().into())
+                let entry = entry.ok()?;
+                let path = entry.path();
+                let file_name = path.file_name()?.to_str()?;
+
+                if file_name.starts_with('_') || file_name.starts_with('.') {
+                    return None;
+                }
+
+                // Check if it's a directory or a file with .sql extension
+                if path.is_dir() {
+                    Some(Entry::Directory(file_name.to_owned()))
+                } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
+                    Some(Entry::File(file_name.to_owned()))
+                } else {
+                    None
+                }
             })
-            .filter(|x| !x.starts_with('_') && !x.starts_with('.'))
             .collect(),
         Err(e) => {
             eprintln!("Failed to read directory: {}", e);
@@ -84,6 +106,20 @@ fn process_events(display: &mut Display) -> Result<(), Error> {
                     KeyCode::Down => selection.move_cursor_down(),
                     KeyCode::Left => selection.move_page_back(),
                     KeyCode::Right => selection.move_page_forward(),
+                    KeyCode::Enter => {
+                        let dir_name = selection.get_selection();
+                        if let Some(dir_name) = dir_name {
+                            let new_path =
+                                display.path.join(std::path::Path::new(dir_name.get_name()));
+                            display.path = new_path;
+                            selection.set_entries(read_entries(&display.path));
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        let new_path = display.path.join(std::path::Path::new(".."));
+                        display.path = new_path;
+                        selection.set_entries(read_entries(&display.path));
+                    }
                     _ => (),
                 },
                 _ => (),
@@ -108,7 +144,7 @@ fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
 
 fn draw_selection(
     display: &Display,
-    selection: &List,
+    selection: &FileList,
     stdout: &mut io::Stdout,
 ) -> Result<(), Error> {
     let _ = selection.draw(stdout);
@@ -173,7 +209,8 @@ fn main() -> io::Result<()> {
     let mut display = Display {
         window_height: rows as usize,
         error: None,
-        state: AppState::Selection(List {
+        path,
+        state: AppState::Selection(FileList {
             height: row_count,
             page_index: 0,
             cursor: 0,
