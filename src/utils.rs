@@ -31,12 +31,10 @@ pub fn read_line() -> io::Result<String> {
 pub fn read_path(stdout: &mut Stdout) -> String {
     let _ = stdout.flush();
 
-    let result = match read_line() {
+    match read_line() {
         Ok(content) => content,
         Err(_) => String::new(),
-    };
-
-    result
+    }
 }
 
 pub fn read_and_validate_path(stdout: &mut Stdout, config: HashMap<String, String>) -> PathBuf {
@@ -66,5 +64,5 @@ pub fn read_and_validate_path(stdout: &mut Stdout, config: HashMap<String, Strin
 }
 
 pub fn round_up_division(first: usize, second: usize) -> usize {
-    return (first + second - 1) / second;
+    (first + second - 1) / second
 }

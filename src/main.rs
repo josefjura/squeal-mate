@@ -1,4 +1,5 @@
 mod config;
+mod list;
 mod utils;
 
 use config::setup_config;
@@ -9,6 +10,7 @@ use crossterm::{
     style::{Print, Stylize},
     terminal::{self, Clear, ClearType},
 };
+use list::List;
 use std::{
     fs,
     io::{self, Error, Write},
@@ -16,118 +18,14 @@ use std::{
     thread,
     time::Duration,
 };
-use utils::{read_and_validate_path, round_up_division};
+use utils::read_and_validate_path;
 
 const MIN_HEIGHT: u16 = 3;
 struct CleanUp;
 
-#[derive(PartialEq, Debug)]
-struct SelectionState {
-    cursor: usize,
-    current_row_count: usize,
-    row_count: usize,
-    current_page: usize,
-    page_count: usize,
-    entries: Vec<String>,
-}
-
-impl SelectionState {
-    fn move_cursor_up(&self) -> Self {
-        let new_cursor = if self.cursor == 0 {
-            self.current_row_count - 1
-        } else {
-            self.cursor - 1
-        };
-        Self {
-            cursor: new_cursor,
-            entries: self.entries.clone(),
-            ..*self
-        }
-    }
-
-    fn move_cursor_down(&self) -> Self {
-        let new_cursor = if self.cursor == self.current_row_count - 1 {
-            0
-        } else {
-            self.cursor + 1
-        };
-        Self {
-            cursor: new_cursor,
-            entries: self.entries.clone(),
-            ..*self
-        }
-    }
-
-    fn move_page_forward(&self) -> Self {
-        let new_page = if self.current_page == self.page_count - 1 {
-            0
-        } else {
-            self.current_page + 1
-        };
-
-        let displayed_items = get_list_size(self.entries.len(), self.row_count, new_page);
-
-        Self {
-            current_page: new_page,
-            entries: self.entries.clone(),
-            cursor: self.reset_cursor(displayed_items),
-            current_row_count: displayed_items,
-            ..*self
-        }
-    }
-
-    fn move_page_back(&self) -> Self {
-        let new_page = if self.current_page == 0 {
-            self.page_count - 1
-        } else {
-            self.current_page - 1
-        };
-
-        let displayed_items = get_list_size(self.entries.len(), self.row_count, new_page);
-
-        Self {
-            current_page: new_page,
-            entries: self.entries.clone(),
-            cursor: self.reset_cursor(displayed_items),
-            current_row_count: displayed_items,
-            ..*self
-        }
-    }
-
-    fn reset_cursor(&self, new_row_count: usize) -> usize {
-        let new_cursor = if self.cursor >= new_row_count {
-            new_row_count - 1
-        } else {
-            self.cursor
-        };
-        new_cursor
-    }
-
-    fn resize(&self, size: usize) -> Self {
-        let current_row_count = get_list_size(self.entries.len(), size, self.current_page);
-        let page_count = round_up_division(self.entries.len(), size);
-
-        Self {
-            current_page: 0,
-            cursor: 0,
-            page_count,
-            current_row_count,
-            row_count: size,
-            entries: self.entries.clone(),
-            ..*self
-        }
-    }
-}
-
-fn get_list_size(entries_count: usize, size: usize, current_page: usize) -> usize {
-    let list_size = std::cmp::min(size, entries_count.saturating_sub(size * current_page));
-
-    list_size
-}
-
 #[derive(PartialEq)]
 enum AppState {
-    Selection(SelectionState),
+    Selection(List),
     Quit,
 }
 
@@ -144,22 +42,20 @@ impl Drop for CleanUp {
 }
 
 fn read_entries(path: &PathBuf) -> Vec<String> {
-    let entries = match fs::read_dir(&path) {
+    match fs::read_dir(path) {
         Ok(entries) => entries
             .filter_map(|entry| {
                 entry
                     .ok()
                     .and_then(|e| e.path().file_name()?.to_str()?.to_owned().into())
             })
-            .filter(|x| !x.starts_with("_") && !x.starts_with("."))
+            .filter(|x| !x.starts_with('_') && !x.starts_with('.'))
             .collect(),
         Err(e) => {
             eprintln!("Failed to read directory: {}", e);
             Vec::new()
         }
-    };
-
-    entries
+    }
 }
 
 fn process_events(display: &mut Display) -> Result<(), Error> {
@@ -171,8 +67,8 @@ fn process_events(display: &mut Display) -> Result<(), Error> {
                     display.error = Some(String::from("Fuck you!"));
                 } else {
                     display.error = None;
-                    if let AppState::Selection(selection) = &display.state {
-                        display.state = AppState::Selection(selection.resize(y as usize))
+                    if let AppState::Selection(selection) = &mut display.state {
+                        selection.resize(y as usize - 2)
                     }
                 }
             }
@@ -182,18 +78,12 @@ fn process_events(display: &mut Display) -> Result<(), Error> {
             {
                 display.state = AppState::Quit
             }
-            Event::Key(key) => match &display.state {
+            Event::Key(key) => match &mut display.state {
                 AppState::Selection(selection) => match key.code {
-                    KeyCode::Up => display.state = AppState::Selection(selection.move_cursor_up()),
-                    KeyCode::Down => {
-                        display.state = AppState::Selection(selection.move_cursor_down())
-                    }
-                    KeyCode::Left => {
-                        display.state = AppState::Selection(selection.move_page_back())
-                    }
-                    KeyCode::Right => {
-                        display.state = AppState::Selection(selection.move_page_forward())
-                    }
+                    KeyCode::Up => selection.move_cursor_up(),
+                    KeyCode::Down => selection.move_cursor_down(),
+                    KeyCode::Left => selection.move_page_back(),
+                    KeyCode::Right => selection.move_page_forward(),
                     _ => (),
                 },
                 _ => (),
@@ -210,7 +100,7 @@ fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
         stdout,
         MoveTo(0, display.window_height as u16 - 1),
         Clear(ClearType::CurrentLine),
-        Print(format!("WINDOW TOO SMALL").red())
+        Print("WINDOW TOO SMALL".red())
     )?;
 
     Ok(())
@@ -218,65 +108,26 @@ fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
 
 fn draw_selection(
     display: &Display,
-    selection: &SelectionState,
+    selection: &List,
     stdout: &mut io::Stdout,
 ) -> Result<(), Error> {
-    for line in 0..selection.row_count {
-        let line_index = (selection.current_page * selection.row_count) + line;
-        let item = selection.entries.get(line_index);
-
-        match item {
-            Some(entry) => {
-                let entry_clone = entry.clone();
-                if selection.cursor == line {
-                    queue!(
-                        stdout,
-                        MoveTo(0, line as u16),
-                        Clear(ClearType::CurrentLine),
-                        Print(format!(" > {entry_clone}").blue())
-                    )?
-                } else {
-                    queue!(
-                        stdout,
-                        MoveTo(0, line as u16),
-                        Clear(ClearType::CurrentLine),
-                        Print(format!("   {entry_clone}").white())
-                    )?
-                }
-            }
-            None => queue!(
-                stdout,
-                MoveTo(0, line as u16),
-                Clear(ClearType::CurrentLine),
-            )?,
-        }
-    }
+    let _ = selection.draw(stdout);
 
     queue!(
         stdout,
         MoveTo(0, display.window_height as u16 - 2),
         Clear(ClearType::CurrentLine)
     )?;
-    let text = format!(
-        "Page {}/{}",
-        selection.current_page + 1,
-        selection.page_count
-    );
-    // let text = format!(
-    //     "Page {}/{} (window: {}/full: {}/current: {}) entries: {}, cursor: {}",
-    //     selection.current_page + 1,
-    //     selection.page_count,
-    //     display.window_height,
-    //     selection.row_count,
-    //     selection.current_row_count,
-    //     selection.entries.len(),
-    //     selection.cursor + 1
-    // );
+
     queue!(
         stdout,
         MoveTo(0, display.window_height as u16 - 1),
-        Clear(ClearType::CurrentLine),
-        Print(text)
+        Print(format!(
+            "AEQ-CAC SQL ({}/{})",
+            selection.page_index + 1,
+            selection.get_page_count()
+        )),
+        Clear(ClearType::UntilNewLine)
     )?;
 
     Ok(())
@@ -318,17 +169,14 @@ fn main() -> io::Result<()> {
     let entries = read_entries(&path);
 
     let row_count = rows as usize - 2;
-    let page_count = round_up_division(entries.len(), row_count);
 
     let mut display = Display {
         window_height: rows as usize,
         error: None,
-        state: AppState::Selection(SelectionState {
-            current_page: 0,
+        state: AppState::Selection(List {
+            height: row_count,
+            page_index: 0,
             cursor: 0,
-            current_row_count: std::cmp::min(row_count, entries.len()),
-            row_count,
-            page_count,
             entries,
         }),
     };
