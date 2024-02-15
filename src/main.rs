@@ -13,7 +13,7 @@ use crossterm::{
 use list::{Entry, FileList};
 use std::{
     collections::HashMap,
-    fs,
+    fs::{self, File},
     io::{self, Error, Write},
     path::{Path, PathBuf},
     thread,
@@ -52,7 +52,7 @@ impl Drop for CleanUp {
 // }
 
 fn read_entries(path: &Path) -> Vec<Entry> {
-    match fs::read_dir(path) {
+    let mut entries = match fs::read_dir(path) {
         Ok(entries) => entries
             .filter_map(|entry| {
                 let entry = entry.ok()?;
@@ -77,7 +77,11 @@ fn read_entries(path: &Path) -> Vec<Entry> {
             eprintln!("Failed to read directory: {}", e);
             Vec::new()
         }
-    }
+    };
+
+    entries.sort();
+
+    entries
 }
 
 fn process_events(display: &mut Display) -> Result<(), Error> {
@@ -108,11 +112,16 @@ fn process_events(display: &mut Display) -> Result<(), Error> {
                     KeyCode::Right => selection.move_page_forward(),
                     KeyCode::Enter => {
                         let dir_name = selection.get_selection();
-                        if let Some(dir_name) = dir_name {
-                            let new_path =
-                                display.path.join(std::path::Path::new(dir_name.get_name()));
-                            display.path = new_path;
-                            selection.set_entries(read_entries(&display.path));
+                        if let Some(entry) = dir_name {
+                            match entry {
+                                Entry::Directory(dir_name) => {
+                                    let new_path =
+                                        display.path.join(std::path::Path::new(dir_name));
+                                    display.path = new_path;
+                                    selection.set_entries(read_entries(&display.path));
+                                }
+                                Entry::File(_) => {}
+                            }
                         }
                     }
                     KeyCode::Backspace => {
@@ -142,12 +151,69 @@ fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
     Ok(())
 }
 
+fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::io::Error> {
+    let page = list.get_page_entries();
+
+    for line in 0..list.height {
+        if let Some(item) = page.get(line) {
+            match item {
+                Entry::Directory(dir) => {
+                    if line == list.cursor {
+                        queue!(
+                            stdout,
+                            MoveTo(0, line as u16),
+                            Print(format!(" > {}", dir).black().on_white()),
+                            Clear(ClearType::UntilNewLine)
+                        )?;
+                    } else {
+                        queue!(
+                            stdout,
+                            MoveTo(0, line as u16),
+                            Print(format!("   {}", dir).blue()),
+                            Clear(ClearType::UntilNewLine)
+                        )?;
+                    }
+                }
+                Entry::File(file) => {
+                    if line == list.cursor {
+                        queue!(
+                            stdout,
+                            MoveTo(0, line as u16),
+                            Print(format!(" > {}", file).black().on_white()),
+                            Clear(ClearType::UntilNewLine)
+                        )?;
+                    } else {
+                        queue!(
+                            stdout,
+                            MoveTo(0, line as u16),
+                            Print(format!("   {}", file).white()),
+                            Clear(ClearType::UntilNewLine)
+                        )?;
+                    }
+                }
+            }
+        } else {
+            queue!(
+                stdout,
+                MoveTo(0, line as u16),
+                Clear(ClearType::CurrentLine)
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn draw_help(stdout: &mut io::Stdout) {}
+
 fn draw_selection(
     display: &Display,
     selection: &FileList,
     stdout: &mut io::Stdout,
 ) -> Result<(), Error> {
-    let _ = selection.draw(stdout);
+    draw_list(stdout, selection)?;
+
+    draw_help(stdout);
 
     queue!(
         stdout,

@@ -15,14 +15,18 @@ pub(crate) struct FileList {
     pub height: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub(crate) enum Entry {
-    File(String),
     Directory(String),
+    File(String),
 }
 
-impl Entry {
-    pub(crate) fn get_name(&self) -> &String {
+trait Name {
+    fn get_name(&self) -> &String;
+}
+
+impl Name for Entry {
+    fn get_name(&self) -> &String {
         match self {
             Entry::File(name) => name,
             Entry::Directory(name) => name,
@@ -106,65 +110,12 @@ impl FileList {
         }
     }
 
-    fn get_page_entries(&self) -> Vec<&Entry> {
+    pub(crate) fn get_page_entries(&self) -> Vec<&Entry> {
         self.entries
             .iter()
             .skip(self.height * self.page_index)
             .take(self.height)
             .collect::<Vec<&Entry>>()
-    }
-
-    pub(crate) fn draw(&self, stdout: &mut std::io::Stdout) -> Result<(), std::io::Error> {
-        let page = self.get_page_entries();
-
-        for line in 0..self.height {
-            if let Some(item) = page.get(line) {
-                match item {
-                    Entry::Directory(dir) => {
-                        if line == self.cursor {
-                            queue!(
-                                stdout,
-                                MoveTo(0, line as u16),
-                                Print(format!(" > {}", dir).blue()),
-                                Clear(ClearType::UntilNewLine)
-                            )?;
-                        } else {
-                            queue!(
-                                stdout,
-                                MoveTo(0, line as u16),
-                                Print(format!("   {}", dir).white()),
-                                Clear(ClearType::UntilNewLine)
-                            )?;
-                        }
-                    }
-                    Entry::File(file) => {
-                        if line == self.cursor {
-                            queue!(
-                                stdout,
-                                MoveTo(0, line as u16),
-                                Print(format!(" > {}", file).blue()),
-                                Clear(ClearType::UntilNewLine)
-                            )?;
-                        } else {
-                            queue!(
-                                stdout,
-                                MoveTo(0, line as u16),
-                                Print(format!("   {}", file).yellow()),
-                                Clear(ClearType::UntilNewLine)
-                            )?;
-                        }
-                    }
-                }
-            } else {
-                queue!(
-                    stdout,
-                    MoveTo(0, line as u16),
-                    Clear(ClearType::CurrentLine)
-                )?;
-            }
-        }
-
-        Ok(())
     }
 
     pub(crate) fn resize(&mut self, height: usize) {
