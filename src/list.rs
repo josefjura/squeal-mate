@@ -1,10 +1,3 @@
-use crossterm::{
-    cursor::MoveTo,
-    queue,
-    style::{Print, Stylize},
-    terminal::{Clear, ClearType},
-};
-
 use crate::utils::round_up_division;
 
 #[derive(Debug, PartialEq)]
@@ -153,7 +146,7 @@ fn empty() {
     list.move_cursor_up();
     list.move_page_forward();
     list.move_page_back();
-    list.get_selection().unwrap();
+    assert_eq!(None, list.get_selection());
 }
 
 #[test]

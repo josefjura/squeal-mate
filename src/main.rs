@@ -12,16 +12,19 @@ use crossterm::{
 };
 use list::{Entry, FileList};
 use std::{
-    collections::HashMap,
-    fs::{self, File},
+    fs::{self},
     io::{self, Error, Write},
     path::{Path, PathBuf},
     thread,
     time::Duration,
 };
+use tiberius::{AuthMethod, Client, Config};
+use tokio::net::TcpStream;
+use tokio_util::compat::TokioAsyncWriteCompatExt;
 use utils::read_and_validate_path;
 
-const MIN_HEIGHT: u16 = 3;
+const MIN_HEIGHT: u16 = 8;
+const MIN_WIDTH: u16 = 60;
 struct CleanUp;
 
 #[derive(PartialEq)]
@@ -31,8 +34,9 @@ enum AppState {
 }
 
 struct Display {
+    window_width: usize,
     window_height: usize,
-    path: PathBuf,
+    base_path: PathBuf,
     error: Option<String>,
     state: AppState,
 }
@@ -43,13 +47,50 @@ impl Drop for CleanUp {
     }
 }
 
-// #[test]
-// fn test() {
-//     let prd = "/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates/db 24/db 24.7";
-//     let entries = read_entries(Path::new(prd));
+static KEY_BINDINGS: &[(&str, &str)] = &[
+    ("up/down", "move up and down"),
+    ("lef/right", "page forward and back"),
+    ("enter", "open directory"),
+    ("backspace", "go level up"),
+    ("a", "run all scripts since"),
+    ("s", "run selected"),
+];
 
-//     let debug = entries;
+// #[tokio::test]
+// async fn print_script_test() {
+//     let input = Path::new("./example_data/1/test1.sql");
+//     //print_script(input.to_path_buf()).await;
+//     let script = tokio::fs::read_to_string(input).await;
+
+//     assert!(script.is_ok());
+
+//     assert_eq!("SELECT * FROM ThisTable", script.unwrap());
 // }
+
+async fn print_script(path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+    let script = tokio::fs::read_to_string(path).await;
+    let mut config = Config::new();
+
+    config.host("localhost");
+    config.port(1433);
+    config.authentication(AuthMethod::sql_server("SA", "Focking_pass"));
+    config.trust_cert(); // on production, it is not a good idea to do this
+
+    let tcp = TcpStream::connect(config.get_addr()).await?;
+    tcp.set_nodelay(true)?;
+
+    // To be able to use Tokio's tcp, we're using the `compat_write` from
+    // the `TokioAsyncWriteCompatExt` to get a stream compatible with the
+    // traits from the `futures` crate.
+    let mut client = Client::connect(config, tcp.compat_write()).await?;
+
+    let result = client.simple_query(script.unwrap()).await;
+
+    match result {
+        Ok(_) => Ok("Finished".to_owned()),
+        Err(err) => Ok(err.to_string()),
+    }
+}
 
 fn read_entries(path: &Path) -> Vec<Entry> {
     let mut entries = match fs::read_dir(path) {
@@ -84,13 +125,14 @@ fn read_entries(path: &Path) -> Vec<Entry> {
     entries
 }
 
-fn process_events(display: &mut Display) -> Result<(), Error> {
+async fn process_events(display: &mut Display) -> Result<(), Box<dyn std::error::Error>> {
     while poll(Duration::ZERO)? {
         match read()? {
-            Event::Resize(_, y) => {
+            Event::Resize(x, y) => {
                 display.window_height = y as usize;
-                if y < MIN_HEIGHT {
-                    display.error = Some(String::from("Fuck you!"));
+                display.window_width = x as usize;
+                if y < MIN_HEIGHT || x < MIN_WIDTH {
+                    display.error = Some(String::from("WINDOW TOO SMALL!"));
                 } else {
                     display.error = None;
                     if let AppState::Selection(selection) = &mut display.state {
@@ -105,30 +147,45 @@ fn process_events(display: &mut Display) -> Result<(), Error> {
                 display.state = AppState::Quit
             }
             Event::Key(key) => match &mut display.state {
-                AppState::Selection(selection) => match key.code {
-                    KeyCode::Up => selection.move_cursor_up(),
-                    KeyCode::Down => selection.move_cursor_down(),
-                    KeyCode::Left => selection.move_page_back(),
-                    KeyCode::Right => selection.move_page_forward(),
+                AppState::Selection(list) => match key.code {
+                    KeyCode::Up => list.move_cursor_up(),
+                    KeyCode::Down => list.move_cursor_down(),
+                    KeyCode::Left => list.move_page_back(),
+                    KeyCode::Right => list.move_page_forward(),
                     KeyCode::Enter => {
-                        let dir_name = selection.get_selection();
+                        let dir_name = list.get_selection();
                         if let Some(entry) = dir_name {
                             match entry {
                                 Entry::Directory(dir_name) => {
                                     let new_path =
-                                        display.path.join(std::path::Path::new(dir_name));
-                                    display.path = new_path;
-                                    selection.set_entries(read_entries(&display.path));
+                                        display.base_path.join(std::path::Path::new(dir_name));
+                                    display.base_path = new_path;
+                                    list.set_entries(read_entries(&display.base_path));
                                 }
                                 Entry::File(_) => {}
                             }
                         }
                     }
                     KeyCode::Backspace => {
-                        let new_path = display.path.join(std::path::Path::new(".."));
-                        display.path = new_path;
-                        selection.set_entries(read_entries(&display.path));
+                        let new_path = display.base_path.join(std::path::Path::new(".."));
+                        display.base_path = new_path;
+                        list.set_entries(read_entries(&display.base_path));
                     }
+                    KeyCode::Char(char) => match char {
+                        'a' => {
+                            if let Some(Entry::File(file)) = list.get_selection() {
+                                let full_path = display.base_path.join(Path::new(file));
+                                print_script(full_path).await?;
+                            }
+                        }
+                        's' => {
+                            if let Some(Entry::File(file)) = list.get_selection() {
+                                let full_path = display.base_path.join(Path::new(file));
+                                print_script(full_path).await?;
+                            }
+                        }
+                        _ => (),
+                    },
                     _ => (),
                 },
                 _ => (),
@@ -141,11 +198,15 @@ fn process_events(display: &mut Display) -> Result<(), Error> {
 }
 
 fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
+    const ERROR_TEXT: &str = "WINDOW TOO SMALL";
     queue!(
         stdout,
-        MoveTo(0, display.window_height as u16 - 1),
-        Clear(ClearType::CurrentLine),
-        Print("WINDOW TOO SMALL".red())
+        MoveTo(
+            ((display.window_width / 2) - (ERROR_TEXT.len() / 2)) as u16,
+            (display.window_height / 2) as u16
+        ),
+        Clear(ClearType::All),
+        Print(ERROR_TEXT.red())
     )?;
 
     Ok(())
@@ -204,16 +265,74 @@ fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::i
     Ok(())
 }
 
-fn draw_help(stdout: &mut io::Stdout) {}
+fn draw_rect(
+    stdout: &mut io::Stdout,
+    display: &Display,
+    help_lines: &[(&str, &str)],
+) -> Result<(), Error> {
+    const SPLITTER: &str = " : ";
+    let width: u16 = help_lines
+        .iter()
+        .map(|f| f.0.len() + f.1.len() + SPLITTER.len())
+        .max()
+        .unwrap_or(10) as u16
+        + 4;
+    let height: u16 = help_lines.len() as u16 + 2;
+    let row: u16 = 0;
+    let column: u16 = display.window_width as u16 - width;
+    let tl = (column, row);
+    let tr = (column + width - 1, row);
+    let bl = (column, height - 1 + row);
+    let br = (column + width - 1, height - 1 + row);
+
+    // ┌─┐
+    // │ │
+    // └─┘
+
+    queue!(stdout, MoveTo(tl.0, tl.1), Print("┌".yellow()))?;
+    queue!(stdout, MoveTo(tr.0, tr.1), Print("┐".yellow()))?;
+    queue!(stdout, MoveTo(bl.0, br.1), Print("└".yellow()))?;
+    queue!(stdout, MoveTo(br.0, br.1), Print("┘".yellow()))?;
+
+    for line in tl.0 + 1..tr.0 {
+        queue!(stdout, MoveTo(line, tl.1 as u16), Print("─".yellow()))?;
+        queue!(stdout, MoveTo(line, bl.1 as u16), Print("─".yellow()))?;
+    }
+
+    for col in tl.1 + 1..bl.1 {
+        queue!(stdout, MoveTo(tl.0 as u16, col), Print("│".yellow()))?;
+        queue!(stdout, MoveTo(tr.0 as u16, col), Print("│".yellow()))?;
+    }
+
+    for text in help_lines.iter().enumerate() {
+        let (index, (label, value)) = text;
+        queue!(
+            stdout,
+            MoveTo(column + 2, row + 1 + index as u16),
+            Print(label.white()),
+            Print(SPLITTER),
+        )?;
+        queue!(
+            stdout,
+            MoveTo(
+                column + width - 2 - value.len() as u16,
+                row + 1 + index as u16
+            ),
+            Print(value.yellow())
+        )?;
+    }
+
+    Ok(())
+}
 
 fn draw_selection(
     display: &Display,
-    selection: &FileList,
+    list: &FileList,
     stdout: &mut io::Stdout,
 ) -> Result<(), Error> {
-    draw_list(stdout, selection)?;
+    draw_list(stdout, list)?;
 
-    draw_help(stdout);
+    draw_rect(stdout, display, KEY_BINDINGS)?;
 
     queue!(
         stdout,
@@ -226,8 +345,8 @@ fn draw_selection(
         MoveTo(0, display.window_height as u16 - 1),
         Print(format!(
             "AEQ-CAC SQL ({}/{})",
-            selection.page_index + 1,
-            selection.get_page_count()
+            list.page_index + 1,
+            list.get_page_count()
         )),
         Clear(ClearType::UntilNewLine)
     )?;
@@ -235,7 +354,7 @@ fn draw_selection(
     Ok(())
 }
 
-fn draw(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
+fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
     if display.error.is_some() {
         draw_error(display, stdout)?;
     } else {
@@ -251,7 +370,8 @@ fn draw(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
     Ok(())
 }
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _clean_up = CleanUp;
     let mut stdout = io::stdout();
 
@@ -264,7 +384,7 @@ fn main() -> io::Result<()> {
 
     let path: PathBuf = read_and_validate_path(&mut stdout, config);
 
-    let (_, rows) = terminal::size()?;
+    let (cols, rows) = terminal::size()?;
 
     terminal::enable_raw_mode()?;
 
@@ -274,8 +394,9 @@ fn main() -> io::Result<()> {
 
     let mut display = Display {
         window_height: rows as usize,
+        window_width: cols as usize,
         error: None,
-        path,
+        base_path: path,
         state: AppState::Selection(FileList {
             height: row_count,
             page_index: 0,
@@ -285,8 +406,8 @@ fn main() -> io::Result<()> {
     };
 
     while display.state != AppState::Quit {
-        process_events(&mut display)?;
-        draw(&display, &mut stdout)?;
+        process_events(&mut display).await?;
+        draw(&mut stdout, &display)?;
 
         thread::sleep(Duration::from_millis(33));
     }
