@@ -1,4 +1,6 @@
 /target
 /example_data
 
-./aeq-cac.toml
+
+.idea
+aeq-cac.toml

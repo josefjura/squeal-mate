@@ -25,6 +25,7 @@ use utils::read_and_validate_path;
 
 const MIN_HEIGHT: u16 = 8;
 const MIN_WIDTH: u16 = 60;
+
 struct CleanUp;
 
 #[derive(PartialEq)]
@@ -56,24 +57,25 @@ static KEY_BINDINGS: &[(&str, &str)] = &[
     ("s", "run selected"),
 ];
 
-// #[tokio::test]
-// async fn print_script_test() {
-//     let input = Path::new("./example_data/1/test1.sql");
-//     //print_script(input.to_path_buf()).await;
-//     let script = tokio::fs::read_to_string(input).await;
+#[tokio::test]
+async fn print_script_test() {
+    let input = Path::new("/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates/db 34/db 34.8/V20231214.02__T023-818__T023-4142_Translations.sql");
+    match print_script(input.to_path_buf()).await {
+        Ok(s) => println!("{}", s),
+        Err(e) => eprintln!("{}", e),
+    }
+    // let script = tokio::fs::read_to_string(input).await;
 
-//     assert!(script.is_ok());
-
-//     assert_eq!("SELECT * FROM ThisTable", script.unwrap());
-// }
+    //assert!(script.is_ok());
+}
 
 async fn print_script(path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
     let script = tokio::fs::read_to_string(path).await;
     let mut config = Config::new();
 
-    config.host("localhost");
+    config.host("127.0.0.1");
     config.port(1433);
-    config.authentication(AuthMethod::sql_server("SA", "Focking_pass"));
+    config.authentication(AuthMethod::sql_server("cli", "clipassword"));
     config.trust_cert(); // on production, it is not a good idea to do this
 
     let tcp = TcpStream::connect(config.get_addr()).await?;
