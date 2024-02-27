@@ -1,10 +1,12 @@
+mod border;
 mod config;
 mod list;
 mod utils;
 
+use border::draw_rect;
 use config::setup_config;
 use crossterm::{
-    cursor::{DisableBlinking, Hide, MoveTo},
+    cursor::{DisableBlinking, EnableBlinking, Hide, MoveTo, Show},
     event::{poll, read, Event, KeyCode, KeyModifiers},
     execute, queue,
     style::{Print, Stylize},
@@ -29,8 +31,14 @@ const MIN_WIDTH: u16 = 60;
 struct CleanUp;
 
 #[derive(PartialEq)]
+struct Help {
+    width: u16,
+    height: u16,
+}
+
+#[derive(PartialEq)]
 enum AppState {
-    Selection(FileList),
+    Selection(FileList, Help),
     Quit,
 }
 
@@ -137,7 +145,7 @@ async fn process_events(display: &mut Display) -> Result<(), Box<dyn std::error:
                     display.error = Some(String::from("WINDOW TOO SMALL!"));
                 } else {
                     display.error = None;
-                    if let AppState::Selection(selection) = &mut display.state {
+                    if let AppState::Selection(selection, _) = &mut display.state {
                         selection.resize(y as usize - 2)
                     }
                 }
@@ -148,8 +156,13 @@ async fn process_events(display: &mut Display) -> Result<(), Box<dyn std::error:
             {
                 display.state = AppState::Quit
             }
+            Event::Key(event)
+                if event.code == KeyCode::Esc =>
+            {
+                display.state = AppState::Quit
+            }
             Event::Key(key) => match &mut display.state {
-                AppState::Selection(list) => match key.code {
+                AppState::Selection(list, _) => match key.code {
                     KeyCode::Up => list.move_cursor_up(),
                     KeyCode::Down => list.move_cursor_down(),
                     KeyCode::Left => list.move_page_back(),
@@ -267,7 +280,7 @@ fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::i
     Ok(())
 }
 
-fn draw_rect(
+fn draw_help(
     stdout: &mut io::Stdout,
     display: &Display,
     help_lines: &[(&str, &str)],
@@ -282,16 +295,18 @@ fn draw_rect(
     let height: u16 = help_lines.len() as u16 + 2;
     let row: u16 = 0;
     let column: u16 = display.window_width as u16 - width;
-    let tl = (column, row);
-    let tr = (column + width - 1, row);
-    let bl = (column, height - 1 + row);
-    let br = (column + width - 1, height - 1 + row);
+    // let tl = (column, row);
+    // let tr = (column + width - 1, row);
+    // let bl = (column, height - 1 + row);
+    // let br = (column + width - 1, height - 1 + row);
 
     // ┌─┐
     // │ │
     // └─┘
 
-    queue!(stdout, MoveTo(tl.0, tl.1), Print("┌".yellow()))?;
+    draw_rect(stdout, column, 0, width, height)?;
+
+    /* queue!(stdout, MoveTo(tl.0, tl.1), Print("┌".yellow()))?;
     queue!(stdout, MoveTo(tr.0, tr.1), Print("┐".yellow()))?;
     queue!(stdout, MoveTo(bl.0, br.1), Print("└".yellow()))?;
     queue!(stdout, MoveTo(br.0, br.1), Print("┘".yellow()))?;
@@ -304,7 +319,7 @@ fn draw_rect(
     for col in tl.1 + 1..bl.1 {
         queue!(stdout, MoveTo(tl.0 as u16, col), Print("│".yellow()))?;
         queue!(stdout, MoveTo(tr.0 as u16, col), Print("│".yellow()))?;
-    }
+    } */
 
     for text in help_lines.iter().enumerate() {
         let (index, (label, value)) = text;
@@ -330,26 +345,23 @@ fn draw_rect(
 fn draw_selection(
     display: &Display,
     list: &FileList,
+    help: &Help,
     stdout: &mut io::Stdout,
 ) -> Result<(), Error> {
     draw_list(stdout, list)?;
 
-    draw_rect(stdout, display, KEY_BINDINGS)?;
+    draw_help(stdout, display, KEY_BINDINGS)?;
 
-    queue!(
-        stdout,
-        MoveTo(0, display.window_height as u16 - 2),
-        Clear(ClearType::CurrentLine)
-    )?;
+    // queue!(
+    //     stdout,
+    //     MoveTo(0, display.window_height as u16 - 2),
+    //     Clear(ClearType::CurrentLine)
+    // )?;
 
     queue!(
         stdout,
         MoveTo(0, display.window_height as u16 - 1),
-        Print(format!(
-            "AEQ-CAC SQL ({}/{})",
-            list.page_index + 1,
-            list.get_page_count()
-        )),
+        Print("AEQ-CAC SQL"),
         Clear(ClearType::UntilNewLine)
     )?;
 
@@ -361,8 +373,8 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
         draw_error(display, stdout)?;
     } else {
         match &display.state {
-            AppState::Selection(selection) => {
-                draw_selection(display, selection, stdout)?;
+            AppState::Selection(selection, help) => {
+                draw_selection(display, selection, help, stdout)?;
             }
             _ => (),
         }
@@ -394,17 +406,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let row_count = rows as usize - 2;
 
+    const SPLITTER: &str = " : ";
+    let help_width = KEY_BINDINGS
+        .iter()
+        .map(|f| f.0.len() + f.1.len() + SPLITTER.len())
+        .max()
+        .unwrap_or(10)
+        + 4;
+    let help_height = KEY_BINDINGS.len() as u16 + 2;
+
     let mut display = Display {
         window_height: rows as usize,
         window_width: cols as usize,
         error: None,
         base_path: path,
-        state: AppState::Selection(FileList {
-            height: row_count,
-            page_index: 0,
-            cursor: 0,
-            entries,
-        }),
+        state: AppState::Selection(
+            FileList {
+                height: row_count,
+                page_index: 0,
+                cursor: 0,
+                entries,
+            },
+            Help {
+                width: help_width as u16,
+                height: help_height as u16,
+            },
+        ),
     };
 
     while display.state != AppState::Quit {
@@ -413,6 +440,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         thread::sleep(Duration::from_millis(33));
     }
+    
+    execute!(stdout, Clear(ClearType::All),
+        Show,
+        EnableBlinking,
+        MoveTo(0,0), 
+        Print("🦀 Thanks for using AEQ-CAC 🦀"),
+        Clear(ClearType::UntilNewLine))?;
+    stdout.flush()?;
 
+    println!();
     Ok(())
 }
