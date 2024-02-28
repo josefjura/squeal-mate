@@ -6,15 +6,18 @@ mod utils;
 use border::draw_rect;
 use config::setup_config;
 use crossterm::{
-    cursor::{DisableBlinking, EnableBlinking, Hide, MoveTo, Show},
+    cursor::{self, DisableBlinking, EnableBlinking, Hide, MoveTo, MoveToNextLine, Show},
     event::{poll, read, Event, KeyCode, KeyModifiers},
     execute, queue,
     style::{Print, Stylize},
     terminal::{self, Clear, ClearType},
 };
-use list::{Entry, FileList};
+
+use list::{Entry, FileList, Name};
+use maplit::hashmap;
 use std::{
-    fs::{self},
+    collections::HashMap,
+    fs,
     io::{self, Error, Write},
     path::{Path, PathBuf},
     thread,
@@ -31,23 +34,44 @@ const MIN_WIDTH: u16 = 60;
 struct CleanUp;
 
 #[derive(PartialEq)]
-struct Help {
+struct Help<'a> {
     width: u16,
     height: u16,
+    padding: (u16, u16),
+    spacer: char,
+    lines: HashMap<&'a str, String>,
+}
+
+impl<'a> Help<'a> {
+    fn create(lines: HashMap<&'a str, String>, padding: (u16, u16), spacer: char) -> Help {
+        const BORDER_WIDTH: u16 = 1;
+        const SPLITTER_WIDTH: u16 = 3;
+        let width: u16 =
+            get_max_length(&lines) + (2 * BORDER_WIDTH) + (2 * padding.0) + SPLITTER_WIDTH;
+        let height: u16 = lines.len() as u16 + (2 * BORDER_WIDTH) + (2 * padding.1);
+
+        Self {
+            lines,
+            padding,
+            spacer,
+            width,
+            height,
+        }
+    }
 }
 
 #[derive(PartialEq)]
-enum AppState {
-    Selection(FileList, Help),
+enum AppState<'a> {
+    Selection(FileList, Help<'a>),
     Quit,
 }
 
-struct Display {
+struct Display<'a> {
     window_width: usize,
     window_height: usize,
     base_path: PathBuf,
     error: Option<String>,
-    state: AppState,
+    state: AppState<'a>,
 }
 
 impl Drop for CleanUp {
@@ -56,17 +80,16 @@ impl Drop for CleanUp {
     }
 }
 
-static KEY_BINDINGS: &[(&str, &str)] = &[
-    ("up/down", "move up and down"),
-    ("lef/right", "page forward and back"),
-    ("enter", "open directory"),
-    ("backspace", "go level up"),
-    ("a", "run all scripts since"),
-    ("s", "run selected"),
-];
+fn get_max_length(lines: &HashMap<&str, String>) -> u16 {
+    lines
+        .iter()
+        .map(|f| f.0.len() + f.1.len())
+        .max()
+        .unwrap_or(10) as u16
+}
 
 #[tokio::test]
-async fn print_script_test() {
+async fn print_script_test() -> () {
     let input = Path::new("/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates/db 34/db 34.8/V20231214.02__T023-818__T023-4142_Translations.sql");
     match print_script(input.to_path_buf()).await {
         Ok(s) => println!("{}", s),
@@ -75,6 +98,8 @@ async fn print_script_test() {
     // let script = tokio::fs::read_to_string(input).await;
 
     //assert!(script.is_ok());
+
+    ()
 }
 
 async fn print_script(path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
@@ -135,7 +160,7 @@ fn read_entries(path: &Path) -> Vec<Entry> {
     entries
 }
 
-async fn process_events(display: &mut Display) -> Result<(), Box<dyn std::error::Error>> {
+async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std::error::Error>> {
     while poll(Duration::ZERO)? {
         match read()? {
             Event::Resize(x, y) => {
@@ -156,11 +181,7 @@ async fn process_events(display: &mut Display) -> Result<(), Box<dyn std::error:
             {
                 display.state = AppState::Quit
             }
-            Event::Key(event)
-                if event.code == KeyCode::Esc =>
-            {
-                display.state = AppState::Quit
-            }
+            Event::Key(event) if event.code == KeyCode::Esc => display.state = AppState::Quit,
             Event::Key(key) => match &mut display.state {
                 AppState::Selection(list, _) => match key.code {
                     KeyCode::Up => list.move_cursor_up(),
@@ -227,52 +248,43 @@ fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
     Ok(())
 }
 
+fn parse(e: &Entry, is_selected: bool) -> String {
+    // let prefix = if is_selected { " > " } else { "   " };
+    let name = e.get_name();
+
+    match (e, is_selected) {
+        (_, true) => format!(" > {}", &name)
+            .black()
+            .on_white()
+            .to_string(),
+        (Entry::File(_), _) => format!("   {}", &name)
+            .white()
+            .to_string(),
+        (Entry::Directory(_), _) => format!("   {}", &name)
+            .blue()
+            .to_string(),
+    }
+}
+
 fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::io::Error> {
     let page = list.get_page_entries();
 
     for line in 0..list.height {
         if let Some(item) = page.get(line) {
-            match item {
-                Entry::Directory(dir) => {
-                    if line == list.cursor {
+            let text = parse(item, line ==list.cursor);
                         queue!(
                             stdout,
                             MoveTo(0, line as u16),
-                            Print(format!(" > {}", dir).black().on_white()),
-                            Clear(ClearType::UntilNewLine)
+                            Print(&text),
+                            Print(" ".repeat(list.width - text.len()))
+                            // Clear(ClearType::UntilNewLine)
                         )?;
-                    } else {
-                        queue!(
-                            stdout,
-                            MoveTo(0, line as u16),
-                            Print(format!("   {}", dir).blue()),
-                            Clear(ClearType::UntilNewLine)
-                        )?;
-                    }
-                }
-                Entry::File(file) => {
-                    if line == list.cursor {
-                        queue!(
-                            stdout,
-                            MoveTo(0, line as u16),
-                            Print(format!(" > {}", file).black().on_white()),
-                            Clear(ClearType::UntilNewLine)
-                        )?;
-                    } else {
-                        queue!(
-                            stdout,
-                            MoveTo(0, line as u16),
-                            Print(format!("   {}", file).white()),
-                            Clear(ClearType::UntilNewLine)
-                        )?;
-                    }
-                }
-            }
         } else {
             queue!(
                 stdout,
                 MoveTo(0, line as u16),
-                Clear(ClearType::CurrentLine)
+                Print(" ".repeat(list.width))
+                // Clear(ClearType::CurrentLine)
             )?;
         }
     }
@@ -280,62 +292,26 @@ fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::i
     Ok(())
 }
 
-fn draw_help(
-    stdout: &mut io::Stdout,
-    display: &Display,
-    help_lines: &[(&str, &str)],
-) -> Result<(), Error> {
+fn draw_help(stdout: &mut io::Stdout, display: &Display, help: &Help) -> Result<(), Error> {
     const SPLITTER: &str = " : ";
-    let width: u16 = help_lines
-        .iter()
-        .map(|f| f.0.len() + f.1.len() + SPLITTER.len())
-        .max()
-        .unwrap_or(10) as u16
-        + 4;
-    let height: u16 = help_lines.len() as u16 + 2;
+
     let row: u16 = 0;
-    let column: u16 = display.window_width as u16 - width;
-    // let tl = (column, row);
-    // let tr = (column + width - 1, row);
-    // let bl = (column, height - 1 + row);
-    // let br = (column + width - 1, height - 1 + row);
+    let column: u16 = display.window_width as u16 - help.width;
 
-    // ┌─┐
-    // │ │
-    // └─┘
+    draw_rect(stdout, column, 0, help.width, help.height)?;
 
-    draw_rect(stdout, column, 0, width, height)?;
-
-    /* queue!(stdout, MoveTo(tl.0, tl.1), Print("┌".yellow()))?;
-    queue!(stdout, MoveTo(tr.0, tr.1), Print("┐".yellow()))?;
-    queue!(stdout, MoveTo(bl.0, br.1), Print("└".yellow()))?;
-    queue!(stdout, MoveTo(br.0, br.1), Print("┘".yellow()))?;
-
-    for line in tl.0 + 1..tr.0 {
-        queue!(stdout, MoveTo(line, tl.1 as u16), Print("─".yellow()))?;
-        queue!(stdout, MoveTo(line, bl.1 as u16), Print("─".yellow()))?;
-    }
-
-    for col in tl.1 + 1..bl.1 {
-        queue!(stdout, MoveTo(tl.0 as u16, col), Print("│".yellow()))?;
-        queue!(stdout, MoveTo(tr.0 as u16, col), Print("│".yellow()))?;
-    } */
-
-    for text in help_lines.iter().enumerate() {
+    for text in help.lines.iter().enumerate() {
         let (index, (label, value)) = text;
         queue!(
             stdout,
             MoveTo(column + 2, row + 1 + index as u16),
             Print(label.white()),
             Print(SPLITTER),
-        )?;
-        queue!(
-            stdout,
             MoveTo(
-                column + width - 2 - value.len() as u16,
+                column + help.width - 2 - value.len() as u16,
                 row + 1 + index as u16
             ),
-            Print(value.yellow())
+            Print(value.clone().yellow())
         )?;
     }
 
@@ -350,13 +326,7 @@ fn draw_selection(
 ) -> Result<(), Error> {
     draw_list(stdout, list)?;
 
-    draw_help(stdout, display, KEY_BINDINGS)?;
-
-    // queue!(
-    //     stdout,
-    //     MoveTo(0, display.window_height as u16 - 2),
-    //     Clear(ClearType::CurrentLine)
-    // )?;
+    draw_help(stdout, display, help)?;
 
     queue!(
         stdout,
@@ -396,6 +366,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     execute!(&mut stdout, Hide, DisableBlinking)?;
     stdout.flush()?;
 
+    let lines: HashMap<&str, String> = hashmap! {
+        "up/down" => "move up and down".to_string(),
+        "lef/right"=> "page forward and back".to_string(),
+        "enter"=> "open directory".to_string(),
+        "backspace"=> "go level up".to_string(),
+        "a"=> "run all scripts since".to_string(),
+        "s"=> "run selected".to_string()
+    };
+
+    let help = Help::create(lines, (1, 0), ':');
+
     let path: PathBuf = read_and_validate_path(&mut stdout, config);
 
     let (cols, rows) = terminal::size()?;
@@ -406,15 +387,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let row_count = rows as usize - 2;
 
-    const SPLITTER: &str = " : ";
-    let help_width = KEY_BINDINGS
-        .iter()
-        .map(|f| f.0.len() + f.1.len() + SPLITTER.len())
-        .max()
-        .unwrap_or(10)
-        + 4;
-    let help_height = KEY_BINDINGS.len() as u16 + 2;
-
     let mut display = Display {
         window_height: rows as usize,
         window_width: cols as usize,
@@ -423,14 +395,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state: AppState::Selection(
             FileList {
                 height: row_count,
+                width: (cols - help.width - 1) as usize,
                 page_index: 0,
                 cursor: 0,
                 entries,
             },
-            Help {
-                width: help_width as u16,
-                height: help_height as u16,
-            },
+            help,
         ),
     };
 
@@ -440,13 +410,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         thread::sleep(Duration::from_millis(33));
     }
-    
-    execute!(stdout, Clear(ClearType::All),
+
+    execute!(
+        stdout,
+        Clear(ClearType::All),
         Show,
         EnableBlinking,
-        MoveTo(0,0), 
+        MoveTo(0, 0),
         Print("🦀 Thanks for using AEQ-CAC 🦀"),
-        Clear(ClearType::UntilNewLine))?;
+        Clear(ClearType::UntilNewLine),
+        MoveToNextLine(1)
+    )?;
     stdout.flush()?;
 
     println!();

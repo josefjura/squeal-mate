@@ -6,6 +6,7 @@ pub(crate) struct FileList {
     pub cursor: usize,
     pub page_index: usize,
     pub height: usize,
+    pub width: usize
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -14,7 +15,7 @@ pub(crate) enum Entry {
     File(String),
 }
 
-trait Name {
+pub(crate) trait Name {
     fn get_name(&self) -> &String;
 }
 
@@ -139,6 +140,7 @@ fn empty() {
         cursor: 0,
         page_index: 0,
         height: 3,
+        width:50,        
         entries: vec![],
     };
 
@@ -157,6 +159,7 @@ fn positive() {
         cursor: 0,
         page_index: 0,
         height: 3,
+        width: 50,
         entries: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .iter()
             .map(|f| Entry::Directory(f.to_string()))
