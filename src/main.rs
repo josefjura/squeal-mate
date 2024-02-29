@@ -362,15 +362,15 @@ fn draw_selection(
 
     draw_help(stdout, display, help)?;
 
+    let prompt = "AEQ-CAC >";
+    let text = if let Some(s) = list.get_selection() {format!("{} {}", prompt, s)} else {"".to_owned()};
+
+let text2 = clamp_string(&text, display.window_width);
+
     queue!(
         stdout,
         MoveTo(0, display.window_height as u16 - 1),
-        Print("AEQ-CAC > "),
-        // Print(format!("{}", list.get_selection().unwrap())),
-        // Print(format!(
-        //     "{} {} {}",
-        //     display.window_width, help.width, list.width
-        // )),
+        Print(text2),
         Clear(ClearType::UntilNewLine)
     )?;
 
