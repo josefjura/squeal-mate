@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::utils::round_up_division;
 
 #[derive(Debug, PartialEq)]
@@ -25,6 +27,12 @@ impl Name for Entry {
             Entry::File(name) => name,
             Entry::Directory(name) => name,
         }
+    }
+}
+
+impl Display for Entry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.get_name())
     }
 }
 
@@ -112,10 +120,11 @@ impl FileList {
             .collect::<Vec<&Entry>>()
     }
 
-    pub(crate) fn resize(&mut self, height: usize) {
+    pub(crate) fn resize(&mut self, width: usize, height: usize) {
         self.cursor = 0;
         self.page_index = 0;
         self.height = height;
+        self.width = width;
     }
 
     pub(crate) fn get_selection(&self) -> Option<&Entry> {

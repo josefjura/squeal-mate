@@ -6,7 +6,7 @@ mod utils;
 use border::draw_rect;
 use config::setup_config;
 use crossterm::{
-    cursor::{self, DisableBlinking, EnableBlinking, Hide, MoveTo, MoveToNextLine, Show},
+    cursor::{DisableBlinking, Hide, MoveTo},
     event::{poll, read, Event, KeyCode, KeyModifiers},
     execute, queue,
     style::{Print, Stylize},
@@ -167,11 +167,11 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
                 display.window_height = y as usize;
                 display.window_width = x as usize;
                 if y < MIN_HEIGHT || x < MIN_WIDTH {
-                    display.error = Some(String::from("WINDOW TOO SMALL!"));
+                    display.error = Some("WINDOW TOO SMALL!".to_owned());
                 } else {
                     display.error = None;
-                    if let AppState::Selection(selection, _) = &mut display.state {
-                        selection.resize(y as usize - 2)
+                    if let AppState::Selection(list, help) = &mut display.state {
+                        list.resize(x as usize - help.width as usize, y as usize - 2)
                     }
                 }
             }
@@ -248,21 +248,29 @@ fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
     Ok(())
 }
 
-fn parse(e: &Entry, is_selected: bool) -> String {
-    // let prefix = if is_selected { " > " } else { "   " };
-    let name = e.get_name();
+// fn parse(e: &Entry, is_selected: bool, max_length: usize) -> String {
+//     // let prefix = if is_selected { " > " } else { "   " };
+//     let name = e.get_name();
+//
+//     let res = match (e, is_selected) {
+//         (_, true) => format!(" > {}", &name),
+//         (Entry::File(_), _) => format!("   {}", &name),
+//         (Entry::Directory(_), _) => format!("   {}", &name),
+//     };
+//
+//     let clamped = clamp_string(&res, max_length).to_owned();
+//
+//     match (e, is_selected) {
+//         (_, true) => clamped.black().on_white().to_string(),
+//         (Entry::File(_), _) => clamped.white().to_string(),
+//         (Entry::Directory(_), _) => clamped.blue().to_string(),
+//     }
+// }
 
-    match (e, is_selected) {
-        (_, true) => format!(" > {}", &name)
-            .black()
-            .on_white()
-            .to_string(),
-        (Entry::File(_), _) => format!("   {}", &name)
-            .white()
-            .to_string(),
-        (Entry::Directory(_), _) => format!("   {}", &name)
-            .blue()
-            .to_string(),
+fn clamp_string(s: &str, max_length: usize) -> String {
+    match s.char_indices().nth(max_length) {
+        Some((idx, _)) => String::from(&s[..idx]),
+        None => s.into(),
     }
 }
 
@@ -271,20 +279,46 @@ fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::i
 
     for line in 0..list.height {
         if let Some(item) = page.get(line) {
-            let text = parse(item, line ==list.cursor);
-                        queue!(
-                            stdout,
-                            MoveTo(0, line as u16),
-                            Print(&text),
-                            Print(" ".repeat(list.width - text.len()))
-                            // Clear(ClearType::UntilNewLine)
-                        )?;
+            let name = item.get_name();
+            let is_selected = line == list.cursor;
+
+            let res = match (item, is_selected) {
+                (_, true) => format!(" > {}", &name),
+                (Entry::File(_), _) => format!("   {}", &name),
+                (Entry::Directory(_), _) => format!("   {}", &name),
+            };
+
+            let clamped = clamp_string(&res, list.width - 1).to_owned();
+
+            let styled_text = match (item, is_selected) {
+                (_, true) => clamped.clone().black().on_white().to_string(),
+                (Entry::File(_), _) => clamped.clone().white().to_string(),
+                (Entry::Directory(_), _) => clamped.clone().blue().to_string(),
+            };
+
+            //        let text = parse(item, line == list.cursor, list.width - 1);
+
+            //            let clamped_text = clamp_string(&text, list.width);
+            //            let width = list.width - text.len();
+            // let width = list.width - text.len();
+            // let length = clamped.len();
+            queue!(
+                stdout,
+                MoveTo(0, line as u16),
+                Print(styled_text),
+                // Print(format!(
+                //     "{} {} {}",
+                //     length,
+                //     list.width,
+                //     item.get_name().len()
+                //)),
+                Print(" ".repeat(list.width - clamped.len()))
+            )?;
         } else {
             queue!(
                 stdout,
                 MoveTo(0, line as u16),
                 Print(" ".repeat(list.width))
-                // Clear(ClearType::CurrentLine)
             )?;
         }
     }
@@ -331,7 +365,12 @@ fn draw_selection(
     queue!(
         stdout,
         MoveTo(0, display.window_height as u16 - 1),
-        Print("AEQ-CAC SQL"),
+        Print("AEQ-CAC > "),
+        // Print(format!("{}", list.get_selection().unwrap())),
+        // Print(format!(
+        //     "{} {} {}",
+        //     display.window_width, help.width, list.width
+        // )),
         Clear(ClearType::UntilNewLine)
     )?;
 
@@ -343,8 +382,8 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
         draw_error(display, stdout)?;
     } else {
         match &display.state {
-            AppState::Selection(selection, help) => {
-                draw_selection(display, selection, help, stdout)?;
+            AppState::Selection(list, help) => {
+                draw_selection(display, list, help, stdout)?;
             }
             _ => (),
         }
@@ -411,16 +450,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread::sleep(Duration::from_millis(33));
     }
 
-    execute!(
-        stdout,
-        Clear(ClearType::All),
-        Show,
-        EnableBlinking,
-        MoveTo(0, 0),
-        Print("🦀 Thanks for using AEQ-CAC 🦀"),
-        Clear(ClearType::UntilNewLine),
-        MoveToNextLine(1)
-    )?;
+    // execute!(
+    //     stdout,
+    //     Clear(ClearType::All),
+    //     Show,
+    //     EnableBlinking,
+    //     MoveTo(0, 0),
+    //     Print("🦀 Thanks for using AEQ-CAC 🦀"),
+    //     Clear(ClearType::UntilNewLine),
+    //     MoveToNextLine(1)
+    // )?;
     stdout.flush()?;
 
     println!();
