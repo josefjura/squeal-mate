@@ -203,9 +203,17 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
                         }
                     }
                     KeyCode::Backspace => {
-                        let new_path = display.base_path.join(std::path::Path::new(".."));
-                        display.base_path = new_path;
-                        list.set_entries(read_entries(&display.base_path));
+                        let path = display.base_path.clone();
+                        let old_path = path.as_path();
+                        if let (Some(new_path), Some(old_dir)) =
+                            (old_path.parent(), old_path.file_name())
+                        {
+                            display.base_path = new_path.to_path_buf();
+
+                            list.set_entries(read_entries(&display.base_path));
+                            let _ = list.select(&old_dir.to_str().unwrap_or(""));
+
+                        }
                     }
                     KeyCode::Char(char) => match char {
                         'a' => {
@@ -363,9 +371,13 @@ fn draw_selection(
     draw_help(stdout, display, help)?;
 
     let prompt = "AEQ-CAC >";
-    let text = if let Some(s) = list.get_selection() {format!("{} {}", prompt, s)} else {"".to_owned()};
+    let text = if let Some(s) = list.get_selection() {
+        format!("{} {}", prompt, s)
+    } else {
+        "".to_owned()
+    };
 
-let text2 = clamp_string(&text, display.window_width);
+    let text2 = clamp_string(&text, display.window_width);
 
     queue!(
         stdout,

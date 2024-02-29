@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{error::Error, fmt::Display};
 
 use crate::utils::round_up_division;
 
@@ -130,6 +130,15 @@ impl FileList {
     pub(crate) fn get_selection(&self) -> Option<&Entry> {
         let page = self.get_page_entries();
         page.get(self.cursor).cloned()
+    }
+
+    pub(crate) fn select(&mut self, name: &str) -> Result<(), Box<dyn Error>>
+    {
+        let result = self.entries.iter().position(|e| e.get_name() == name).unwrap_or(0);
+
+        self.cursor = result;
+
+        Ok(())
     }
 
     pub(crate) fn set_entries(&mut self, new_entries: Vec<Entry>) {
