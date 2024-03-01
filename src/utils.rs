@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{self, Stdout, Write},
-    path::PathBuf,
+    path::PathBuf, str::FromStr,
 };
 
 use crossterm::{
@@ -37,30 +37,32 @@ pub fn read_path(stdout: &mut Stdout) -> String {
     }
 }
 
-pub fn read_and_validate_path(stdout: &mut Stdout, config: HashMap<String, String>) -> PathBuf {
-    let mut path_wrapped: Option<PathBuf> = None;
+pub fn read_and_validate_path(config: HashMap<String, String>) -> PathBuf {
+    let path_wrapped: Option<PathBuf> = None;
 
     if let Some(content) = config.get("path") {
-        return PathBuf::from(content);
+        PathBuf::from(content)
+    } else {
+        PathBuf::from_str("./").expect("Can't open current directory")
     }
 
-    while path_wrapped.is_none() {
-        let _ = execute!(
-            stdout,
-            Print("Path not found, please provide a valid base path."),
-            MoveToNextLine(1),
-            cursor::Show,
-            EnableBlinking
-        );
-        let test_path = read_path(stdout);
-        let candidate = PathBuf::from(test_path);
+    // while path_wrapped.is_none() {
+    //     let _ = execute!(
+    //         stdout,
+    //         Print("Path not found, please provide a valid base path."),
+    //         MoveToNextLine(1),
+    //         cursor::Show,
+    //         EnableBlinking
+    //     );
+    //     let test_path = read_path(stdout);
+    //     let candidate = PathBuf::from(test_path);
+    //
+    //     if candidate.exists() {
+    //         path_wrapped = Some(candidate)
+    //     };
+    // }
 
-        if candidate.exists() {
-            path_wrapped = Some(candidate)
-        };
-    }
-
-    path_wrapped.unwrap()
+    // path_wrapped.unwrap()
 }
 
 pub fn round_up_division(first: usize, second: usize) -> usize {
