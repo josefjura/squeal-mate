@@ -377,11 +377,14 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _clean_up = CleanUp;
     let mut stdout = io::stdout();
+    
+    let args: Vec<String> = std::env::args().collect();
+
 
     execute!(&mut stdout, Clear(ClearType::All))?;
 
-    let config = setup_config();
-
+    let config = setup_config().expect("Error while loading config!");
+    
     execute!(&mut stdout, Hide, DisableBlinking)?;
     stdout.flush()?;
 
@@ -392,7 +395,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("backspace", "go level up"),
         ("a", "run all scripts since"),
         ("s", "run selected"),
-        ("q", "quit"),
+        ("q/esc", "quit"),
     ];
 
     let help = Help::create(&lines, (1, 0), ':');
