@@ -7,7 +7,7 @@ use border::draw_rect;
 use config::setup_config;
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, Hide, MoveTo, MoveToNextLine, Show},
-    event::{poll, read, Event, KeyCode, KeyModifiers},
+    event::{poll, read, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute, queue,
     style::{Print, Stylize},
     terminal::{self, Clear, ClearType},
@@ -181,7 +181,7 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
             }
             Event::Key(event) if event.code == KeyCode::Esc => display.state = AppState::Quit,
             Event::Key(event) if event.code == KeyCode::Char('q') => display.state = AppState::Quit,
-            Event::Key(key) => match &mut display.state {
+            Event::Key(key) if key.kind == KeyEventKind::Press => match &mut display.state {
                 AppState::Selection(list, _) => match key.code {
                     KeyCode::Up => list.move_cursor_up(),
                     KeyCode::Down => list.move_cursor_down(),
@@ -377,14 +377,13 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _clean_up = CleanUp;
     let mut stdout = io::stdout();
-    
-    let args: Vec<String> = std::env::args().collect();
 
+    let args: Vec<String> = std::env::args().collect();
 
     execute!(&mut stdout, Clear(ClearType::All))?;
 
     let config = setup_config().expect("Error while loading config!");
-    
+
     execute!(&mut stdout, Hide, DisableBlinking)?;
     stdout.flush()?;
 
