@@ -466,11 +466,13 @@ fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> 
     let version = env!("CARGO_PKG_VERSION");
     let version_msg = format!("Version: {}\n", version);
     let config_msg = format!("Config src: {}\n", config_path_str);
+
     execute!(
         stdout,
         Print("🦀 Aequitas Command And Control Console 🦀\n"),
         Print("\n"),
         Print(version_msg),
+				Print("Edition: Ultimate\n"),
         Print(config_msg)
     )?;
 
