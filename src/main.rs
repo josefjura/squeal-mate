@@ -462,17 +462,18 @@ async fn start_tui(
 
 fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> {
     let config_path = ensure_config_dir()?;
-    let config_path_str = config_path.to_str().expect("Unknown host system");
-    let version = env!("CARGO_PKG_VERSION");
+    let config_path_str = config_path.to_str().expect("Unknown host system").white();
+    let version = env!("CARGO_PKG_VERSION").white();
     let version_msg = format!("Version: {}\n", version);
     let config_msg = format!("Config src: {}\n", config_path_str);
 
     execute!(
         stdout,
-        Print("🦀 Aequitas Command And Control Console 🦀\n"),
+        Print("🦀 Aequitas Command And Control Console 🦀\n".yellow()),
         Print("\n"),
         Print(version_msg),
-				Print("Edition: Ultimate\n"),
+				Print("Edition: "),
+				Print("Ultimate\n\n".white()),
         Print(config_msg)
     )?;
 
