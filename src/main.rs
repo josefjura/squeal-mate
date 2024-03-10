@@ -4,7 +4,7 @@ mod list;
 mod utils;
 
 use border::draw_rect;
-use config::setup_config;
+use config::{ensure_config_dir, setup_config};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, Hide, MoveTo, MoveToNextLine, Show},
     event::{poll, read, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -15,9 +15,9 @@ use crossterm::{
 
 use list::{Entry, FileList, Name};
 use std::{
-    borrow::Borrow,
     collections::HashMap,
     error::Error,
+    fmt::format,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -28,7 +28,6 @@ use std::{
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
-use utils::read_and_validate_path;
 
 const MIN_HEIGHT: u16 = 8;
 const MIN_WIDTH: u16 = 80;
@@ -311,7 +310,7 @@ fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::i
     Ok(())
 }
 
-fn draw_help(
+fn draw_selection_help(
     stdout: &mut io::Stdout,
     display: &Display,
     help: &Help,
@@ -349,7 +348,7 @@ fn draw_selection(
 ) -> Result<(), Box<dyn Error>> {
     draw_list(stdout, list)?;
 
-    draw_help(stdout, display, help)?;
+    draw_selection_help(stdout, display, help)?;
 
     let prompt = "AEQ-CAC >";
     let text = if let Some(s) = list.get_selection() {
@@ -386,7 +385,7 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-fn init_screen(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> {
+fn init_tui(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> {
     execute!(stdout, Clear(ClearType::All))?;
 
     execute!(stdout, Hide, DisableBlinking)?;
@@ -461,20 +460,41 @@ async fn start_tui(
     return Ok(());
 }
 
+fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> {
+    let config_path = ensure_config_dir()?;
+    let config_path_str = config_path.to_str().expect("Unknown host system");
+    let version = env!("CARGO_PKG_VERSION");
+    let version_msg = format!("Version: {}\n", version);
+    let config_msg = format!("Config src: {}\n", config_path_str);
+    execute!(
+        stdout,
+        Print("🦀 Aequitas Command And Control Console 🦀\n"),
+        Print("\n"),
+        Print(version_msg),
+        Print(config_msg)
+    )?;
+
+    stdout.flush()?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _clean_up = CleanUp;
     let mut stdout = io::stdout();
 
-    let args: Vec<String> = std::env::args().collect();
-
     let config = setup_config().expect("Error while loading config!");
-
-    init_screen(&mut stdout)?;
 
     let (cols, rows) = terminal::size()?;
 
-    start_tui(&mut stdout, rows, cols, &config);
+    let args: Vec<String> = std::env::args().collect();
+    match args.as_slice() {
+        [_, command] if (command.as_str() == "help") => draw_help(&mut stdout)?,
+        _ => {
+            init_tui(&mut stdout)?;
+            start_tui(&mut stdout, rows, cols, &config).await?;
+        }
+    }
 
     println!();
     Ok(())
