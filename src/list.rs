@@ -8,7 +8,7 @@ pub(crate) struct FileList {
     pub cursor: usize,
     pub page_index: usize,
     pub height: usize,
-    pub width: usize
+    pub width: usize,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -132,9 +132,12 @@ impl FileList {
         page.get(self.cursor).cloned()
     }
 
-    pub(crate) fn select(&mut self, name: &str) -> Result<(), Box<dyn Error>>
-    {
-        let result = self.entries.iter().position(|e| e.get_name() == name).unwrap_or(0);
+    pub(crate) fn select(&mut self, name: &str) -> Result<(), Box<dyn Error>> {
+        let result = self
+            .entries
+            .iter()
+            .position(|e| e.get_name() == name)
+            .unwrap_or(0);
 
         self.cursor = result;
 
@@ -158,7 +161,7 @@ fn empty() {
         cursor: 0,
         page_index: 0,
         height: 3,
-        width:50,        
+        width: 50,
         entries: vec![],
     };
 
@@ -206,8 +209,8 @@ fn positive() {
     assert_eq!("0", list.get_selection().unwrap().get_name());
     assert_eq!(4, list.get_page_count());
 
-    list.resize(5);
+    list.resize(50, 5);
     assert_eq!(3, list.get_page_count());
-    list.resize(11);
+    list.resize(50, 11);
     assert_eq!(1, list.get_page_count());
 }

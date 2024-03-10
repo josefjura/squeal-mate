@@ -15,9 +15,13 @@ use crossterm::{
 
 use list::{Entry, FileList, Name};
 use std::{
+    borrow::Borrow,
+    collections::HashMap,
+    error::Error,
     fs,
-    io::{self, Error, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
+    str::FromStr,
     thread,
     time::Duration,
 };
@@ -59,8 +63,8 @@ impl<'a> Help<'a> {
 }
 
 #[derive(PartialEq)]
-enum AppState<'a> {
-    Selection(FileList, Help<'a>),
+enum Screen<'a> {
+    FileChooser(FileList, Help<'a>),
     Quit,
 }
 
@@ -69,7 +73,7 @@ struct Display<'a> {
     window_height: usize,
     base_path: PathBuf,
     error: Option<String>,
-    state: AppState<'a>,
+    current_screen: Screen<'a>,
 }
 
 impl Drop for CleanUp {
@@ -168,7 +172,7 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
                     display.error = Some("WINDOW TOO SMALL!".to_owned());
                 } else {
                     display.error = None;
-                    if let AppState::Selection(list, help) = &mut display.state {
+                    if let Screen::FileChooser(list, help) = &mut display.current_screen {
                         list.resize(x as usize - help.width as usize, y as usize - 2)
                     }
                 }
@@ -177,12 +181,17 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
                 if event.code == KeyCode::Char('c')
                     && event.modifiers.contains(KeyModifiers::CONTROL) =>
             {
-                display.state = AppState::Quit
+                display.current_screen = Screen::Quit
             }
-            Event::Key(event) if event.code == KeyCode::Esc => display.state = AppState::Quit,
-            Event::Key(event) if event.code == KeyCode::Char('q') => display.state = AppState::Quit,
-            Event::Key(key) if key.kind == KeyEventKind::Press => match &mut display.state {
-                AppState::Selection(list, _) => match key.code {
+            Event::Key(event) if event.code == KeyCode::Esc => {
+                display.current_screen = Screen::Quit
+            }
+            Event::Key(event) if event.code == KeyCode::Char('q') => {
+                display.current_screen = Screen::Quit
+            }
+            Event::Key(key) if key.kind == KeyEventKind::Press => match &mut display.current_screen
+            {
+                Screen::FileChooser(list, _) => match key.code {
                     KeyCode::Up => list.move_cursor_up(),
                     KeyCode::Down => list.move_cursor_down(),
                     KeyCode::Left => list.move_page_back(),
@@ -239,7 +248,7 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
     Ok(())
 }
 
-fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Error> {
+fn draw_error(display: &Display, stdout: &mut io::Stdout) -> Result<(), Box<dyn Error>> {
     const ERROR_TEXT: &str = "WINDOW TOO SMALL";
     queue!(
         stdout,
@@ -302,7 +311,11 @@ fn draw_list(stdout: &mut std::io::Stdout, list: &FileList) -> Result<(), std::i
     Ok(())
 }
 
-fn draw_help(stdout: &mut io::Stdout, display: &Display, help: &Help) -> Result<(), Error> {
+fn draw_help(
+    stdout: &mut io::Stdout,
+    display: &Display,
+    help: &Help,
+) -> Result<(), Box<dyn Error>> {
     const SPLITTER: &str = " : ";
 
     let row: u16 = 0;
@@ -333,7 +346,7 @@ fn draw_selection(
     list: &FileList,
     help: &Help,
     stdout: &mut io::Stdout,
-) -> Result<(), Error> {
+) -> Result<(), Box<dyn Error>> {
     draw_list(stdout, list)?;
 
     draw_help(stdout, display, help)?;
@@ -357,12 +370,12 @@ fn draw_selection(
     Ok(())
 }
 
-fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
+fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Box<dyn Error>> {
     if display.error.is_some() {
         draw_error(display, stdout)?;
     } else {
-        match &display.state {
-            AppState::Selection(list, help) => {
+        match &display.current_screen {
+            Screen::FileChooser(list, help) => {
                 draw_selection(display, list, help, stdout)?;
             }
             _ => (),
@@ -373,19 +386,29 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Error> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _clean_up = CleanUp;
-    let mut stdout = io::stdout();
+fn init_screen(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> {
+    execute!(stdout, Clear(ClearType::All))?;
 
-    let args: Vec<String> = std::env::args().collect();
-
-    execute!(&mut stdout, Clear(ClearType::All))?;
-
-    let config = setup_config().expect("Error while loading config!");
-
-    execute!(&mut stdout, Hide, DisableBlinking)?;
+    execute!(stdout, Hide, DisableBlinking)?;
     stdout.flush()?;
+
+    Ok(())
+}
+
+async fn start_tui(
+    stdout: &mut io::Stdout,
+    rows: u16,
+    cols: u16,
+    config: &HashMap<String, String>,
+) -> Result<(), Box<dyn Error>> {
+    terminal::enable_raw_mode()?;
+    let list_height = rows as usize - 2;
+    let path: PathBuf = if let Some(content) = config.get("path") {
+        PathBuf::from(content)
+    } else {
+        PathBuf::from_str("./").expect("Can't open current directory")
+    };
+    let entries = read_entries(&path);
 
     let lines = [
         ("up/down", "move up and down"),
@@ -399,24 +422,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let help = Help::create(&lines, (1, 0), ':');
 
-    let path: PathBuf = read_and_validate_path(config);
-
-    let (cols, rows) = terminal::size()?;
-
-    terminal::enable_raw_mode()?;
-
-    let entries = read_entries(&path);
-
-    let row_count = rows as usize - 2;
-
     let mut display = Display {
         window_height: rows as usize,
         window_width: cols as usize,
         error: None,
         base_path: path,
-        state: AppState::Selection(
+        current_screen: Screen::FileChooser(
             FileList {
-                height: row_count,
+                height: list_height,
                 width: (cols - help.width - 1) as usize,
                 page_index: 0,
                 cursor: 0,
@@ -426,9 +439,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     };
 
-    while display.state != AppState::Quit {
+    while display.current_screen != Screen::Quit {
         process_events(&mut display).await?;
-        draw(&mut stdout, &display)?;
+        draw(stdout, &display)?;
 
         thread::sleep(Duration::from_millis(33));
     }
@@ -444,6 +457,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         MoveToNextLine(1)
     )?;
     stdout.flush()?;
+
+    return Ok(());
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _clean_up = CleanUp;
+    let mut stdout = io::stdout();
+
+    let args: Vec<String> = std::env::args().collect();
+
+    let config = setup_config().expect("Error while loading config!");
+
+    init_screen(&mut stdout)?;
+
+    let (cols, rows) = terminal::size()?;
+
+    start_tui(&mut stdout, rows, cols, &config);
 
     println!();
     Ok(())
