@@ -4,6 +4,7 @@ mod list;
 mod utils;
 
 use border::draw_rect;
+use clap::{Parser, Subcommand};
 use config::{ensure_config_dir, setup_config};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, Hide, MoveTo, MoveToNextLine, Show},
@@ -17,8 +18,7 @@ use list::{Entry, FileList, Name};
 use std::{
     collections::HashMap,
     error::Error,
-    fmt::format,
-    fs,
+    fs::read_dir,
     io::{self, Write},
     path::{Path, PathBuf},
     str::FromStr,
@@ -129,7 +129,7 @@ async fn print_script(path: PathBuf) -> Result<String, Box<dyn std::error::Error
 }
 
 fn read_entries(path: &Path) -> Vec<Entry> {
-    let mut entries = match fs::read_dir(path) {
+    let mut entries = match read_dir(path) {
         Ok(entries) => entries
             .filter_map(|entry| {
                 let entry = entry.ok()?;
@@ -472,8 +472,8 @@ fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> 
         Print("🦀 Aequitas Command And Control Console 🦀\n".yellow()),
         Print("\n"),
         Print(version_msg),
-				Print("Edition: "),
-				Print("Ultimate\n\n".white()),
+        Print("Edition: "),
+        Print("Ultimate\n\n".white()),
         Print(config_msg)
     )?;
 
@@ -490,10 +490,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (cols, rows) = terminal::size()?;
 
-    let args: Vec<String> = std::env::args().collect();
-    match args.as_slice() {
-        [_, command] if (command.as_str() == "help") => draw_help(&mut stdout)?,
-        _ => {
+    let args = Args::parse();
+
+    match args.command {
+        Some(Command::Config) => {
+            draw_help(&mut stdout)?;
+        }
+        None => {
             init_tui(&mut stdout)?;
             start_tui(&mut stdout, rows, cols, &config).await?;
         }
@@ -501,4 +504,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     Ok(())
+}
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "🦀 Aequitas Command And Control Console 🦀",
+    version,
+    about,
+    long_about = "Support tools collection for the Aequitas team"
+)]
+struct Args {
+    #[clap(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Shows application info and configuration for the current system
+    Config,
 }
