@@ -26,7 +26,6 @@ dependencies = [
  "crossterm",
  "directories",
  "futures",
- "serde",
  "tiberius",
  "tokio",
  "tokio-util",

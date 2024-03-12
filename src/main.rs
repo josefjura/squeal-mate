@@ -1,11 +1,14 @@
+mod args;
 mod border;
 mod config;
+mod db;
 mod list;
 mod utils;
 
+use args::{AeqArgs, Command};
 use border::draw_rect;
-use clap::{Parser, Subcommand};
-use config::{ensure_config_dir, setup_config};
+use clap::Parser;
+use config::{ensure_config_dir, read_config};
 use crossterm::{
     cursor::{DisableBlinking, EnableBlinking, Hide, MoveTo, MoveToNextLine, Show},
     event::{poll, read, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -13,7 +16,7 @@ use crossterm::{
     style::{Print, Stylize},
     terminal::{self, Clear, ClearType},
 };
-
+use db::Database;
 use list::{Entry, FileList, Name};
 use std::{
     collections::HashMap,
@@ -25,9 +28,8 @@ use std::{
     thread,
     time::Duration,
 };
-use tiberius::{AuthMethod, Client, Config};
-use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
+
+use crate::utils::get_max_length;
 
 const MIN_HEIGHT: u16 = 8;
 const MIN_WIDTH: u16 = 80;
@@ -81,53 +83,6 @@ impl Drop for CleanUp {
     }
 }
 
-fn get_max_length<'a>(lines: &'a [(&'a str, &'a str)]) -> u16 {
-    lines
-        .iter()
-        .map(|f| f.0.len() + f.1.len())
-        .max()
-        .unwrap_or(10) as u16
-}
-
-#[tokio::test]
-async fn print_script_test() -> () {
-    let input = Path::new("/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates/db 34/db 34.8/V20231214.02__T023-818__T023-4142_Translations.sql");
-    match print_script(input.to_path_buf()).await {
-        Ok(s) => println!("{}", s),
-        Err(e) => eprintln!("{}", e),
-    }
-    // let script = tokio::fs::read_to_string(input).await;
-
-    // assert!(script.is_ok());
-
-    ()
-}
-
-async fn print_script(path: PathBuf) -> Result<String, Box<dyn std::error::Error>> {
-    let script = tokio::fs::read_to_string(path).await;
-    let mut config = Config::new();
-
-    config.host("127.0.0.1");
-    config.port(1433);
-    config.authentication(AuthMethod::sql_server("cli", "clipassword"));
-    config.trust_cert(); // on production, it is not a good idea to do this
-
-    let tcp = TcpStream::connect(config.get_addr()).await?;
-    tcp.set_nodelay(true)?;
-
-    // To be able to use Tokio's tcp, we're using the `compat_write` from
-    // the `TokioAsyncWriteCompatExt` to get a stream compatible with the
-    // traits from the `futures` crate.
-    let mut client = Client::connect(config, tcp.compat_write()).await?;
-
-    let result = client.simple_query(script.unwrap()).await;
-
-    match result {
-        Ok(_) => Ok("Finished".to_owned()),
-        Err(err) => Ok(err.to_string()),
-    }
-}
-
 fn read_entries(path: &Path) -> Vec<Entry> {
     let mut entries = match read_dir(path) {
         Ok(entries) => entries
@@ -161,7 +116,10 @@ fn read_entries(path: &Path) -> Vec<Entry> {
     entries
 }
 
-async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std::error::Error>> {
+async fn process_events<'a>(
+    display: &mut Display<'a>,
+    connection: &Database,
+) -> Result<(), Box<dyn std::error::Error>> {
     while poll(Duration::ZERO)? {
         match read()? {
             Event::Resize(x, y) => {
@@ -225,13 +183,13 @@ async fn process_events<'a>(display: &mut Display<'a>) -> Result<(), Box<dyn std
                         'a' => {
                             if let Some(Entry::File(file)) = list.get_selection() {
                                 let full_path = display.base_path.join(Path::new(file));
-                                print_script(full_path).await?;
+                                connection.execute_script(full_path).await?;
                             }
                         }
                         's' => {
                             if let Some(Entry::File(file)) = list.get_selection() {
                                 let full_path = display.base_path.join(Path::new(file));
-                                print_script(full_path).await?;
+                                connection.execute_script(full_path).await?;
                             }
                         }
                         _ => (),
@@ -385,21 +343,18 @@ fn draw(stdout: &mut io::Stdout, display: &Display) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
-fn init_tui(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> {
-    execute!(stdout, Clear(ClearType::All))?;
-
-    execute!(stdout, Hide, DisableBlinking)?;
-    stdout.flush()?;
-
-    Ok(())
-}
-
 async fn start_tui(
     stdout: &mut io::Stdout,
     rows: u16,
     cols: u16,
     config: &HashMap<String, String>,
+    connection: &Database,
 ) -> Result<(), Box<dyn Error>> {
+    execute!(stdout, Clear(ClearType::All))?;
+
+    execute!(stdout, Hide, DisableBlinking)?;
+    stdout.flush()?;
+
     terminal::enable_raw_mode()?;
     let list_height = rows as usize - 2;
     let path: PathBuf = if let Some(content) = config.get("path") {
@@ -439,7 +394,7 @@ async fn start_tui(
     };
 
     while display.current_screen != Screen::Quit {
-        process_events(&mut display).await?;
+        process_events(&mut display, connection).await?;
         draw(stdout, &display)?;
 
         thread::sleep(Duration::from_millis(33));
@@ -482,23 +437,33 @@ fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     let _clean_up = CleanUp;
     let mut stdout = io::stdout();
 
-    let config = setup_config().expect("Error while loading config!");
+    let config = read_config().expect("Error while loading config!");
 
     let (cols, rows) = terminal::size()?;
 
-    let args = Args::parse();
+    let args = AeqArgs::parse();
 
     match args.command {
         Some(Command::Config) => {
             draw_help(&mut stdout)?;
         }
-        None => {
-            init_tui(&mut stdout)?;
-            start_tui(&mut stdout, rows, cols, &config).await?;
+        Some(Command::Migrations) | None => {
+            match args.connection.merge(&config) {
+                Ok(conn) => start_tui(&mut stdout, rows, cols, &config, &conn).await?,
+                Err(ArgumentsError::MissingPassword) => {
+                    println!("ERROR: Missing DB password");
+                }
+                Err(ArgumentsError::MissingUsername) => {
+                    println!("ERROR: Missing DB username");
+                }
+                Err(ArgumentsError::PortNotNumber) => {
+                    println!("ERROR: Supplied port is not a valid number");
+                }
+            };
         }
     }
 
@@ -506,20 +471,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Parser, Debug)]
-#[command(
-    name = "🦀 Aequitas Command And Control Console 🦀",
-    version,
-    about,
-    long_about = "Support tools collection for the Aequitas team"
-)]
-struct Args {
-    #[clap(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Shows application info and configuration for the current system
-    Config,
+enum ArgumentsError {
+    MissingUsername,
+    MissingPassword,
+    PortNotNumber,
 }
