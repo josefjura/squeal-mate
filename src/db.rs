@@ -31,6 +31,7 @@ impl Database {
         tcp.set_nodelay(true)?;
 
         let mut client = Client::connect(config, tcp.compat_write()).await?;
+
         client.simple_query(script).await?;
 
         Ok(())
