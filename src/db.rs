@@ -14,7 +14,11 @@ pub struct Database {
 
 impl Database {
     pub async fn execute_script(&self, path: PathBuf) -> Result<(), Box<dyn Error>> {
-        let script = tokio::fs::read_to_string(path).await?;
+        let mut script = tokio::fs::read_to_string(path).await?;
+
+        if script.starts_with("\u{feff}") {
+            script = script[3..].to_string();
+        }
 
         let mut config = Config::new();
 

@@ -2,6 +2,7 @@ mod args;
 mod border;
 mod config;
 mod db;
+mod error;
 mod list;
 mod utils;
 
@@ -17,6 +18,7 @@ use crossterm::{
     terminal::{self, Clear, ClearType},
 };
 use db::Database;
+use error::ArgumentsError;
 use list::{Entry, FileList, Name};
 use std::{
     collections::HashMap,
@@ -183,13 +185,18 @@ async fn process_events<'a>(
                         'a' => {
                             if let Some(Entry::File(file)) = list.get_selection() {
                                 let full_path = display.base_path.join(Path::new(file));
-                                connection.execute_script(full_path).await?;
+                                match connection.execute_script(full_path).await {
+                                    Err(e) => {
+                                        eprintln!("{}", e)
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                         's' => {
                             if let Some(Entry::File(file)) = list.get_selection() {
-                                let full_path = display.base_path.join(Path::new(file));
-                                connection.execute_script(full_path).await?;
+                                //let full_path = display.base_path.join(Path::new(file));
+                                todo!()
                             }
                         }
                         _ => (),
@@ -469,10 +476,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!();
     Ok(())
-}
-
-enum ArgumentsError {
-    MissingUsername,
-    MissingPassword,
-    PortNotNumber,
 }
