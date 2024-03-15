@@ -1,44 +1,34 @@
+mod action;
 mod app;
-mod args;
+mod cli;
+mod components;
 mod config;
 mod db;
 mod entries;
 mod error;
-mod event;
-mod handler;
 mod tui;
-mod ui;
+mod utils;
 
-use args::{AeqArgs, Command};
+use crate::app::{App, Mode, UiState};
+use crate::components::list::List;
 use clap::Parser;
-use config::{ensure_config_dir, read_config};
-
+use cli::{AeqArgs, Command};
+use color_eyre::eyre;
+use config::{get_config_dir, read_config};
 use crossterm::{execute, style::Print};
 use db::Database;
-use entries::{Entry, Name};
+use entries::Entry;
 use error::ArgumentsError;
-use event::{Event, EventHandler};
-use handler::handle_key_events;
-use ratatui::{
-    backend::CrosstermBackend,
-    style::{Style, Stylize},
-    widgets::{ListItem, ListState},
-    Terminal,
-};
-
-use tui::Tui;
-
+use ratatui::{style::Stylize, widgets::ListState};
 use std::io::{self};
 use std::{
     collections::HashMap,
-    error::Error,
     fs::read_dir,
     io::Write,
     path::{Path, PathBuf},
     str::FromStr,
 };
-
-use crate::app::{App, Screen, UiState};
+use utils::{initialize_logging, initialize_panic_handler};
 
 fn read_entries(path: &Path) -> Vec<Entry> {
     let mut entries = match read_dir(path) {
@@ -73,16 +63,10 @@ fn read_entries(path: &Path) -> Vec<Entry> {
     entries
 }
 
-async fn start_tui(
-    config: &HashMap<String, String>,
-    connection: Database,
-) -> Result<(), Box<dyn Error>> {
-    // Initialize the terminal user interface.
-    let backend = CrosstermBackend::new(io::stderr());
-    let terminal = Terminal::new(backend)?;
-    let events = EventHandler::new(250);
-    let mut tui = Tui::new(terminal, events);
-    tui.init()?;
+async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyre::Result<()> {
+    initialize_logging()?;
+
+    initialize_panic_handler()?;
 
     let path: PathBuf = if let Some(content) = config.get("path") {
         PathBuf::from(content)
@@ -91,63 +75,29 @@ async fn start_tui(
     };
 
     let entries = read_entries(&path);
-
+    let list = List::new(entries, path, connection.clone());
     let mut app = App {
-        base_path: path,
-        current_screen: Screen::FileChooser {
-            entries: entries.clone(),
-        },
+        current_screen: Mode::FileChooser,
         message: None,
         connection,
         exit: false,
         ui_state: UiState {
             list: ListState::default().with_selected(Some(1)),
         },
+        config,
+        frame_rate: 30.0,
+        tick_rate: 1.0,
+        suspend: false,
+        components: vec![Box::new(list)],
     };
 
-    // Start the main loop.
-    while !app.exit {
-        // Render the user interface.
-        tui.draw(&mut app)?;
-        // Handle events.
-        match tui.events.next().await? {
-            Event::Tick => app.tick(),
-            Event::Key(key_event) => handle_key_events(key_event, &mut app).await?,
-            Event::Mouse(_) => {}
-            Event::Resize(_, _) => {}
-        }
-    }
+    app.run().await?;
 
-    // Exit the user interface.
-    tui.exit()?;
     Ok(())
 }
 
-#[derive(Clone)]
-pub enum Action {
-    Tick,
-    Increment,
-    Decrement,
-    NetworkRequestAndThenIncrement, // new
-    NetworkRequestAndThenDecrement, // new
-    Quit,
-    Render,
-    None,
-}
-
-impl<'a> From<&Entry> for ListItem<'a> {
-    fn from(value: &Entry) -> Self {
-        let style = match value {
-            Entry::File(_) => Style::new().white(),
-            Entry::Directory(_) => Style::new().blue(),
-        };
-
-        ListItem::<'a>::new(value.get_name().to_string()).style(style)
-    }
-}
-
-fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn Error>> {
-    let config_path = ensure_config_dir()?;
+fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {
+    let config_path = get_config_dir();
     let config_path_str = config_path.to_str().expect("Unknown host system").white();
     let version = env!("CARGO_PKG_VERSION").white();
     let version_msg = format!("Version: {}\n", version);
@@ -167,7 +117,7 @@ fn draw_help(stdout: &mut io::Stdout) -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> eyre::Result<()> {
     let mut stdout = io::stdout();
 
     let config = read_config().expect("Error while loading config!");
@@ -180,7 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Some(Command::Migrations) | None => {
             match args.connection.merge(&config) {
-                Ok(conn) => start_tui(&config, conn).await?,
+                Ok(conn) => start_tui(config, conn).await?,
                 Err(ArgumentsError::MissingPassword) => {
                     println!("ERROR: Missing DB password");
                 }

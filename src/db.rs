@@ -4,7 +4,7 @@ use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Database {
     pub server: String,
     pub port: u16,
