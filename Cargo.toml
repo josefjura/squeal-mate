@@ -24,6 +24,8 @@ strip-ansi-escapes = "0.2.0"
 better-panic = "0.3.0"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "serde"] }
 tracing-error = "0.2.0"
+human-panic = "1.2.0"
+throbber-widgets-tui = "0.4.1"
 
 [dependencies.tokio-util]
 version = "0.7.10"

@@ -1,3 +1,5 @@
+use crate::app::MessageType;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Tick,
@@ -9,6 +11,9 @@ pub enum Action {
     CursorToBottom,
     DirectoryOpenSelected,
     DirectoryLeave,
+    Message(String, MessageType),
+    StartSpinner,
+    StopSpinner,
     ScriptRun,
     Suspend,
     Resume,

@@ -10,7 +10,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Component;
 use crate::{
     action::Action,
-    app::Message,
+    app::MessageType,
     db::Database,
     entries::{Entry, Name},
     read_entries,
@@ -107,21 +107,22 @@ impl List {
             }
         }
     }
-    pub async fn execute_selected_script(&mut self) -> Option<Message> {
-        if let Some(selected) = self.state.selected() {
-            if let Some(entry) = self.entries.get(selected) {
-                if let Entry::File(file) = entry {
-                    let full_path = self.base_path.join(Path::new(&file));
-                    return match self.connection.execute_script(full_path).await {
-                        Err(e) => Some(Message::Error(e.to_string())),
-                        _ => Some(Message::Success("Script execution done".into())),
-                    };
-                }
-            }
-        }
+    //TODO: Revive!!!
+    // pub async fn execute_selected_script(&mut self) -> Option<Message> {
+    //     if let Some(selected) = self.state.selected() {
+    //         if let Some(entry) = self.entries.get(selected) {
+    //             if let Entry::File(file) = entry {
+    //                 let full_path = self.base_path.join(Path::new(&file));
+    //                 return match self.connection.execute_script(full_path).await {
+    //                     Err(e) => Some(Message::Error(e.to_string())),
+    //                     _ => Some(Message::Success("Script execution done".into())),
+    //                 };
+    //             }
+    //         }
+    //     }
 
-        None
-    }
+    //     None
+    // }
 }
 
 impl Component for List {
@@ -162,16 +163,65 @@ impl Component for List {
                 self.leave_current_directory();
                 return Ok(None);
             }
-            // Action::ScriptRun => {
-            //     self.execute_selected_script().await;
-            //     return Ok(None);
-            // }
+            Action::ScriptRun => {
+                if let Some(selected) = self.state.selected() {
+                    if let Some(entry) = self.entries.get(selected) {
+                        if let Entry::File(file) = entry {
+                            let full_path = self.base_path.join(Path::new(&file));
+                            let connection = self.connection.clone();
+                            if let Some(channel) = &self.command_tx {
+                                // TODO: Respond to error!
+                                let _ = channel.send(Action::Message(
+                                    "Executing script".into(),
+                                    MessageType::Info,
+                                ));
+                            }
+
+                            let channel = self.command_tx.clone();
+
+                            tokio::spawn(async move {
+                                if let Some(channel) = channel {
+                                    let _ = channel.send(Action::StartSpinner);
+
+                                    let result = connection.execute_script(full_path).await;
+
+                                    match result {
+                                        Ok(_) => {
+                                            let _ = channel.send(Action::Message(
+                                                "Finished execution".into(),
+                                                MessageType::Success,
+                                            ));
+                                        }
+                                        Err(err) => {
+                                            let _ = channel.send(Action::Message(
+                                                err.to_string(),
+                                                MessageType::Error,
+                                            ));
+                                        }
+                                    }
+
+                                    let _ = channel.send(Action::StopSpinner);
+                                }
+                            });
+                            return Ok(None);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
         Ok(None)
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+        let rects = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Fill(1),
+                Constraint::Length(1), // first row
+            ])
+            .split(area);
+
         let list_draw = ratatui::widgets::List::new(&self.entries)
             .block(
                 Block::default()
@@ -182,7 +232,7 @@ impl Component for List {
             .highlight_symbol(">>")
             .repeat_highlight_symbol(true);
 
-        f.render_stateful_widget(list_draw, area, &mut self.state);
+        f.render_stateful_widget(list_draw, rects[0], &mut self.state);
         Ok(())
     }
 }

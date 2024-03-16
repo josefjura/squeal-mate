@@ -5,11 +5,11 @@ use ratatui::{prelude::Rect, style::Stylize, widgets::ListState};
 use std::{collections::HashMap, fmt::Display};
 use tokio::sync::mpsc;
 
-#[derive(Debug)]
-pub enum Message {
-    Success(String),
-    Error(String),
-    Info(String),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageType {
+    Success,
+    Error,
+    Info,
 }
 
 pub struct UiState {
@@ -18,7 +18,6 @@ pub struct UiState {
 
 pub struct App {
     pub current_screen: Mode,
-    pub message: Option<Message>,
     pub exit: bool,
     pub suspend: bool,
     pub connection: Database,
@@ -32,16 +31,6 @@ pub struct App {
 #[derive(PartialEq)]
 pub enum Mode {
     FileChooser,
-}
-
-impl Display for Message {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Message::Error(text) => write!(f, "{}", text.clone().red()),
-            Message::Success(text) => write!(f, "{}", text.clone().green()),
-            Message::Info(text) => write!(f, "{}", text.clone().white()),
-        }
-    }
 }
 
 impl App {
@@ -81,6 +70,7 @@ impl App {
                             action_tx.send(Action::Quit)?
                         }
                         KeyCode::Char('q') => action_tx.send(Action::Quit)?,
+                        KeyCode::Char('s') => action_tx.send(Action::ScriptRun)?,
                         KeyCode::Up => action_tx.send(Action::CursorUp)?,
                         KeyCode::Down => action_tx.send(Action::CursorDown)?,
                         KeyCode::Home => action_tx.send(Action::CursorToTop)?,

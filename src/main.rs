@@ -14,6 +14,7 @@ use crate::components::list::List;
 use clap::Parser;
 use cli::{AeqArgs, Command};
 use color_eyre::eyre;
+use components::status::Status;
 use config::{get_config_dir, read_config};
 use crossterm::{execute, style::Print};
 use db::Database;
@@ -76,9 +77,9 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
 
     let entries = read_entries(&path);
     let list = List::new(entries, path, connection.clone());
+    let status = Status::new();
     let mut app = App {
         current_screen: Mode::FileChooser,
-        message: None,
         connection,
         exit: false,
         ui_state: UiState {
@@ -88,7 +89,7 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
         frame_rate: 30.0,
         tick_rate: 1.0,
         suspend: false,
-        components: vec![Box::new(list)],
+        components: vec![Box::new(list), Box::new(status)],
     };
 
     app.run().await?;
