@@ -241,7 +241,7 @@ impl<'a> From<&Entry> for ListItem<'a> {
     fn from(value: &Entry) -> Self {
         let style = match value {
             Entry::File(_) => Style::new().white(),
-            Entry::Directory(_) => Style::new().blue(),
+            Entry::Directory(_) => Style::new().light_blue(),
         };
 
         ListItem::<'a>::new(value.get_name().to_string()).style(style)
