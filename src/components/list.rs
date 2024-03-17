@@ -107,22 +107,6 @@ impl List {
             }
         }
     }
-    //TODO: Revive!!!
-    // pub async fn execute_selected_script(&mut self) -> Option<Message> {
-    //     if let Some(selected) = self.state.selected() {
-    //         if let Some(entry) = self.entries.get(selected) {
-    //             if let Entry::File(file) = entry {
-    //                 let full_path = self.base_path.join(Path::new(&file));
-    //                 return match self.connection.execute_script(full_path).await {
-    //                     Err(e) => Some(Message::Error(e.to_string())),
-    //                     _ => Some(Message::Success("Script execution done".into())),
-    //                 };
-    //             }
-    //         }
-    //     }
-
-    //     None
-    // }
 }
 
 impl Component for List {
@@ -169,39 +153,37 @@ impl Component for List {
                         if let Entry::File(file) = entry {
                             let full_path = self.base_path.join(Path::new(&file));
                             let connection = self.connection.clone();
-                            if let Some(channel) = &self.command_tx {
-                                // TODO: Respond to error!
-                                let _ = channel.send(Action::Message(
-                                    "Executing script".into(),
-                                    MessageType::Info,
-                                ));
-                            }
+                            send_through_channel(
+                                &self.command_tx,
+                                Action::Message("Executing script".into(), MessageType::Info),
+                            );
 
                             let channel = self.command_tx.clone();
 
                             tokio::spawn(async move {
-                                if let Some(channel) = channel {
-                                    let _ = channel.send(Action::StartSpinner);
+                                send_through_channel(&channel, Action::StartSpinner);
 
-                                    let result = connection.execute_script(full_path).await;
+                                let result = connection.execute_script(full_path).await;
 
-                                    match result {
-                                        Ok(_) => {
-                                            let _ = channel.send(Action::Message(
+                                match result {
+                                    Ok(_) => {
+                                        send_through_channel(
+                                            &channel,
+                                            Action::Message(
                                                 "Finished execution".into(),
                                                 MessageType::Success,
-                                            ));
-                                        }
-                                        Err(err) => {
-                                            let _ = channel.send(Action::Message(
-                                                err.to_string(),
-                                                MessageType::Error,
-                                            ));
-                                        }
+                                            ),
+                                        );
                                     }
-
-                                    let _ = channel.send(Action::StopSpinner);
+                                    Err(err) => {
+                                        send_through_channel(
+                                            &channel,
+                                            Action::Message(err.to_string(), MessageType::Error),
+                                        );
+                                    }
                                 }
+
+                                send_through_channel(&channel, Action::StopSpinner);
                             });
                             return Ok(None);
                         }
@@ -217,10 +199,14 @@ impl Component for List {
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
+                Constraint::Length(1),
                 Constraint::Fill(1),
                 Constraint::Length(1), // first row
             ])
             .split(area);
+
+        let path_span = Span::raw(self.base_path.as_path().display().to_string());
+        let path_draw = Line::default().spans(vec![path_span]);
 
         let list_draw = ratatui::widgets::List::new(&self.entries)
             .block(
@@ -232,7 +218,8 @@ impl Component for List {
             .highlight_symbol(">>")
             .repeat_highlight_symbol(true);
 
-        f.render_stateful_widget(list_draw, rects[0], &mut self.state);
+        f.render_widget(path_draw, rects[0]);
+        f.render_stateful_widget(list_draw, rects[1], &mut self.state);
         Ok(())
     }
 }
@@ -245,5 +232,13 @@ impl<'a> From<&Entry> for ListItem<'a> {
         };
 
         ListItem::<'a>::new(value.get_name().to_string()).style(style)
+    }
+}
+
+fn send_through_channel(channel: &Option<UnboundedSender<Action>>, action: Action) {
+    if let Some(channel) = channel {
+        if let Err(error) = channel.send(action) {
+            log::error!("{}", error);
+        }
     }
 }

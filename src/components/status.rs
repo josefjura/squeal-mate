@@ -69,6 +69,7 @@ impl Component for Status {
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
+                Constraint::Length(1), // first row
                 Constraint::Fill(1),
                 Constraint::Length(1), // first row
             ])
@@ -77,7 +78,7 @@ impl Component for Status {
         let line = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Min(0), Constraint::Length(12)])
-            .split(rects[1]);
+            .split(rects[2]);
 
         let prompt = Span::raw("AEQ-CAC > ").style(Style::default().fg(Color::Red));
         let message_text = self.message.clone();

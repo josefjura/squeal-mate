@@ -9,8 +9,9 @@ mod error;
 mod tui;
 mod utils;
 
-use crate::app::{App, Mode, UiState};
+use crate::app::{App, Mode};
 use crate::components::list::List;
+use app::Screen;
 use clap::Parser;
 use cli::{AeqArgs, Command};
 use color_eyre::eyre;
@@ -20,7 +21,7 @@ use crossterm::{execute, style::Print};
 use db::Database;
 use entries::Entry;
 use error::ArgumentsError;
-use ratatui::{style::Stylize, widgets::ListState};
+use ratatui::style::Stylize;
 use std::io::{self};
 use std::{
     collections::HashMap,
@@ -80,16 +81,15 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
     let status = Status::new();
     let mut app = App {
         current_screen: Mode::FileChooser,
-        connection,
         exit: false,
-        ui_state: UiState {
-            list: ListState::default().with_selected(Some(1)),
-        },
         config,
         frame_rate: 30.0,
         tick_rate: 1.0,
         suspend: false,
-        components: vec![Box::new(list), Box::new(status)],
+        screens: vec![
+            Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),
+            Screen::new(Mode::ScriptRunner, vec![]),
+        ],
     };
 
     app.run().await?;

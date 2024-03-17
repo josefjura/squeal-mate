@@ -1,8 +1,9 @@
-use crate::{action::Action, components::Component, db::Database, tui};
+use crate::{action::Action, components::Component, tui};
 use color_eyre::eyre;
 use crossterm::event::{KeyCode, KeyModifiers};
-use ratatui::{prelude::Rect, style::Stylize, widgets::ListState};
-use std::{collections::HashMap, fmt::Display};
+use libc::SECCOMP_RET_ACTION;
+use ratatui::prelude::Rect;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,25 +13,31 @@ pub enum MessageType {
     Info,
 }
 
-pub struct UiState {
-    pub list: ListState,
+pub struct Screen {
+    pub mode: Mode,
+    pub components: Vec<Box<dyn Component>>,
+}
+
+impl Screen {
+    pub fn new(mode: Mode, components: Vec<Box<dyn Component>>) -> Self {
+        Self { mode, components }
+    }
 }
 
 pub struct App {
     pub current_screen: Mode,
     pub exit: bool,
     pub suspend: bool,
-    pub connection: Database,
-    pub ui_state: UiState,
     pub tick_rate: f64,
     pub frame_rate: f64,
-    pub components: Vec<Box<dyn Component>>,
+    pub screens: Vec<Screen>,
     pub config: HashMap<String, String>,
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     FileChooser,
+    ScriptRunner,
 }
 
 impl App {
@@ -43,16 +50,22 @@ impl App {
         // tui.mouse(true);
         tui.enter()?;
 
-        for component in self.components.iter_mut() {
-            component.register_action_handler(action_tx.clone())?;
+        for screen in self.screens.iter_mut() {
+            for component in screen.components.iter_mut() {
+                component.register_action_handler(action_tx.clone())?;
+            }
         }
 
-        for component in self.components.iter_mut() {
-            component.register_config_handler(self.config.clone())?;
+        for screen in self.screens.iter_mut() {
+            for component in screen.components.iter_mut() {
+                component.register_config_handler(self.config.clone())?;
+            }
         }
 
-        for component in self.components.iter_mut() {
-            component.init(tui.size()?)?;
+        for screen in self.screens.iter_mut() {
+            for component in screen.components.iter_mut() {
+                component.init(tui.size()?)?;
+            }
         }
 
         loop {
@@ -62,6 +75,7 @@ impl App {
                     tui::Event::Tick => action_tx.send(Action::Tick)?,
                     tui::Event::Render => action_tx.send(Action::Render)?,
                     tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
+                    tui::Event::SwitchMode(mode) => action_tx.send(Action::SwitchMode(mode))?,
                     tui::Event::Key(key) => match key.code {
                         KeyCode::Char('z') if key.modifiers == KeyModifiers::CONTROL => {
                             action_tx.send(Action::Suspend)?
@@ -81,9 +95,11 @@ impl App {
                     },
                     _ => {}
                 }
-                for component in self.components.iter_mut() {
-                    if let Some(action) = component.handle_events(Some(e.clone()))? {
-                        action_tx.send(action)?;
+                for screen in self.screens.iter_mut() {
+                    for component in screen.components.iter_mut() {
+                        if let Some(action) = component.handle_events(Some(e.clone()))? {
+                            action_tx.send(action)?;
+                        }
                     }
                 }
             }
@@ -99,37 +115,56 @@ impl App {
                     Action::Quit => self.exit = true,
                     Action::Suspend => self.suspend = true,
                     Action::Resume => self.suspend = false,
+                    Action::SwitchMode(mode) => self.current_screen = mode,
                     Action::Resize(w, h) => {
                         tui.resize(Rect::new(0, 0, w, h))?;
-                        tui.draw(|f| {
-                            for component in self.components.iter_mut() {
-                                let r = component.draw(f, f.size());
-                                if let Err(e) = r {
-                                    action_tx
-                                        .send(Action::Error(format!("Failed to draw: {:?}", e)))
-                                        .unwrap();
+                        let screen = self
+                            .screens
+                            .iter_mut()
+                            .find(|f| f.mode == self.current_screen);
+                        if let Some(screen) = screen {
+                            tui.draw(|f| {
+                                for component in screen.components.iter_mut() {
+                                    let r = component.draw(f, f.size());
+                                    if let Err(e) = r {
+                                        action_tx
+                                            .send(Action::Error(format!("Failed to draw: {:?}", e)))
+                                            .unwrap();
+                                    }
                                 }
-                            }
-                        })?;
+                            })?;
+                        }
                     }
                     Action::Render => {
-                        tui.draw(|f| {
-                            for component in self.components.iter_mut() {
-                                let r = component.draw(f, f.size());
-                                if let Err(e) = r {
-                                    action_tx
-                                        .send(Action::Error(format!("Failed to draw: {:?}", e)))
-                                        .unwrap();
+                        let screen = self
+                            .screens
+                            .iter_mut()
+                            .find(|f| f.mode == self.current_screen);
+                        if let Some(screen) = screen {
+                            tui.draw(|f| {
+                                for component in screen.components.iter_mut() {
+                                    let r = component.draw(f, f.size());
+                                    if let Err(e) = r {
+                                        action_tx
+                                            .send(Action::Error(format!("Failed to draw: {:?}", e)))
+                                            .unwrap();
+                                    }
                                 }
-                            }
-                        })?;
+                            })?;
+                        }
                     }
                     _ => {}
                 }
-                for component in self.components.iter_mut() {
-                    if let Some(action) = component.update(action.clone())? {
-                        action_tx.send(action)?
-                    };
+                let screen = self
+                    .screens
+                    .iter_mut()
+                    .find(|f| f.mode == self.current_screen);
+                if let Some(screen) = screen {
+                    for component in screen.components.iter_mut() {
+                        if let Some(action) = component.update(action.clone())? {
+                            action_tx.send(action)?
+                        };
+                    }
                 }
             }
             if self.suspend {

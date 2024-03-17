@@ -1,5 +1,6 @@
 use crate::{
     action::Action,
+    app::Mode,
     tui::{Event, Frame},
 };
 use color_eyre::eyre::Result;

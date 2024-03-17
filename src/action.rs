@@ -1,4 +1,4 @@
-use crate::app::MessageType;
+use crate::app::{MessageType, Mode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -12,6 +12,7 @@ pub enum Action {
     DirectoryOpenSelected,
     DirectoryLeave,
     Message(String, MessageType),
+    SwitchMode(Mode),
     StartSpinner,
     StopSpinner,
     ScriptRun,
