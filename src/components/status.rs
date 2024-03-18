@@ -1,5 +1,6 @@
-use std::{collections::HashMap, vec};
+use std::{collections::HashMap, time::SystemTime, vec};
 
+use chrono::{DateTime, Local};
 use color_eyre::eyre::Result;
 use ratatui::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
@@ -82,12 +83,14 @@ impl Component for Status {
 
         let prompt = Span::raw("AEQ-CAC > ").style(Style::default().fg(Color::Red));
         let message_text = self.message.clone();
+        let message_time = Local::now().format("%d/%m/%Y %H:%M").to_string();
+        let message = format!("{} {}", message_time, message_text);
         let message_style = match self.message_type {
             MessageType::Info => Style::default(),
             MessageType::Success => Style::default().fg(Color::Green),
             MessageType::Error => Style::default().fg(Color::Red),
         };
-        let message_prompt = Span::raw(message_text).style(message_style);
+        let message_prompt = Span::raw(message).style(message_style);
         let line_draw = Line::default().spans(vec![prompt, message_prompt]);
         f.render_widget(line_draw, line[0]);
 

@@ -85,6 +85,12 @@ impl App {
                         }
                         KeyCode::Char('q') => action_tx.send(Action::Quit)?,
                         KeyCode::Char('s') => action_tx.send(Action::ScriptRun)?,
+                        KeyCode::Char('o') => {
+                            action_tx.send(Action::SwitchMode(Mode::ScriptRunner))?
+                        }
+                        KeyCode::Char('O') => {
+                            action_tx.send(Action::SwitchMode(Mode::FileChooser))?
+                        }
                         KeyCode::Up => action_tx.send(Action::CursorUp)?,
                         KeyCode::Down => action_tx.send(Action::CursorDown)?,
                         KeyCode::Home => action_tx.send(Action::CursorToTop)?,
