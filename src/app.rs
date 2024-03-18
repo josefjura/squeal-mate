@@ -1,7 +1,6 @@
 use crate::{action::Action, components::Component, tui};
 use color_eyre::eyre;
 use crossterm::event::{KeyCode, KeyModifiers};
-use libc::SECCOMP_RET_ACTION;
 use ratatui::prelude::Rect;
 use std::collections::HashMap;
 use tokio::sync::mpsc;

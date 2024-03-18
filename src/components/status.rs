@@ -15,6 +15,7 @@ pub struct Status {
     config: HashMap<String, String>,
     message: String,
     message_type: MessageType,
+    message_timestamp: Option<String>,
     spinner_state: ThrobberState,
     loading: bool,
 }
@@ -25,6 +26,7 @@ impl Status {
             command_tx: None,
             config: HashMap::<String, String>::default(),
             message: "".into(),
+            message_timestamp: None,
             message_type: MessageType::Info,
             spinner_state: ThrobberState::default(),
             loading: false,
@@ -51,6 +53,7 @@ impl Component for Status {
             Action::Message(text, m_type) => {
                 self.message = text;
                 self.message_type = m_type;
+                self.message_timestamp = Some(Local::now().format("%d/%m/%Y %H:%M:%S").to_string());
                 return Ok(None);
             }
             Action::StartSpinner => {
@@ -83,8 +86,11 @@ impl Component for Status {
 
         let prompt = Span::raw("AEQ-CAC > ").style(Style::default().fg(Color::Red));
         let message_text = self.message.clone();
-        let message_time = Local::now().format("%d/%m/%Y %H:%M").to_string();
-        let message = format!("{} {}", message_time, message_text);
+        let message = if let Some(timestamp) = &self.message_timestamp {
+            format!("{} {}", timestamp, message_text)
+        } else {
+            message_text
+        };
         let message_style = match self.message_type {
             MessageType::Info => Style::default(),
             MessageType::Success => Style::default().fg(Color::Green),
