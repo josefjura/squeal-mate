@@ -97,6 +97,7 @@ pub trait Component {
         Ok(None)
     }
     /// Update the state of the component based on a received action. (REQUIRED)
+    ///	Runs only when screen is active.
     ///
     /// # Arguments
     ///
@@ -107,6 +108,20 @@ pub trait Component {
     /// * `Result<Option<Action>>` - An action to be processed or none.
     #[allow(unused_variables)]
     fn update(&mut self, action: Action) -> color_eyre::eyre::Result<Option<Action>> {
+        Ok(None)
+    }
+    /// Update the state of the component based on a received action. (REQUIRED)
+    /// Runs even when screen is not active.
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - An action that may modify the state of the component.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Option<Action>>` - An action to be processed or none.
+    #[allow(unused_variables)]
+    fn update_background(&mut self, action: Action) -> color_eyre::eyre::Result<Option<Action>> {
         Ok(None)
     }
     /// Render the component on the screen. (REQUIRED)

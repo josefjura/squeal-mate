@@ -147,6 +147,13 @@ impl Component for List {
                 self.leave_current_directory();
                 return Ok(None);
             }
+            _ => {}
+        }
+        Ok(None)
+    }
+
+    fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
+        match action {
             Action::ScriptRun => {
                 if let Some(selected) = self.state.selected() {
                     if let Some(entry) = self.entries.get(selected) {

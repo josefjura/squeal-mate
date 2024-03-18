@@ -50,6 +50,13 @@ impl Component for Status {
             Action::Tick => {
                 self.spinner_state.calc_next();
             }
+            _ => {}
+        }
+        Ok(None)
+    }
+
+    fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
+        match action {
             Action::Message(text, m_type) => {
                 self.message = text;
                 self.message_type = m_type;

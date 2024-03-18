@@ -171,6 +171,14 @@ impl App {
                         };
                     }
                 }
+
+                for screen in self.screens.iter_mut() {
+                    for component in screen.components.iter_mut() {
+                        if let Some(action) = component.update_background(action.clone())? {
+                            action_tx.send(action)?
+                        };
+                    }
+                }
             }
             if self.suspend {
                 tui.suspend()?;
