@@ -53,7 +53,7 @@ impl Component for Status {
             Action::Message(text, m_type) => {
                 self.message = text;
                 self.message_type = m_type;
-                self.message_timestamp = Some(Local::now().format("%d/%m/%Y %H:%M:%S").to_string());
+                self.message_timestamp = Some(Local::now().format("%H:%M:%S").to_string());
                 return Ok(None);
             }
             Action::StartSpinner => {
