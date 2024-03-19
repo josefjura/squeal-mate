@@ -6,6 +6,7 @@ mod config;
 mod db;
 mod entries;
 mod error;
+mod repository;
 mod tui;
 mod utils;
 
