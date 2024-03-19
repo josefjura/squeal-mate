@@ -10,31 +10,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rustfmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install nightly toolchain with rustfmt available
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt
-
-      - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
-        continue-on-error: true  # WARNING: only for this example, remove it!
-        with:
-          command: fmt
-          args: --all -- --check
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - name: Chackout
+      uses: actions/checkout@v3
+    - name: Install nightly toolchain with rustfmt available
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: nightly
+        override: true
+        components: rustfmt
+    - name: Run cargo fmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: --all -- --check
     - name: Build
       run: cargo build --verbose
     - name: Run tests
