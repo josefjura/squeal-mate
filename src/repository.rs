@@ -1,4 +1,6 @@
-use std::{env, ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
+use std::{fs::read_dir, path::PathBuf};
+
+use crate::entries::Entry;
 
 #[derive(Debug)]
 pub enum RepositoryError {
@@ -10,6 +12,7 @@ pub enum RepositoryError {
 pub struct Repository {
     root: PathBuf,
     root_str: String,
+    path: Vec<String>,
 }
 
 impl Repository {
@@ -32,52 +35,132 @@ impl Repository {
             .try_exists()
             .map_err(|e| RepositoryError::IOError(e.to_string()))?
         {
-            Ok(Self { root, root_str })
+            Ok(Self {
+                root,
+                root_str,
+                path: vec![],
+            })
         } else {
             Err(RepositoryError::DoesNotExist)
         }
     }
 
-    pub fn as_str(&self) -> String {
+    pub fn base_as_str(&self) -> String {
         self.root_str.clone()
     }
 
-    pub fn as_path_buf(&self) -> PathBuf {
+    pub fn base_as_path_buf(&self) -> PathBuf {
         self.root.clone()
     }
-}
 
-#[test]
-fn repository_path_success() {
-    let path = ".tests/repository/success";
-    let r = Repository::new(PathBuf::from(path));
+    pub fn current_as_path_buf(&self) -> PathBuf {
+        self.path
+            .iter()
+            .fold(self.root.clone(), |acc, item| acc.join(item))
+    }
 
-    assert_eq!(true, r.is_ok());
-    assert_eq!(String::from(path), r.unwrap().as_str())
-}
+    pub fn open_directory(&mut self, directory_name: &str) {
+        self.path.push(directory_name.into());
+    }
 
-#[test]
-fn repository_path_does_not_exist() {
-    let r = Repository::new(PathBuf::from(".tests/repository/failure"));
+    pub fn leave_directory(&mut self) -> Option<String> {
+        self.path.pop()
+    }
 
-    assert!(r.is_err());
-    match r {
-        Err(RepositoryError::DoesNotExist) => assert!(true),
-        _ => assert!(false, "Expected RepositoryError::DoesNotExist"),
+    pub fn read_entries(&self) -> Vec<Entry> {
+        let current = self.current_as_path_buf();
+        let mut entries = match read_dir(current) {
+            Ok(entries) => entries
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let path = entry.path();
+                    let file_name = path.file_name()?.to_str()?;
+
+                    if file_name.starts_with('_') || file_name.starts_with('.') {
+                        return None;
+                    }
+
+                    // Check if it's a directory or a file with .sql extension
+                    if path.is_dir() {
+                        Some(Entry::Directory(file_name.to_owned()))
+                    } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
+                        Some(Entry::File(file_name.to_owned()))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            Err(e) => {
+                eprintln!("Failed to read directory: {}", e);
+                Vec::new()
+            }
+        };
+
+        entries.sort();
+
+        entries
     }
 }
 
-#[test]
-fn repository_path_is_not_utf8() {
-    let non_utf8_bytes = vec![0xff, 0xff, 0xff];
-    let non_utf8_os_string = OsString::from_vec(non_utf8_bytes);
-    let non_utf8_path = PathBuf::from(non_utf8_os_string);
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
 
-    let r = Repository::new(non_utf8_path);
+    #[test]
+    fn repository_path_success() {
+        let path = ".tests/repository/success";
+        let r = Repository::new(PathBuf::from(path));
 
-    assert_eq!(true, r.is_err());
-    match r {
-        Err(RepositoryError::NotUTF8) => assert!(true),
-        _ => assert!(false, "Expected RepositoryError::NotUTF8"),
+        assert_eq!(true, r.is_ok());
+        assert_eq!(String::from(path), r.unwrap().base_as_str())
+    }
+
+    #[test]
+    fn repository_path_does_not_exist() {
+        let r = Repository::new(PathBuf::from(".tests/repository/failure"));
+
+        assert!(r.is_err());
+        match r {
+            Err(RepositoryError::DoesNotExist) => assert!(true),
+            _ => assert!(false, "Expected RepositoryError::DoesNotExist"),
+        }
+    }
+
+    #[test]
+    fn repository_path_is_not_utf8() {
+        let non_utf8_bytes = vec![0xff, 0xff, 0xff];
+        let non_utf8_os_string = OsString::from_vec(non_utf8_bytes);
+        let non_utf8_path = PathBuf::from(non_utf8_os_string);
+
+        let r = Repository::new(non_utf8_path);
+
+        assert_eq!(true, r.is_err());
+        match r {
+            Err(RepositoryError::NotUTF8) => assert!(true),
+            _ => assert!(false, "Expected RepositoryError::NotUTF8"),
+        }
+    }
+
+    #[test]
+    fn repository_path_movement() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let mut repository = r.unwrap();
+        assert_eq!(String::from(path), repository.base_as_str());
+
+        let entries = repository.read_entries();
+        assert_eq!(2, entries.len());
+
+        repository.open_directory("dir2");
+        let entries = repository.read_entries();
+        assert_eq!(1, entries.len());
+
+        repository.leave_directory();
+        let entries = repository.read_entries();
+        assert_eq!(2, entries.len());
     }
 }

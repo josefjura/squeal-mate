@@ -1,6 +1,6 @@
-use std::{collections::HashMap, time::SystemTime, vec};
+use std::{collections::HashMap, vec};
 
-use chrono::{DateTime, Local};
+use chrono::Local;
 use color_eyre::eyre::Result;
 use ratatui::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;

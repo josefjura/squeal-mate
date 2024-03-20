@@ -16,55 +16,17 @@ use app::Screen;
 use clap::Parser;
 use cli::{AeqArgs, Command};
 use color_eyre::eyre;
+use components::scroll_list::ScrollList;
 use components::status::Status;
 use config::{get_config_dir, read_config};
 use crossterm::{execute, style::Print};
 use db::Database;
-use entries::Entry;
 use error::ArgumentsError;
 use ratatui::style::Stylize;
+use repository::{Repository, RepositoryError};
 use std::io::{self};
-use std::{
-    collections::HashMap,
-    fs::read_dir,
-    io::Write,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{collections::HashMap, io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
-
-fn read_entries(path: &Path) -> Vec<Entry> {
-    let mut entries = match read_dir(path) {
-        Ok(entries) => entries
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                let path = entry.path();
-                let file_name = path.file_name()?.to_str()?;
-
-                if file_name.starts_with('_') || file_name.starts_with('.') {
-                    return None;
-                }
-
-                // Check if it's a directory or a file with .sql extension
-                if path.is_dir() {
-                    Some(Entry::Directory(file_name.to_owned()))
-                } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
-                    Some(Entry::File(file_name.to_owned()))
-                } else {
-                    None
-                }
-            })
-            .collect(),
-        Err(e) => {
-            eprintln!("Failed to read directory: {}", e);
-            Vec::new()
-        }
-    };
-
-    entries.sort();
-
-    entries
-}
 
 async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyre::Result<()> {
     initialize_logging()?;
@@ -77,25 +39,43 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
         PathBuf::from_str("./").expect("Can't open current directory")
     };
 
-    let entries = read_entries(&path);
-    let list = List::new(entries, path, connection.clone());
-    let status = Status::new();
-    let mut app = App {
-        current_screen: Mode::FileChooser,
-        exit: false,
-        config,
-        frame_rate: 30.0,
-        tick_rate: 1.0,
-        suspend: false,
-        screens: vec![
-            Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),
-            Screen::new(Mode::ScriptRunner, vec![]),
-        ],
-    };
+    let repository = Repository::new(path);
 
-    app.run().await?;
+    match repository {
+        Ok(repository) => {
+            let list = List::new(repository, connection.clone());
+            let status = Status::new();
+            let scroll_list = ScrollList::new();
+            let mut app = App {
+                current_screen: Mode::FileChooser,
+                exit: false,
+                config,
+                frame_rate: 30.0,
+                tick_rate: 1.0,
+                suspend: false,
+                screens: vec![
+                    Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),
+                    Screen::new(Mode::ScriptRunner, vec![Box::new(scroll_list)]),
+                ],
+            };
 
-    Ok(())
+            app.run().await?;
+
+            Ok(())
+        }
+        Err(RepositoryError::DoesNotExist) => {
+            log::error!("Repository does not exist");
+            Ok(())
+        }
+        Err(RepositoryError::NotUTF8) => {
+            log::error!("Repository configuration is not UTF8");
+            Ok(())
+        }
+        Err(RepositoryError::IOError(e)) => {
+            log::error!("Internal IO error: {}", e);
+            Ok(())
+        }
+    }
 }
 
 fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {

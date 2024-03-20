@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::app::{MessageType, Mode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +14,10 @@ pub enum Action {
     DirectoryOpenSelected,
     DirectoryLeave,
     Message(String, MessageType),
+    SelectCurrent,
+    SelectScripts(Vec<PathBuf>),
+    AppendScripts(Vec<PathBuf>),
+    RunScripts,
     SwitchMode(Mode),
     StartSpinner,
     StopSpinner,

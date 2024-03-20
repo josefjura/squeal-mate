@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, path::Path};
 
 use color_eyre::eyre::Result;
 use ratatui::{prelude::*, widgets::*};
@@ -13,7 +10,7 @@ use crate::{
     app::MessageType,
     db::Database,
     entries::{Entry, Name},
-    read_entries,
+    repository::Repository,
     tui::Frame,
 };
 
@@ -21,20 +18,20 @@ pub struct List {
     command_tx: Option<UnboundedSender<Action>>,
     config: HashMap<String, String>,
     state: ListState,
-    entries: Vec<Entry>,
-    base_path: PathBuf,
+    repository: Repository,
     connection: Database,
+    entries: Vec<Entry>,
 }
 
 impl List {
-    pub fn new(entries: Vec<Entry>, base_path: PathBuf, connection: Database) -> Self {
+    pub fn new(repository: Repository, connection: Database) -> Self {
         Self {
             state: ListState::default().with_selected(Some(0)),
-            entries,
             command_tx: None,
             config: HashMap::<String, String>::default(),
-            base_path,
             connection,
+            entries: repository.read_entries(),
+            repository,
         }
     }
 
@@ -68,9 +65,8 @@ impl List {
             if let Some(entry) = dir_name {
                 match entry {
                     Entry::Directory(dir_name) => {
-                        let new_path = self.base_path.join(std::path::Path::new(&dir_name));
-                        self.base_path = new_path;
-                        self.entries = read_entries(&self.base_path);
+                        self.repository.open_directory(&dir_name);
+                        self.entries = self.repository.read_entries();
 
                         if self.entries.len() > 0 {
                             self.state.select(Some(0))
@@ -84,17 +80,12 @@ impl List {
         }
     }
     pub fn leave_current_directory(&mut self) {
-        let path = self.base_path.clone();
-        let old_path = path.as_path();
-        if let (Some(new_path), Some(old_dir)) = (old_path.parent(), old_path.file_name()) {
-            self.base_path = new_path.to_path_buf();
-            self.entries = read_entries(&self.base_path);
+        let old_dir = self.repository.leave_directory();
+        if let Some(old_dir) = old_dir {
+            self.entries = self.repository.read_entries();
             self.state.select(Some(0));
 
-            let old_index = self
-                .entries
-                .iter()
-                .position(|r| r.get_name() == old_dir.to_str().unwrap());
+            let old_index = self.entries.iter().position(|r| r.get_name() == &old_dir);
 
             if let Some(old_index) = old_index {
                 self.state.select(Some(old_index));
@@ -147,6 +138,16 @@ impl Component for List {
                 self.leave_current_directory();
                 return Ok(None);
             }
+            Action::SelectCurrent => {
+                let path = &self.repository.current_as_path_buf();
+                if let Some(index) = self.state.selected() {
+                    let filename = self.entries.get(index);
+                    if let Some(filename) = filename {
+                        let path = path.join(Path::new(&filename.get_name()));
+                        return Ok(Some(Action::AppendScripts(vec![path])));
+                    }
+                }
+            }
             _ => {}
         }
         Ok(None)
@@ -158,7 +159,8 @@ impl Component for List {
                 if let Some(selected) = self.state.selected() {
                     if let Some(entry) = self.entries.get(selected) {
                         if let Entry::File(file) = entry {
-                            let full_path = self.base_path.join(Path::new(&file));
+                            let full_path =
+                                self.repository.current_as_path_buf().join(Path::new(&file));
                             let connection = self.connection.clone();
                             send_through_channel(
                                 &self.command_tx,
@@ -212,7 +214,13 @@ impl Component for List {
             ])
             .split(area);
 
-        let path_span = Span::raw(self.base_path.as_path().display().to_string());
+        let path_span = Span::raw(
+            self.repository
+                .current_as_path_buf()
+                .as_path()
+                .display()
+                .to_string(),
+        );
         let path_draw = Line::default().spans(vec![path_span]);
 
         let list_draw = ratatui::widgets::List::new(&self.entries)
@@ -222,7 +230,7 @@ impl Component for List {
                     .border_type(BorderType::Double),
             )
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
-            .highlight_symbol(">>")
+            .highlight_symbol(">> ")
             .repeat_highlight_symbol(true);
 
         f.render_widget(path_draw, rects[0]);

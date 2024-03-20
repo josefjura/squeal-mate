@@ -90,6 +90,7 @@ impl App {
                         KeyCode::Char('O') => {
                             action_tx.send(Action::SwitchMode(Mode::FileChooser))?
                         }
+                        KeyCode::Char('p') => action_tx.send(Action::SelectCurrent)?,
                         KeyCode::Up => action_tx.send(Action::CursorUp)?,
                         KeyCode::Down => action_tx.send(Action::CursorDown)?,
                         KeyCode::Home => action_tx.send(Action::CursorToTop)?,
