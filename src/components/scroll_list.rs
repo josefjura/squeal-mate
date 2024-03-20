@@ -94,8 +94,12 @@ impl Component for ScrollList {
                 self.entries.extend(scripts);
                 return Ok(None);
             }
-            Action::AppendScripts(mut scripts) => {
-                self.entries.append(&mut scripts);
+            Action::AppendScripts(scripts) => {
+                let mut only_new: Vec<PathBuf> = scripts
+                    .into_iter()
+                    .filter(|s| !self.entries.contains(s))
+                    .collect();
+                self.entries.append(&mut only_new);
                 return Ok(None);
             }
             _ => {}
@@ -104,7 +108,15 @@ impl Component for ScrollList {
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
-        let list_draw = List::new(self.entries.iter().filter_map(|f| f.as_path().to_str()))
+        let mut items: Vec<&str> = self
+            .entries
+            .iter()
+            .filter_map(|f| f.as_path().to_str())
+            .collect();
+
+        items.sort();
+
+        let list_draw = List::new(items)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
