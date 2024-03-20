@@ -164,7 +164,7 @@ mod test {
         assert_eq!(String::from(path), repository.base_as_str());
 
         let entries = repository.read_entries();
-        assert_eq!(2, entries.len());
+        assert_eq!(3, entries.len());
 
         repository.open_directory("dir2");
         let entries = repository.read_entries();
@@ -172,7 +172,7 @@ mod test {
 
         repository.leave_directory();
         let entries = repository.read_entries();
-        assert_eq!(2, entries.len());
+        assert_eq!(3, entries.len());
     }
 
     #[test]
