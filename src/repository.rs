@@ -59,6 +59,17 @@ impl Repository {
             .fold(self.root.clone(), |acc, item| acc.join(item))
     }
 
+    pub fn current_relative_as_path_buf(&mut self) -> PathBuf {
+        PathBuf::from(self.current_relative_as_str())
+    }
+
+    pub fn current_relative_as_str(&mut self) -> String {
+        let c = self.current_as_path_buf();
+        let b = self.base_as_str();
+
+        c.to_str().unwrap().replace(&b, "")
+    }
+
     pub fn open_directory(&mut self, directory_name: &str) {
         self.path.push(directory_name.into());
     }
@@ -162,5 +173,19 @@ mod test {
         repository.leave_directory();
         let entries = repository.read_entries();
         assert_eq!(2, entries.len());
+    }
+
+    #[test]
+    fn repository_path_relative() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let mut repository = r.unwrap();
+
+        repository.open_directory("dir2");
+
+        assert_eq!("/dir2", repository.current_relative_as_str())
     }
 }

@@ -139,11 +139,11 @@ impl Component for List {
                 return Ok(None);
             }
             Action::SelectCurrent => {
-                let path = &self.repository.current_as_path_buf();
+                let path = &self.repository.current_relative_as_path_buf();
                 if let Some(index) = self.state.selected() {
                     let filename = self.entries.get(index);
                     if let Some(filename) = filename {
-                        let path = path.join(Path::new(&filename.get_name()));
+                        let path = path.join(filename.get_name());
                         return Ok(Some(Action::AppendScripts(vec![path])));
                     }
                 }
