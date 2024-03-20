@@ -1,4 +1,7 @@
-use std::{fs::read_dir, path::PathBuf};
+use std::{
+    fs::read_dir,
+    path::{Path, PathBuf},
+};
 
 use crate::entries::Entry;
 
@@ -78,7 +81,41 @@ impl Repository {
         self.path.pop()
     }
 
-    pub fn read_entries(&self) -> Vec<Entry> {
+    // pub fn read_files_after(&self, from: PathBuf) -> Vec<PathBuf> {}
+
+    pub fn read_files_after_in_directory(
+        &self,
+        from: &Path,
+    ) -> Result<Vec<PathBuf>, std::io::Error> {
+        let current = self.current_as_path_buf();
+        let base = self.base_as_path_buf();
+        let from = current.join(from);
+        let entries = read_dir(current)?
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                let path_str = String::from(path.to_str().unwrap());
+                let file_name = path.file_name()?.to_str()?;
+
+                if file_name.starts_with('_') || file_name.starts_with('.') || path.is_dir() {
+                    return None;
+                }
+
+                if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
+                    Some(path_str)
+                } else {
+                    None
+                }
+            })
+            .skip_while(|path| *path != from.to_str().unwrap())
+            .map(|f| f.replace(base.to_str().unwrap(), ""))
+            .map(|f| PathBuf::from(f))
+            .collect();
+
+        Ok(entries)
+    }
+
+    pub fn read_entries_in_current_directory(&self) -> Vec<Entry> {
         let current = self.current_as_path_buf();
         let mut entries = match read_dir(current) {
             Ok(entries) => entries
@@ -163,15 +200,15 @@ mod test {
         let mut repository = r.unwrap();
         assert_eq!(String::from(path), repository.base_as_str());
 
-        let entries = repository.read_entries();
+        let entries = repository.read_entries_in_current_directory();
         assert_eq!(3, entries.len());
 
         repository.open_directory("dir2");
-        let entries = repository.read_entries();
+        let entries = repository.read_entries_in_current_directory();
         assert_eq!(1, entries.len());
 
         repository.leave_directory();
-        let entries = repository.read_entries();
+        let entries = repository.read_entries_in_current_directory();
         assert_eq!(3, entries.len());
     }
 
@@ -187,5 +224,36 @@ mod test {
         repository.open_directory("dir2");
 
         assert_eq!("/dir2", repository.current_relative_as_str())
+    }
+
+    #[test]
+    fn repository_path_files() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let mut repository = r.unwrap();
+
+        repository.open_directory("dir2");
+
+        assert_eq!(
+            1,
+            repository
+                .read_files_after_in_directory(PathBuf::from("file2.sql").as_path())
+                .unwrap()
+                .len()
+        );
+
+        repository.leave_directory();
+        repository.open_directory("dir3");
+
+        assert_eq!(
+            2,
+            repository
+                .read_files_after_in_directory(PathBuf::from("file5.sql").as_path())
+                .unwrap()
+                .len()
+        );
     }
 }

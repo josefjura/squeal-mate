@@ -15,6 +15,7 @@ pub enum Action {
     DirectoryLeave,
     Message(String, MessageType),
     SelectCurrent,
+    SelectAllAfter,
     SelectScripts(Vec<PathBuf>),
     AppendScripts(Vec<PathBuf>),
     RunScripts,

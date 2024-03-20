@@ -30,7 +30,7 @@ impl List {
             command_tx: None,
             config: HashMap::<String, String>::default(),
             connection,
-            entries: repository.read_entries(),
+            entries: repository.read_entries_in_current_directory(),
             repository,
         }
     }
@@ -66,7 +66,7 @@ impl List {
                 match entry {
                     Entry::Directory(dir_name) => {
                         self.repository.open_directory(&dir_name);
-                        self.entries = self.repository.read_entries();
+                        self.entries = self.repository.read_entries_in_current_directory();
 
                         if self.entries.len() > 0 {
                             self.state.select(Some(0))
@@ -82,7 +82,7 @@ impl List {
     pub fn leave_current_directory(&mut self) {
         let old_dir = self.repository.leave_directory();
         if let Some(old_dir) = old_dir {
-            self.entries = self.repository.read_entries();
+            self.entries = self.repository.read_entries_in_current_directory();
             self.state.select(Some(0));
 
             let old_index = self.entries.iter().position(|r| r.get_name() == &old_dir);
@@ -139,12 +139,23 @@ impl Component for List {
                 return Ok(None);
             }
             Action::SelectCurrent => {
-                let path = &self.repository.current_relative_as_path_buf();
+                let path = self.repository.current_relative_as_path_buf();
                 if let Some(index) = self.state.selected() {
                     let filename = self.entries.get(index);
                     if let Some(filename) = filename {
                         let path = path.join(filename.get_name());
                         return Ok(Some(Action::AppendScripts(vec![path])));
+                    }
+                }
+            }
+            Action::SelectAllAfter => {
+                let path = self.repository.current_relative_as_path_buf();
+                if let Some(index) = self.state.selected() {
+                    let filename = self.entries.get(index);
+                    if let Some(filename) = filename {
+                        let path = Path::new(filename.get_name());
+                        let entries = self.repository.read_files_after_in_directory(path);
+                        return Ok(Some(Action::AppendScripts(entries.unwrap())));
                     }
                 }
             }
