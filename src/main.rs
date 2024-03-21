@@ -46,18 +46,13 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
             let list = List::new(repository, connection.clone());
             let status = Status::new();
             let scroll_list = ScrollList::new();
-            let mut app = App {
-                current_screen: Mode::FileChooser,
-                exit: false,
-                config,
-                frame_rate: 30.0,
-                tick_rate: 1.0,
-                suspend: false,
-                screens: vec![
+            let mut app = App::new(
+                vec![
                     Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),
                     Screen::new(Mode::ScriptRunner, vec![Box::new(scroll_list)]),
                 ],
-            };
+                config,
+            );
 
             app.run().await?;
 

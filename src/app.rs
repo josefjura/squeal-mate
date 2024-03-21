@@ -23,6 +23,10 @@ impl Screen {
     }
 }
 
+pub struct GlobalState {
+    selection: Vec<String>,
+}
+
 pub struct App {
     pub current_screen: Mode,
     pub exit: bool,
@@ -40,6 +44,18 @@ pub enum Mode {
 }
 
 impl App {
+    pub fn new(screens: Vec<Screen>, config: HashMap<String, String>) -> Self {
+        Self {
+            current_screen: Mode::FileChooser,
+            exit: false,
+            suspend: false,
+            frame_rate: 30.0,
+            tick_rate: 1.0,
+            screens,
+            config,
+        }
+    }
+
     pub async fn run(&mut self) -> eyre::Result<()> {
         let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
