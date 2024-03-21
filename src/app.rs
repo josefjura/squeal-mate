@@ -92,6 +92,9 @@ impl App {
                         }
                         KeyCode::Char(' ') => action_tx.send(Action::SelectCurrent)?,
                         KeyCode::Char('s') => action_tx.send(Action::SelectAllAfter)?,
+                        KeyCode::Char('S') => action_tx.send(Action::SelectAllInDirectory)?,
+                        KeyCode::Char('X') => action_tx.send(Action::RemoveAllSelectedScripts)?,
+                        KeyCode::Char('x') => action_tx.send(Action::RemoveSelectedScript)?,
                         KeyCode::Up => action_tx.send(Action::CursorUp)?,
                         KeyCode::Down => action_tx.send(Action::CursorDown)?,
                         KeyCode::Home => action_tx.send(Action::CursorToTop)?,

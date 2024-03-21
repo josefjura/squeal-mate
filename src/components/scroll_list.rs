@@ -8,7 +8,7 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, tui::Frame};
+use crate::{action::Action, entries::Entry, tui::Frame};
 
 pub struct ScrollList {
     command_tx: Option<UnboundedSender<Action>>,
@@ -82,6 +82,16 @@ impl Component for ScrollList {
                 self.go_to_bottom(self.entries.len());
                 return Ok(None);
             }
+            Action::RemoveSelectedScript => {
+                if let Some(pos) = self.state.selected() {
+                    if let Some(_) = self.entries.get(pos) {
+                        self.entries.remove(pos);
+                    }
+                }
+            }
+            Action::RemoveAllSelectedScripts => {
+                self.entries.clear();
+            }
             _ => {}
         }
         Ok(None)
@@ -92,6 +102,7 @@ impl Component for ScrollList {
             Action::SelectScripts(scripts) => {
                 self.entries.clear();
                 self.entries.extend(scripts);
+                self.entries.sort();
                 return Ok(None);
             }
             Action::AppendScripts(scripts) => {
@@ -100,6 +111,7 @@ impl Component for ScrollList {
                     .filter(|s| !self.entries.contains(s))
                     .collect();
                 self.entries.append(&mut only_new);
+                self.entries.sort();
                 return Ok(None);
             }
             _ => {}
@@ -108,13 +120,11 @@ impl Component for ScrollList {
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
-        let mut items: Vec<&str> = self
+        let items: Vec<&str> = self
             .entries
             .iter()
             .filter_map(|f| f.as_path().to_str())
             .collect();
-
-        items.sort();
 
         let list_draw = List::new(items)
             .block(

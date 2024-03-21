@@ -149,7 +149,6 @@ impl Component for List {
                 }
             }
             Action::SelectAllAfter => {
-                let path = self.repository.current_relative_as_path_buf();
                 if let Some(index) = self.state.selected() {
                     let filename = self.entries.get(index);
                     if let Some(filename) = filename {
@@ -158,6 +157,10 @@ impl Component for List {
                         return Ok(Some(Action::AppendScripts(entries.unwrap())));
                     }
                 }
+            }
+            Action::SelectAllInDirectory => {
+                let entries = self.repository.read_files_in_directory();
+                return Ok(Some(Action::AppendScripts(entries.unwrap())));
             }
             _ => {}
         }

@@ -81,7 +81,32 @@ impl Repository {
         self.path.pop()
     }
 
-    // pub fn read_files_after(&self, from: PathBuf) -> Vec<PathBuf> {}
+    pub fn read_files_in_directory(&self) -> Result<Vec<PathBuf>, std::io::Error> {
+        let current = self.current_as_path_buf();
+        let base = self.base_as_path_buf();
+        let entries = read_dir(current)?
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                let path_str = String::from(path.to_str().unwrap());
+                let file_name = path.file_name()?.to_str()?;
+
+                if file_name.starts_with('_') || file_name.starts_with('.') || path.is_dir() {
+                    return None;
+                }
+
+                if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
+                    Some(path_str)
+                } else {
+                    None
+                }
+            })
+            .map(|f| f.replace(base.to_str().unwrap(), ""))
+            .map(|f| PathBuf::from(f))
+            .collect();
+
+        Ok(entries)
+    }
 
     pub fn read_files_after_in_directory(
         &self,
