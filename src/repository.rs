@@ -81,7 +81,7 @@ impl Repository {
         self.path.pop()
     }
 
-    pub fn read_files_in_directory(&self) -> Result<Vec<PathBuf>, std::io::Error> {
+    pub fn read_files_in_directory(&self) -> Result<Vec<Entry>, std::io::Error> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
@@ -102,16 +102,13 @@ impl Repository {
                 }
             })
             .map(|f| f.replace(base.to_str().unwrap(), ""))
-            .map(|f| PathBuf::from(f))
+            .map(|f| Entry::File(f, false))
             .collect();
 
         Ok(entries)
     }
 
-    pub fn read_files_after_in_directory(
-        &self,
-        from: &Path,
-    ) -> Result<Vec<PathBuf>, std::io::Error> {
+    pub fn read_files_after_in_directory(&self, from: &Path) -> Result<Vec<Entry>, std::io::Error> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let from = current.join(from);
@@ -134,7 +131,7 @@ impl Repository {
             })
             .skip_while(|path| *path != from.to_str().unwrap())
             .map(|f| f.replace(base.to_str().unwrap(), ""))
-            .map(|f| PathBuf::from(f))
+            .map(|f| Entry::File(f, false))
             .collect();
 
         Ok(entries)
@@ -157,7 +154,7 @@ impl Repository {
                     if path.is_dir() {
                         Some(Entry::Directory(file_name.to_owned()))
                     } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
-                        Some(Entry::File(file_name.to_owned()))
+                        Some(Entry::File(file_name.to_owned(), false))
                     } else {
                         None
                     }

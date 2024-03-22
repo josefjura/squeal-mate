@@ -1,6 +1,7 @@
-use std::path::PathBuf;
-
-use crate::app::{MessageType, Mode};
+use crate::{
+    app::{MessageType, Mode},
+    entries::Entry,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -17,8 +18,8 @@ pub enum Action {
     SelectCurrent,
     SelectAllAfter,
     SelectAllInDirectory,
-    SelectScripts(Vec<PathBuf>),
-    AppendScripts(Vec<PathBuf>),
+    SelectScripts(Vec<Entry>),
+    AppendScripts(Vec<Entry>),
     RemoveSelectedScript,
     RemoveAllSelectedScripts,
     RunScripts,

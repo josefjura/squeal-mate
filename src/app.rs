@@ -23,10 +23,6 @@ impl Screen {
     }
 }
 
-pub struct GlobalState {
-    selection: Vec<String>,
-}
-
 pub struct App {
     pub current_screen: Mode,
     pub exit: bool,

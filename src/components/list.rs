@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, path::Path, vec};
 
 use color_eyre::eyre::Result;
 use ratatui::{prelude::*, widgets::*};
@@ -66,7 +66,15 @@ impl List {
                 match entry {
                     Entry::Directory(dir_name) => {
                         self.repository.open_directory(&dir_name);
-                        self.entries = self.repository.read_entries_in_current_directory();
+                        self.entries = self
+                            .repository
+                            .read_entries_in_current_directory()
+                            .into_iter()
+                            .map(|f| match f {
+                                Entry::File(inside, selection) => Entry::File(inside, selection),
+                                _ => f,
+                            })
+                            .collect();
 
                         if self.entries.len() > 0 {
                             self.state.select(Some(0))
@@ -74,7 +82,7 @@ impl List {
                             self.state.select(None)
                         }
                     }
-                    Entry::File(_) => {}
+                    _ => {}
                 }
             }
         }
@@ -85,7 +93,10 @@ impl List {
             self.entries = self.repository.read_entries_in_current_directory();
             self.state.select(Some(0));
 
-            let old_index = self.entries.iter().position(|r| r.get_name() == &old_dir);
+            let old_index = self
+                .entries
+                .iter()
+                .position(|r| r.get_name_ref() == &old_dir);
 
             if let Some(old_index) = old_index {
                 self.state.select(Some(old_index));
@@ -139,28 +150,68 @@ impl Component for List {
                 return Ok(None);
             }
             Action::SelectCurrent => {
-                let path = self.repository.current_relative_as_path_buf();
                 if let Some(index) = self.state.selected() {
-                    let filename = self.entries.get(index);
-                    if let Some(filename) = filename {
-                        let path = path.join(filename.get_name());
-                        return Ok(Some(Action::AppendScripts(vec![path])));
+                    if let Some(entry) = self.entries.get_mut(index) {
+                        // Clone the name before the mutable borrow
+
+                        match entry {
+                            Entry::File(_, selected) => {
+                                *selected = true;
+                            }
+                            _ => {}
+                        }
+                        let entry_clone = entry.clone();
+                        return Ok(Some(Action::AppendScripts(vec![entry_clone])));
                     }
                 }
             }
             Action::SelectAllAfter => {
                 if let Some(index) = self.state.selected() {
                     let filename = self.entries.get(index);
-                    if let Some(filename) = filename {
-                        let path = Path::new(filename.get_name());
+                    if let Some(entry) = filename {
+                        let path = Path::new(entry.get_name_ref());
                         let entries = self.repository.read_files_after_in_directory(path);
-                        return Ok(Some(Action::AppendScripts(entries.unwrap())));
+                        let mut result = entries.unwrap();
+
+                        result.iter_mut().map(|entry| match entry {
+                            Entry::File(_, selected) => {
+                                *selected = true;
+                            }
+                            _ => {}
+                        });
+
+                        // let mut selection: Vec<String> = result
+                        //     .into_iter()
+                        //     .filter_map(|f| {
+                        //         if f.is_file() {
+                        //             Some(f.get_name().clone())
+                        //         } else {
+                        //             None
+                        //         }
+                        //     })
+                        //     .collect();
+
+                        return Ok(Some(Action::AppendScripts(result)));
                     }
                 }
             }
             Action::SelectAllInDirectory => {
                 let entries = self.repository.read_files_in_directory();
-                return Ok(Some(Action::AppendScripts(entries.unwrap())));
+                let mut result = entries.unwrap();
+                // let mut selection: Vec<String> = result
+                //     .iter()
+                //     .filter_map(|f| f.as_path().to_str())
+                //     .map(|f| String::from(f))
+                //     .collect();
+
+                result.iter_mut().map(|entry| match entry {
+                    Entry::File(_, selected) => {
+                        *selected = true;
+                    }
+                    _ => {}
+                });
+
+                return Ok(Some(Action::AppendScripts(result)));
             }
             _ => {}
         }
@@ -172,7 +223,7 @@ impl Component for List {
             Action::ScriptRun => {
                 if let Some(selected) = self.state.selected() {
                     if let Some(entry) = self.entries.get(selected) {
-                        if let Entry::File(file) = entry {
+                        if let Entry::File(file, _) = entry {
                             let full_path =
                                 self.repository.current_as_path_buf().join(Path::new(&file));
                             let connection = self.connection.clone();
@@ -256,11 +307,17 @@ impl Component for List {
 impl<'a> From<&Entry> for ListItem<'a> {
     fn from(value: &Entry) -> Self {
         let style = match value {
-            Entry::File(_) => Style::new().white(),
+            Entry::File(_, selected) => {
+                if *selected {
+                    Style::new().white().on_light_green()
+                } else {
+                    Style::new().white()
+                }
+            }
             Entry::Directory(_) => Style::new().light_blue(),
         };
 
-        ListItem::<'a>::new(value.get_name().to_string()).style(style)
+        ListItem::<'a>::new(value.get_name_ref().to_string()).style(style)
     }
 }
 

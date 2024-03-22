@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use color_eyre::eyre::{Ok, Result};
 use ratatui::{
@@ -8,13 +8,17 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, entries::Entry, tui::Frame};
+use crate::{
+    action::Action,
+    entries::{Entry, Name},
+    tui::Frame,
+};
 
 pub struct ScrollList {
     command_tx: Option<UnboundedSender<Action>>,
     config: HashMap<String, String>,
     state: ListState,
-    entries: Vec<PathBuf>,
+    entries: Vec<Entry>,
 }
 
 impl ScrollList {
@@ -106,7 +110,7 @@ impl Component for ScrollList {
                 return Ok(None);
             }
             Action::AppendScripts(scripts) => {
-                let mut only_new: Vec<PathBuf> = scripts
+                let mut only_new: Vec<Entry> = scripts
                     .into_iter()
                     .filter(|s| !self.entries.contains(s))
                     .collect();
@@ -120,10 +124,10 @@ impl Component for ScrollList {
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
-        let items: Vec<&str> = self
+        let items: Vec<String> = self
             .entries
             .iter()
-            .filter_map(|f| f.as_path().to_str())
+            .map(|e| e.get_name_ref().clone().to_string())
             .collect();
 
         let list_draw = List::new(items)
