@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
-use color_eyre::eyre::{Ok, Result};
+use color_eyre::eyre::{Error, Result};
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Borders, List, ListState},
@@ -10,6 +10,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Component;
 use crate::{
     action::Action,
+    app::MessageType,
+    db::Database,
     entries::{Entry, Name},
     tui::Frame,
 };
@@ -19,15 +21,19 @@ pub struct ScrollList {
     config: HashMap<String, String>,
     state: ListState,
     entries: Vec<Entry>,
+    db: Database,
+    base: PathBuf,
 }
 
 impl ScrollList {
-    pub fn new() -> Self {
+    pub fn new(db: Database, base: PathBuf) -> Self {
         Self {
             command_tx: None,
             config: HashMap::<String, String>::default(),
             state: ListState::default().with_selected(Some(0)),
             entries: vec![],
+            db,
+            base,
         }
     }
 
@@ -118,6 +124,54 @@ impl Component for ScrollList {
             }
             Action::RemoveScript(entry) => self.entries.retain(|e| *e != entry),
             Action::RemoveAllSelectedScripts => self.entries.clear(),
+            Action::ScriptRun => {
+                let selected = self
+                    .state
+                    .selected()
+                    .ok_or_else(|| Error::msg("No selection"))?;
+                let entry = self
+                    .entries
+                    .get(selected)
+                    .ok_or_else(|| Error::msg("Invalid entry"))?;
+
+                if let Entry::File(_) = entry {
+                    let full_path = self.base.join(entry.get_full_path()?);
+                    let connection = self.db.clone();
+                    send_through_channel(
+                        &self.command_tx,
+                        Action::Message("Executing script".into(), MessageType::Info),
+                    );
+
+                    let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+
+                    tokio::spawn(async move {
+                        send_through_channel(&channel, Action::StartSpinner);
+
+                        let result = connection.execute_script(full_path).await;
+
+                        match result {
+                            Ok(_) => {
+                                send_through_channel(
+                                    &channel,
+                                    Action::Message(
+                                        "Finished execution".into(),
+                                        MessageType::Success,
+                                    ),
+                                );
+                            }
+                            Err(err) => {
+                                send_through_channel(
+                                    &channel,
+                                    Action::Message(err.to_string(), MessageType::Error),
+                                );
+                            }
+                        }
+
+                        send_through_channel(&channel, Action::StopSpinner);
+                    });
+                    return Ok(None);
+                }
+            }
             _ => {}
         }
         Ok(None)
@@ -144,5 +198,13 @@ impl Component for ScrollList {
         f.render_stateful_widget(&list_draw, area, &mut self.state);
 
         Ok(())
+    }
+}
+
+fn send_through_channel(channel: &Option<UnboundedSender<Action>>, action: Action) {
+    if let Some(channel) = channel {
+        if let Err(error) = channel.send(action) {
+            log::error!("{}", error);
+        }
     }
 }

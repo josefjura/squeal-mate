@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{error::Error, fmt::Display, path::PathBuf};
 
 use color_eyre::eyre::{self, Result};
 use tracing::error;
@@ -108,6 +108,15 @@ impl PathWrapper {
     }
 }
 
+#[derive(Debug)]
 pub enum PathError {
     CantCreateFromFilenameOnly,
 }
+
+impl Display for PathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error while accessing a filename")
+    }
+}
+
+impl Error for PathError {}

@@ -39,13 +39,13 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
         PathBuf::from_str("./").expect("Can't open current directory")
     };
 
-    let repository = Repository::new(path);
+    let repository = Repository::new(path.clone());
 
     match repository {
         Ok(repository) => {
-            let list = List::new(repository, connection.clone());
+            let list = List::new(repository);
             let status = Status::new();
-            let scroll_list = ScrollList::new();
+            let scroll_list = ScrollList::new(connection.clone(), path);
             let mut app = App::new(
                 vec![
                     Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),

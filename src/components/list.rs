@@ -19,18 +19,16 @@ pub struct List {
     config: HashMap<String, String>,
     state: ListState,
     repository: Repository,
-    connection: Database,
     entries: Vec<Entry>,
     selection: Vec<Entry>,
 }
 
 impl List {
-    pub fn new(repository: Repository, connection: Database) -> Self {
+    pub fn new(repository: Repository) -> Self {
         Self {
             state: ListState::default().with_selected(Some(0)),
             command_tx: None,
             config: HashMap::<String, String>::default(),
-            connection,
             entries: repository.read_entries_in_current_directory(),
             repository,
             selection: vec![],
@@ -196,57 +194,6 @@ impl Component for List {
 
     fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
-            Action::ScriptRun => {
-                let selected = self
-                    .state
-                    .selected()
-                    .ok_or_else(|| Error::msg("No selection"))?;
-                let entry = self
-                    .entries
-                    .get(selected)
-                    .ok_or_else(|| Error::msg("Invalid entry"))?;
-
-                if let Entry::File(_) = entry {
-                    let full_path = self
-                        .repository
-                        .current_as_path_buf()
-                        .join(Path::new(entry.get_filename_ref()));
-                    let connection = self.connection.clone();
-                    send_through_channel(
-                        &self.command_tx,
-                        Action::Message("Executing script".into(), MessageType::Info),
-                    );
-
-                    let channel = self.command_tx.clone();
-
-                    tokio::spawn(async move {
-                        send_through_channel(&channel, Action::StartSpinner);
-
-                        let result = connection.execute_script(full_path).await;
-
-                        match result {
-                            Ok(_) => {
-                                send_through_channel(
-                                    &channel,
-                                    Action::Message(
-                                        "Finished execution".into(),
-                                        MessageType::Success,
-                                    ),
-                                );
-                            }
-                            Err(err) => {
-                                send_through_channel(
-                                    &channel,
-                                    Action::Message(err.to_string(), MessageType::Error),
-                                );
-                            }
-                        }
-
-                        send_through_channel(&channel, Action::StopSpinner);
-                    });
-                    return Ok(None);
-                }
-            }
             Action::RemoveAllSelectedScripts => self.selection.clear(),
             Action::RemoveScript(entry) => self.selection.retain(|e| *e != entry),
             _ => {}
@@ -307,13 +254,5 @@ impl Component for List {
         f.render_widget(path_draw, rects[0]);
         f.render_stateful_widget(list_draw, rects[1], &mut self.state);
         Ok(())
-    }
-}
-
-fn send_through_channel(channel: &Option<UnboundedSender<Action>>, action: Action) {
-    if let Some(channel) = channel {
-        if let Err(error) = channel.send(action) {
-            log::error!("{}", error);
-        }
     }
 }
