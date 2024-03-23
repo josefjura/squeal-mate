@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path, vec};
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Error, Result};
 use ratatui::{prelude::*, widgets::*};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -21,6 +21,7 @@ pub struct List {
     repository: Repository,
     connection: Database,
     entries: Vec<Entry>,
+    selection: Vec<Entry>,
 }
 
 impl List {
@@ -32,6 +33,7 @@ impl List {
             connection,
             entries: repository.read_entries_in_current_directory(),
             repository,
+            selection: vec![],
         }
     }
 
@@ -66,15 +68,7 @@ impl List {
                 match entry {
                     Entry::Directory(dir_name) => {
                         self.repository.open_directory(&dir_name);
-                        self.entries = self
-                            .repository
-                            .read_entries_in_current_directory()
-                            .into_iter()
-                            .map(|f| match f {
-                                Entry::File(inside, selection) => Entry::File(inside, selection),
-                                _ => f,
-                            })
-                            .collect();
+                        self.entries = self.repository.read_entries_in_current_directory();
 
                         if self.entries.len() > 0 {
                             self.state.select(Some(0))
@@ -96,7 +90,7 @@ impl List {
             let old_index = self
                 .entries
                 .iter()
-                .position(|r| r.get_name_ref() == &old_dir);
+                .position(|r| r.get_filename_ref() == &old_dir);
 
             if let Some(old_index) = old_index {
                 self.state.select(Some(old_index));
@@ -149,19 +143,26 @@ impl Component for List {
                 self.leave_current_directory();
                 return Ok(None);
             }
+            Action::RemoveSelectedScript => {
+                if let Some(index) = self.state.selected() {
+                    if let Some(entry) = self.entries.get(index) {
+                        if self.selection.contains(entry) {
+                            self.selection.retain(|e| *e != *entry);
+                            return Ok(Some(Action::RemoveScript(entry.clone())));
+                        }
+                    }
+                }
+            }
             Action::SelectCurrent => {
                 if let Some(index) = self.state.selected() {
-                    if let Some(entry) = self.entries.get_mut(index) {
-                        // Clone the name before the mutable borrow
-
-                        match entry {
-                            Entry::File(_, selected) => {
-                                *selected = true;
-                            }
-                            _ => {}
+                    if let Some(entry) = self.entries.get(index) {
+                        if self.selection.contains(entry) {
+                            self.selection.retain(|e| *e != *entry);
+                            return Ok(Some(Action::RemoveScript(entry.clone())));
+                        } else {
+                            self.selection.push(entry.clone());
+                            return Ok(Some(Action::AppendScripts(vec![entry.clone()])));
                         }
-                        let entry_clone = entry.clone();
-                        return Ok(Some(Action::AppendScripts(vec![entry_clone])));
                     }
                 }
             }
@@ -169,48 +170,23 @@ impl Component for List {
                 if let Some(index) = self.state.selected() {
                     let filename = self.entries.get(index);
                     if let Some(entry) = filename {
-                        let path = Path::new(entry.get_name_ref());
-                        let entries = self.repository.read_files_after_in_directory(path);
-                        let mut result = entries.unwrap();
-
-                        result.iter_mut().map(|entry| match entry {
-                            Entry::File(_, selected) => {
-                                *selected = true;
-                            }
-                            _ => {}
-                        });
-
-                        // let mut selection: Vec<String> = result
-                        //     .into_iter()
-                        //     .filter_map(|f| {
-                        //         if f.is_file() {
-                        //             Some(f.get_name().clone())
-                        //         } else {
-                        //             None
-                        //         }
-                        //     })
-                        //     .collect();
-
+                        let entries = self.repository.read_files_after_in_directory(entry);
+                        let result = entries.unwrap();
+                        self.selection.extend(result.iter().cloned());
                         return Ok(Some(Action::AppendScripts(result)));
                     }
                 }
             }
             Action::SelectAllInDirectory => {
                 let entries = self.repository.read_files_in_directory();
-                let mut result = entries.unwrap();
+                let result = entries.unwrap();
                 // let mut selection: Vec<String> = result
                 //     .iter()
                 //     .filter_map(|f| f.as_path().to_str())
                 //     .map(|f| String::from(f))
                 //     .collect();
 
-                result.iter_mut().map(|entry| match entry {
-                    Entry::File(_, selected) => {
-                        *selected = true;
-                    }
-                    _ => {}
-                });
-
+                self.selection.extend(result.iter().cloned());
                 return Ok(Some(Action::AppendScripts(result)));
             }
             _ => {}
@@ -221,49 +197,58 @@ impl Component for List {
     fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
             Action::ScriptRun => {
-                if let Some(selected) = self.state.selected() {
-                    if let Some(entry) = self.entries.get(selected) {
-                        if let Entry::File(file, _) = entry {
-                            let full_path =
-                                self.repository.current_as_path_buf().join(Path::new(&file));
-                            let connection = self.connection.clone();
-                            send_through_channel(
-                                &self.command_tx,
-                                Action::Message("Executing script".into(), MessageType::Info),
-                            );
+                let selected = self
+                    .state
+                    .selected()
+                    .ok_or_else(|| Error::msg("No selection"))?;
+                let entry = self
+                    .entries
+                    .get(selected)
+                    .ok_or_else(|| Error::msg("Invalid entry"))?;
 
-                            let channel = self.command_tx.clone();
+                if let Entry::File(_) = entry {
+                    let full_path = self
+                        .repository
+                        .current_as_path_buf()
+                        .join(Path::new(entry.get_filename_ref()));
+                    let connection = self.connection.clone();
+                    send_through_channel(
+                        &self.command_tx,
+                        Action::Message("Executing script".into(), MessageType::Info),
+                    );
 
-                            tokio::spawn(async move {
-                                send_through_channel(&channel, Action::StartSpinner);
+                    let channel = self.command_tx.clone();
 
-                                let result = connection.execute_script(full_path).await;
+                    tokio::spawn(async move {
+                        send_through_channel(&channel, Action::StartSpinner);
 
-                                match result {
-                                    Ok(_) => {
-                                        send_through_channel(
-                                            &channel,
-                                            Action::Message(
-                                                "Finished execution".into(),
-                                                MessageType::Success,
-                                            ),
-                                        );
-                                    }
-                                    Err(err) => {
-                                        send_through_channel(
-                                            &channel,
-                                            Action::Message(err.to_string(), MessageType::Error),
-                                        );
-                                    }
-                                }
+                        let result = connection.execute_script(full_path).await;
 
-                                send_through_channel(&channel, Action::StopSpinner);
-                            });
-                            return Ok(None);
+                        match result {
+                            Ok(_) => {
+                                send_through_channel(
+                                    &channel,
+                                    Action::Message(
+                                        "Finished execution".into(),
+                                        MessageType::Success,
+                                    ),
+                                );
+                            }
+                            Err(err) => {
+                                send_through_channel(
+                                    &channel,
+                                    Action::Message(err.to_string(), MessageType::Error),
+                                );
+                            }
                         }
-                    }
+
+                        send_through_channel(&channel, Action::StopSpinner);
+                    });
+                    return Ok(None);
                 }
             }
+            Action::RemoveAllSelectedScripts => self.selection.clear(),
+            Action::RemoveScript(entry) => self.selection.retain(|e| *e != entry),
             _ => {}
         }
         Ok(None)
@@ -288,7 +273,28 @@ impl Component for List {
         );
         let path_draw = Line::default().spans(vec![path_span]);
 
-        let list_draw = ratatui::widgets::List::new(&self.entries)
+        let items: Vec<ListItem> = self
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                let name = entry.get_filename_ref().clone();
+                let style = match entry {
+                    Entry::File(_) => {
+                        if self.selection.contains(entry) {
+                            Style::new().white().on_light_green()
+                        } else {
+                            Style::new().white()
+                        }
+                    }
+                    Entry::Directory(_) => Style::new().light_blue(),
+                };
+
+                let list_item = ListItem::new(name).style(style);
+                Some(list_item)
+            })
+            .collect();
+
+        let list_draw = ratatui::widgets::List::new(items)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -301,23 +307,6 @@ impl Component for List {
         f.render_widget(path_draw, rects[0]);
         f.render_stateful_widget(list_draw, rects[1], &mut self.state);
         Ok(())
-    }
-}
-
-impl<'a> From<&Entry> for ListItem<'a> {
-    fn from(value: &Entry) -> Self {
-        let style = match value {
-            Entry::File(_, selected) => {
-                if *selected {
-                    Style::new().white().on_light_green()
-                } else {
-                    Style::new().white()
-                }
-            }
-            Entry::Directory(_) => Style::new().light_blue(),
-        };
-
-        ListItem::<'a>::new(value.get_name_ref().to_string()).style(style)
     }
 }
 

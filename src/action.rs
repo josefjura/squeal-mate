@@ -3,7 +3,7 @@ use crate::{
     entries::Entry,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Tick,
     Render,
@@ -21,6 +21,7 @@ pub enum Action {
     SelectScripts(Vec<Entry>),
     AppendScripts(Vec<Entry>),
     RemoveSelectedScript,
+    RemoveScript(Entry),
     RemoveAllSelectedScripts,
     RunScripts,
     SwitchMode(Mode),

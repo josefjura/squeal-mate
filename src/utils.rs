@@ -1,4 +1,6 @@
-use color_eyre::eyre;
+use std::path::PathBuf;
+
+use color_eyre::eyre::{self, Result};
 use tracing::error;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -75,4 +77,37 @@ pub fn initialize_logging() -> eyre::Result<()> {
         .with(ErrorLayer::default())
         .init();
     Ok(())
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+pub enum PathWrapper {
+    Filename(String),
+    Relative {
+        relative_dir: PathBuf,
+        filename: String,
+    },
+    Absolute {
+        absolute_dir: PathBuf,
+        filename: String,
+    },
+}
+
+impl PathWrapper {
+    pub fn get_full_path(&self) -> Result<PathBuf, PathError> {
+        match self {
+            PathWrapper::Filename(name) => Err(PathError::CantCreateFromFilenameOnly),
+            PathWrapper::Relative {
+                relative_dir,
+                filename,
+            } => Ok(PathBuf::from(relative_dir).join(filename)),
+            PathWrapper::Absolute {
+                absolute_dir,
+                filename,
+            } => Ok(PathBuf::from(absolute_dir).join(filename)),
+        }
+    }
+}
+
+pub enum PathError {
+    CantCreateFromFilenameOnly,
 }

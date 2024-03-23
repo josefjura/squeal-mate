@@ -88,13 +88,11 @@ impl Component for ScrollList {
             }
             Action::RemoveSelectedScript => {
                 if let Some(pos) = self.state.selected() {
-                    if let Some(_) = self.entries.get(pos) {
-                        self.entries.remove(pos);
+                    let entry = self.entries.get(pos);
+                    if let Some(entry) = entry {
+                        return Ok(Some(Action::RemoveScript(entry.clone())));
                     }
                 }
-            }
-            Action::RemoveAllSelectedScripts => {
-                self.entries.clear();
             }
             _ => {}
         }
@@ -118,6 +116,8 @@ impl Component for ScrollList {
                 self.entries.sort();
                 return Ok(None);
             }
+            Action::RemoveScript(entry) => self.entries.retain(|e| *e != entry),
+            Action::RemoveAllSelectedScripts => self.entries.clear(),
             _ => {}
         }
         Ok(None)
@@ -127,7 +127,8 @@ impl Component for ScrollList {
         let items: Vec<String> = self
             .entries
             .iter()
-            .map(|e| e.get_name_ref().clone().to_string())
+            .filter_map(|e| e.get_full_path().ok()?.to_str().map(str::to_owned))
+            .map(String::from)
             .collect();
 
         let list_draw = List::new(items)
