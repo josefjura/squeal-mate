@@ -1,7 +1,4 @@
-use crate::{
-    app::{MessageType, Mode},
-    entries::Entry,
-};
+use crate::{app::MessageType, entries::Entry, screen::Mode};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {

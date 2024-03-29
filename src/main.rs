@@ -7,18 +7,20 @@ mod db;
 mod entries;
 mod error;
 mod repository;
+mod screen;
 mod tui;
 mod utils;
 
-use crate::app::{App, Mode};
+use crate::screen::{Mode, Screen};
+
+use crate::app::App;
 use crate::components::list::List;
-use app::Screen;
 use clap::Parser;
 use cli::{AeqArgs, Command};
 use color_eyre::eyre;
 use components::scroll_list::ScrollList;
 use components::status::Status;
-use config::{get_config_dir, read_config};
+use config::{get_config_dir, get_data_dir, read_config};
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
@@ -75,10 +77,13 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
 
 fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {
     let config_path = get_config_dir();
+    let data_path = get_data_dir();
     let config_path_str = config_path.to_str().expect("Unknown host system").white();
+    let data_path_str = data_path.to_str().expect("Unknown host system").white();
     let version = env!("CARGO_PKG_VERSION").white();
     let version_msg = format!("Version: {}\n", version);
     let config_msg = format!("Config src: {}\n", config_path_str);
+    let data_msg = format!("Logs dir: {}\n", data_path_str);
     execute!(
         stdout,
         Print("🦀 Aequitas Command And Control Console 🦀\n".yellow()),
@@ -86,7 +91,8 @@ fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {
         Print(version_msg),
         Print("Edition: "),
         Print("Ultimate\n\n".white()),
-        Print(config_msg)
+        Print(config_msg),
+        Print(data_msg)
     )?;
 
     stdout.flush()?;

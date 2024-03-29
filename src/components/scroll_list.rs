@@ -1,11 +1,16 @@
-use std::{collections::HashMap, path::PathBuf};
+use async_trait::async_trait;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    thread,
+};
 
 use color_eyre::eyre::{Error, Result};
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Borders, List, ListState},
 };
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{self, channel, UnboundedSender};
 
 use super::Component;
 use crate::{
@@ -62,6 +67,7 @@ impl ScrollList {
     }
 }
 
+#[async_trait]
 impl Component for ScrollList {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -105,7 +111,7 @@ impl Component for ScrollList {
         Ok(None)
     }
 
-    fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
+    async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
             Action::SelectScripts(scripts) => {
                 self.entries.clear();
@@ -125,52 +131,62 @@ impl Component for ScrollList {
             Action::RemoveScript(entry) => self.entries.retain(|e| *e != entry),
             Action::RemoveAllSelectedScripts => self.entries.clear(),
             Action::ScriptRun => {
-                let selected = self
-                    .state
-                    .selected()
-                    .ok_or_else(|| Error::msg("No selection"))?;
-                let entry = self
-                    .entries
-                    .get(selected)
-                    .ok_or_else(|| Error::msg("Invalid entry"))?;
+                let (tx, mut rx) = tokio::sync::mpsc::channel::<bool>(1);
 
-                if let Entry::File(_) = entry {
-                    let full_path = self.base.join(entry.get_full_path()?);
-                    let connection = self.db.clone();
-                    send_through_channel(
-                        &self.command_tx,
-                        Action::Message("Executing script".into(), MessageType::Info),
-                    );
+                for entry in self.entries.iter() {
+                    if let Entry::File(_) = entry {
+                        let rel_dir = entry.get_full_path()?;
+                        let full_path = self.base.join(&rel_dir);
+                        log::info!("{:?} {:?}", rel_dir, full_path);
+                        send_through_channel(
+                            &self.command_tx,
+                            Action::Message("Executing script".into(), MessageType::Info),
+                        );
 
-                    let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+                        let connection = self.db.clone();
+                        let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+                        let tx_clone = tx.clone();
 
-                    tokio::spawn(async move {
-                        send_through_channel(&channel, Action::StartSpinner);
+                        tokio::spawn(async move {
+                            send_through_channel(&channel, Action::StartSpinner);
 
-                        let result = connection.execute_script(full_path).await;
+                            let result = connection.execute_script(full_path).await;
 
-                        match result {
-                            Ok(_) => {
-                                send_through_channel(
-                                    &channel,
-                                    Action::Message(
-                                        "Finished execution".into(),
-                                        MessageType::Success,
-                                    ),
-                                );
+                            match result {
+                                Ok(_) => {
+                                    send_through_channel(
+                                        &channel,
+                                        Action::Message(
+                                            "Finished execution".into(),
+                                            MessageType::Success,
+                                        ),
+                                    );
+                                }
+                                Err(err) => {
+                                    send_through_channel(
+                                        &channel,
+                                        Action::Message(err.to_string(), MessageType::Error),
+                                    );
+                                }
                             }
-                            Err(err) => {
-                                send_through_channel(
-                                    &channel,
-                                    Action::Message(err.to_string(), MessageType::Error),
-                                );
-                            }
-                        }
 
-                        send_through_channel(&channel, Action::StopSpinner);
-                    });
-                    return Ok(None);
+                            send_through_channel(&channel, Action::StopSpinner);
+                            let _ = tx_clone.send(true).await;
+                        });
+
+                        rx.recv().await;
+                    }
                 }
+                return Ok(None);
+
+                // let selected = self
+                //     .state
+                //     .selected()
+                //     .ok_or_else(|| Error::msg("No selection"))?;
+                // let entry = self
+                //     .entries
+                //     .get(selected)
+                //     .ok_or_else(|| Error::msg("Invalid entry"))?;
             }
             _ => {}
         }

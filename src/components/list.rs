@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::{collections::HashMap, path::Path, vec};
 
 use color_eyre::eyre::{Error, Result};
@@ -7,10 +8,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Component;
 use crate::{
     action::Action,
-    app::MessageType,
     db::Database,
     entries::{Entry, Name},
     repository::Repository,
+    screen::Mode,
     tui::Frame,
 };
 
@@ -103,6 +104,7 @@ impl List {
     }
 }
 
+#[async_trait]
 impl Component for List {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -187,12 +189,13 @@ impl Component for List {
                 self.selection.extend(result.iter().cloned());
                 return Ok(Some(Action::AppendScripts(result)));
             }
+            Action::RunScripts => return Ok(Some(Action::SwitchMode(Mode::ScriptRunner))),
             _ => {}
         }
         Ok(None)
     }
 
-    fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
+    async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
             Action::RemoveAllSelectedScripts => self.selection.clear(),
             Action::RemoveScript(entry) => self.selection.retain(|e| *e != entry),

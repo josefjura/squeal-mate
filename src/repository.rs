@@ -115,8 +115,10 @@ impl Repository {
                 }
                 if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                     let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
+
                     Some(Entry::File(PathWrapper::Relative {
-                        relative_dir: PathBuf::from(relative_path),
+                        relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
                         filename: file_name.into(),
                     }))
                 } else {
@@ -147,8 +149,10 @@ impl Repository {
 
                 if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                     let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
+
                     Some(Entry::File(PathWrapper::Relative {
-                        relative_dir: PathBuf::from(relative_path),
+                        relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
                         filename: file_name.into(),
                     }))
                 } else {
@@ -182,8 +186,10 @@ impl Repository {
                         Some(Entry::Directory(file_name.to_owned()))
                     } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                         let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                        let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
+                        log::info!("HERE: {}", fixed);
                         Some(Entry::File(PathWrapper::Relative {
-                            relative_dir: PathBuf::from(relative_path),
+                            relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
                             filename: file_name.into(),
                         }))
                     } else {
