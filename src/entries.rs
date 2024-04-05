@@ -77,6 +77,7 @@ pub struct ResultLine {
     pub result: Entry,
     pub state: ResultState,
     pub error: Option<String>,
+    pub elapsed: Option<u128>,
 }
 
 impl ResultLine {
@@ -85,6 +86,7 @@ impl ResultLine {
             error: None,
             result: entry.clone(),
             state: ResultState::NONE,
+            elapsed: None,
         };
     }
 }

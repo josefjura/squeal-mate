@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub mod list;
+pub mod script_status;
 pub mod scroll_list;
 pub mod status;
 

@@ -1,24 +1,19 @@
 use async_trait::async_trait;
-use crossterm::style::{StyledContent, Stylize};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    thread,
-};
+// use crossterm::style::{StyledContent, Stylize};
+use std::{collections::HashMap, path::PathBuf};
 
-use color_eyre::eyre::{Error, Result};
+use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
 };
-use tokio::sync::mpsc::{self, channel, UnboundedSender};
+use tokio::{sync::mpsc::UnboundedSender, time::Instant};
 
 use super::Component;
 use crate::{
     action::Action,
-    app::MessageType,
     db::Database,
-    entries::{Entry, Name, ResultLine, ResultState},
+    entries::{Entry, ResultLine, ResultState},
     tui::Frame,
 };
 
@@ -52,6 +47,9 @@ impl ScrollList {
     }
 
     pub fn cursor_down(&mut self, entries_len: usize) {
+        if entries_len == 0 {
+            return;
+        }
         if let Some(position) = self.state.selected() {
             if position < entries_len - 1 {
                 self.state.select(Some(position + 1))
@@ -85,19 +83,19 @@ impl Component for ScrollList {
             Action::Tick => {}
             Action::CursorUp => {
                 self.cursor_up();
-                return Ok(None);
+                return self.get_update();
             }
             Action::CursorDown => {
                 self.cursor_down(self.results.len());
-                return Ok(None);
+                return self.get_update();
             }
             Action::CursorToTop => {
                 self.go_to_top();
-                return Ok(None);
+                return self.get_update();
             }
             Action::CursorToBottom => {
                 self.go_to_bottom(self.results.len());
-                return Ok(None);
+                return self.get_update();
             }
             Action::RemoveSelectedScript => {
                 if let Some(pos) = self.state.selected() {
@@ -114,11 +112,14 @@ impl Component for ScrollList {
 
     async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
-            Action::ScriptFinished(entry) => self
+            Action::ScriptFinished(entry, elapsed) => self
                 .results
                 .iter_mut()
                 .filter(|s| s.result == entry)
-                .for_each(|s| s.state = ResultState::FINISHED),
+                .for_each(|s| {
+                    s.state = ResultState::FINISHED;
+                    s.elapsed = Some(elapsed);
+                }),
             Action::ScriptError(entry, message) => self
                 .results
                 .iter_mut()
@@ -137,7 +138,8 @@ impl Component for ScrollList {
                 self.results
                     .extend(scripts.iter().map(|s| ResultLine::None(s)));
                 self.results.sort();
-                return Ok(None);
+
+                return self.get_update();
             }
             Action::AppendScripts(scripts) => {
                 let mut only_new: Vec<ResultLine> = scripts
@@ -147,10 +149,16 @@ impl Component for ScrollList {
                     .collect();
                 self.results.append(&mut only_new);
                 self.results.sort();
-                return Ok(None);
+                return self.get_update();
             }
-            Action::RemoveScript(entry) => self.results.retain(|e| e.result != entry),
-            Action::RemoveAllSelectedScripts => self.results.clear(),
+            Action::RemoveScript(entry) => {
+                self.results.retain(|e| e.result != entry);
+                return self.get_update();
+            }
+            Action::RemoveAllSelectedScripts => {
+                self.results.clear();
+                return self.get_update();
+            }
             Action::ScriptRun => {
                 let entry = self
                     .results
@@ -159,14 +167,14 @@ impl Component for ScrollList {
                     .cloned()
                     .next();
 
-                if (entry.is_none()) {
+                if entry.is_none() {
                     return Ok(None);
                 }
                 let entry = entry.unwrap();
                 if let Entry::File(_) = entry.result {
                     let rel_dir = entry.result.get_full_path()?;
                     let full_path = self.base.join(&rel_dir);
-                    log::info!("{:?} {:?}", rel_dir, full_path);
+
                     let connection = self.db.clone();
                     let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
                     let cloned = entry;
@@ -177,13 +185,15 @@ impl Component for ScrollList {
                             Action::ScriptRunning(cloned.result.clone()),
                         );
 
+                        let now = Instant::now();
                         let result = connection.execute_script(full_path).await;
+                        let elapsed = now.elapsed().as_millis();
 
                         match result {
                             Ok(_) => {
                                 send_through_channel(
                                     &channel,
-                                    Action::ScriptFinished(cloned.result),
+                                    Action::ScriptFinished(cloned.result, elapsed),
                                 );
                                 send_through_channel(&channel, Action::ScriptRun);
                             }
@@ -197,7 +207,7 @@ impl Component for ScrollList {
                     });
                 }
                 //}
-                return Ok(None);
+                return self.get_update();
             }
             _ => {}
         }
@@ -205,6 +215,14 @@ impl Component for ScrollList {
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+        let rects = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Fill(2),
+                Constraint::Fill(1), // first row
+            ])
+            .split(area);
+
         let items: Vec<ListItem> = self
             .results
             .iter()
@@ -238,9 +256,23 @@ impl Component for ScrollList {
             .highlight_symbol(">> ")
             .repeat_highlight_symbol(true);
 
-        f.render_stateful_widget(&list_draw, area, &mut self.state);
+        f.render_stateful_widget(&list_draw, rects[0], &mut self.state);
 
         Ok(())
+    }
+}
+
+impl ScrollList {
+    fn get_update(&self) -> Result<Option<Action>> {
+        if let Some(pos) = self.state.selected() {
+            let entry = self.results.get(pos);
+            if let Some(entry) = entry {
+                return Ok(Some(Action::ScriptHighlighted(Some(entry.clone()))));
+            } else {
+                return Ok(Some(Action::ScriptHighlighted(None)));
+            }
+        }
+        return Ok(None);
     }
 }
 
