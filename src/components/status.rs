@@ -65,14 +65,14 @@ impl Component for Status {
                 self.message_timestamp = Some(Local::now().format("%H:%M:%S").to_string());
                 return Ok(None);
             }
-            Action::StartSpinner => {
-                self.loading = true;
-                return Ok(None);
-            }
-            Action::StopSpinner => {
-                self.loading = false;
-                return Ok(None);
-            }
+            // Action::StartSpinner => {
+            //     self.loading = true;
+            //     return Ok(None);
+            // }
+            // Action::StopSpinner => {
+            //     self.loading = false;
+            //     return Ok(None);
+            // }
             _ => {}
         }
         Ok(None)

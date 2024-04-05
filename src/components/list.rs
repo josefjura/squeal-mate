@@ -189,7 +189,6 @@ impl Component for List {
                 self.selection.extend(result.iter().cloned());
                 return Ok(Some(Action::AppendScripts(result)));
             }
-            Action::RunScripts => return Ok(Some(Action::SwitchMode(Mode::ScriptRunner))),
             _ => {}
         }
         Ok(None)

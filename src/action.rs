@@ -1,4 +1,8 @@
-use crate::{app::MessageType, entries::Entry, screen::Mode};
+use crate::{
+    app::MessageType,
+    entries::{Entry, ResultLine},
+    screen::Mode,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -20,13 +24,11 @@ pub enum Action {
     SelectAllInDirectory,
     SelectScripts(Vec<Entry>),
     AppendScripts(Vec<Entry>),
+    ScriptHighlighted(ResultLine),
     RemoveSelectedScript,
     RemoveScript(Entry),
     RemoveAllSelectedScripts,
-    RunScripts,
     SwitchMode(Mode),
-    StartSpinner,
-    StopSpinner,
     ScriptRun,
     Suspend,
     Resume,

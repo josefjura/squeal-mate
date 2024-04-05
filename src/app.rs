@@ -75,36 +75,39 @@ impl App {
                     tui::Event::Render => action_tx.send(Action::Render)?,
                     tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
                     tui::Event::SwitchMode(mode) => action_tx.send(Action::SwitchMode(mode))?,
-                    tui::Event::Key(key) => match key.code {
-                        KeyCode::Char('z') if key.modifiers == KeyModifiers::CONTROL => {
+                    tui::Event::Key(key) => match (key.code, self.current_screen) {
+                        (KeyCode::Char('z'), _) if key.modifiers == KeyModifiers::CONTROL => {
                             action_tx.send(Action::Suspend)?
                         }
-                        KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
+                        (KeyCode::Char('c'), _) if key.modifiers == KeyModifiers::CONTROL => {
                             action_tx.send(Action::Quit)?
                         }
-                        KeyCode::Char('q') => action_tx.send(Action::Quit)?,
-                        KeyCode::Char('r') => action_tx.send(Action::ScriptRun)?,
-                        KeyCode::Char('e') => {
+                        (KeyCode::Char('q'), _) => action_tx.send(Action::Quit)?,
+                        (KeyCode::Char('r'), _) => action_tx.send(Action::ScriptRun)?,
+                        (KeyCode::Char(' '), _) => action_tx.send(Action::SelectCurrent)?,
+                        (KeyCode::Char('s'), _) => action_tx.send(Action::SelectAllAfter)?,
+                        (KeyCode::Char('S'), _) => action_tx.send(Action::SelectAllInDirectory)?,
+                        (KeyCode::Char('X'), _) => {
+                            action_tx.send(Action::RemoveAllSelectedScripts)?
+                        }
+                        (KeyCode::Char('x'), _) => action_tx.send(Action::RemoveSelectedScript)?,
+                        (KeyCode::Up, _) => action_tx.send(Action::CursorUp)?,
+                        (KeyCode::Down, _) => action_tx.send(Action::CursorDown)?,
+                        (KeyCode::Home, _) => action_tx.send(Action::CursorToTop)?,
+                        (KeyCode::End, _) => action_tx.send(Action::CursorToBottom)?,
+                        (KeyCode::Enter, _) => action_tx.send(Action::DirectoryOpenSelected)?,
+                        (KeyCode::Backspace, _) => action_tx.send(Action::DirectoryLeave)?,
+                        (KeyCode::Tab, Mode::FileChooser) => {
                             action_tx.send(Action::SwitchMode(Mode::ScriptRunner))?
                         }
-                        KeyCode::Char('w') => {
+                        (KeyCode::Tab, Mode::ScriptRunner) => {
                             action_tx.send(Action::SwitchMode(Mode::FileChooser))?
                         }
-                        KeyCode::Char(' ') => action_tx.send(Action::SelectCurrent)?,
-                        KeyCode::Char('s') => action_tx.send(Action::SelectAllAfter)?,
-                        KeyCode::Char('S') => action_tx.send(Action::SelectAllInDirectory)?,
-                        KeyCode::Char('X') => action_tx.send(Action::RemoveAllSelectedScripts)?,
-                        KeyCode::Char('x') => action_tx.send(Action::RemoveSelectedScript)?,
-                        KeyCode::Up => action_tx.send(Action::CursorUp)?,
-                        KeyCode::Down => action_tx.send(Action::CursorDown)?,
-                        KeyCode::Home => action_tx.send(Action::CursorToTop)?,
-                        KeyCode::End => action_tx.send(Action::CursorToBottom)?,
-                        KeyCode::Enter => action_tx.send(Action::DirectoryOpenSelected)?,
-                        KeyCode::Backspace => action_tx.send(Action::DirectoryLeave)?,
                         _ => {}
                     },
                     _ => {}
                 }
+
                 for screen in self.screens.iter_mut() {
                     for component in screen.components.iter_mut() {
                         if let Some(action) = component.handle_events(Some(e.clone()))? {
