@@ -18,6 +18,7 @@ use crate::components::list::List;
 use clap::Parser;
 use cli::{AeqArgs, Command};
 use color_eyre::eyre;
+use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
 use components::status::Status;
 use config::{get_config_dir, get_data_dir, read_config};
@@ -47,11 +48,15 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
         Ok(repository) => {
             let list = List::new(repository);
             let status = Status::new();
+            let script_status = ScriptStatus::new();
             let scroll_list = ScrollList::new(connection.clone(), path);
             let mut app = App::new(
                 vec![
                     Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),
-                    Screen::new(Mode::ScriptRunner, vec![Box::new(scroll_list)]),
+                    Screen::new(
+                        Mode::ScriptRunner,
+                        vec![Box::new(scroll_list), Box::new(script_status)],
+                    ),
                 ],
                 config,
             );
