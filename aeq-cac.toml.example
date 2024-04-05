@@ -1,1 +1,4 @@
 path = "/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates"
+
+username = "cli"
+password = "clipassword"

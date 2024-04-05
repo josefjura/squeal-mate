@@ -1,4 +1,9 @@
-use crate::{action::Action, components::Component, tui};
+use crate::{
+    action::Action,
+    components::Component,
+    screen::{Mode, Screen},
+    tui,
+};
 use color_eyre::eyre;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::Rect;
@@ -12,17 +17,6 @@ pub enum MessageType {
     Info,
 }
 
-pub struct Screen {
-    pub mode: Mode,
-    pub components: Vec<Box<dyn Component>>,
-}
-
-impl Screen {
-    pub fn new(mode: Mode, components: Vec<Box<dyn Component>>) -> Self {
-        Self { mode, components }
-    }
-}
-
 pub struct App {
     pub current_screen: Mode,
     pub exit: bool,
@@ -31,12 +25,6 @@ pub struct App {
     pub frame_rate: f64,
     pub screens: Vec<Screen>,
     pub config: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    FileChooser,
-    ScriptRunner,
 }
 
 impl App {
@@ -191,7 +179,7 @@ impl App {
 
                 for screen in self.screens.iter_mut() {
                     for component in screen.components.iter_mut() {
-                        if let Some(action) = component.update_background(action.clone())? {
+                        if let Some(action) = component.update_background(action.clone()).await? {
                             action_tx.send(action)?
                         };
                     }

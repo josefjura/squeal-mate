@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::{collections::HashMap, vec};
 
 use chrono::Local;
@@ -34,6 +35,7 @@ impl Status {
     }
 }
 
+#[async_trait]
 impl Component for Status {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -55,7 +57,7 @@ impl Component for Status {
         Ok(None)
     }
 
-    fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
+    async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
             Action::Message(text, m_type) => {
                 self.message = text;

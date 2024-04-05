@@ -2,6 +2,7 @@ use crate::{
     action::Action,
     tui::{Event, Frame},
 };
+use async_trait::async_trait;
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
@@ -11,9 +12,11 @@ use tokio::sync::mpsc::UnboundedSender;
 pub mod list;
 pub mod scroll_list;
 pub mod status;
+
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 /// Implementors of this trait can be registered with the main application loop and will be able to receive events,
 /// update state, and be rendered on the screen.
+#[async_trait]
 pub trait Component {
     /// Register an action handler that can send actions for processing if necessary.
     ///
@@ -122,7 +125,10 @@ pub trait Component {
     ///
     /// * `Result<Option<Action>>` - An action to be processed or none.
     #[allow(unused_variables)]
-    fn update_background(&mut self, action: Action) -> color_eyre::eyre::Result<Option<Action>> {
+    async fn update_background(
+        &mut self,
+        action: Action,
+    ) -> color_eyre::eyre::Result<Option<Action>> {
         Ok(None)
     }
     /// Render the component on the screen. (REQUIRED)

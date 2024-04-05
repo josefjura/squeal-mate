@@ -63,3 +63,28 @@ impl Display for Entry {
         f.write_str(self.get_filename_ref().as_str())
     }
 }
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+pub enum ResultState {
+    FINISHED,
+    RUNNING,
+    ERROR,
+    NONE,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+pub struct ResultLine {
+    pub result: Entry,
+    pub state: ResultState,
+    pub error: Option<String>,
+}
+
+impl ResultLine {
+    pub fn None(entry: &Entry) -> Self {
+        return Self {
+            error: None,
+            result: entry.clone(),
+            state: ResultState::NONE,
+        };
+    }
+}

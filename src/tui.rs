@@ -21,7 +21,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::app::Mode;
+use crate::screen::Mode;
 
 pub type IO = std::io::Stdout;
 pub fn io() -> IO {
