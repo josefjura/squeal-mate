@@ -47,6 +47,15 @@ pub fn get_config_dir() -> PathBuf {
     directory
 }
 
+pub fn get_logs_dir() -> PathBuf {
+    let directory = if let Some(proj_dirs) = project_directory() {
+        proj_dirs.data_local_dir().to_path_buf()
+    } else {
+        PathBuf::from(".").join(".config")
+    };
+    directory
+}
+
 fn ensure_config_file() -> eyre::Result<PathBuf> {
     let config_dir = get_config_dir();
 

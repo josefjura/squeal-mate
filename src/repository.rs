@@ -1,14 +1,8 @@
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::{fs::read_dir, path::PathBuf};
 
 use color_eyre::eyre;
 
-use crate::{
-    entries::{Entry, Name},
-    utils::PathWrapper,
-};
+use crate::{entries::Entry, utils::PathWrapper};
 
 #[derive(Debug)]
 pub enum RepositoryError {
@@ -100,7 +94,7 @@ impl Repository {
     //     }
     // }
 
-    pub fn read_files_in_directory(&self) -> Result<Vec<Entry>, std::io::Error> {
+    pub fn read_files_in_directory(&self) -> eyre::Result<Vec<Entry>> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
@@ -115,8 +109,10 @@ impl Repository {
                 }
                 if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                     let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
+
                     Some(Entry::File(PathWrapper::Relative {
-                        relative_dir: PathBuf::from(relative_path),
+                        relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
                         filename: file_name.into(),
                     }))
                 } else {
@@ -128,10 +124,7 @@ impl Repository {
         Ok(entries)
     }
 
-    pub fn read_files_after_in_directory(
-        &self,
-        from: &Entry,
-    ) -> Result<Vec<Entry>, std::io::Error> {
+    pub fn read_files_after_in_directory(&self, from: &Entry) -> eyre::Result<Vec<Entry>> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
@@ -147,8 +140,10 @@ impl Repository {
 
                 if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                     let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
+
                     Some(Entry::File(PathWrapper::Relative {
-                        relative_dir: PathBuf::from(relative_path),
+                        relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
                         filename: file_name.into(),
                     }))
                 } else {
@@ -182,8 +177,10 @@ impl Repository {
                         Some(Entry::Directory(file_name.to_owned()))
                     } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                         let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                        let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
+                        log::info!("HERE: {}", fixed);
                         Some(Entry::File(PathWrapper::Relative {
-                            relative_dir: PathBuf::from(relative_path),
+                            relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
                             filename: file_name.into(),
                         }))
                     } else {

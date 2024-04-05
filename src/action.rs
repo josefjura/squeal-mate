@@ -1,7 +1,4 @@
-use crate::{
-    app::{MessageType, Mode},
-    entries::Entry,
-};
+use crate::{app::MessageType, entries::Entry, screen::Mode};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -15,6 +12,9 @@ pub enum Action {
     DirectoryOpenSelected,
     DirectoryLeave,
     Message(String, MessageType),
+    ScriptRunning(Entry),
+    ScriptFinished(Entry),
+    ScriptError(Entry, String),
     SelectCurrent,
     SelectAllAfter,
     SelectAllInDirectory,
