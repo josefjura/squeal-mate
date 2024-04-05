@@ -1,14 +1,8 @@
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::{fs::read_dir, path::PathBuf};
 
 use color_eyre::eyre;
 
-use crate::{
-    entries::{Entry, Name},
-    utils::PathWrapper,
-};
+use crate::{entries::Entry, utils::PathWrapper};
 
 #[derive(Debug)]
 pub enum RepositoryError {
@@ -100,7 +94,7 @@ impl Repository {
     //     }
     // }
 
-    pub fn read_files_in_directory(&self) -> Result<Vec<Entry>, std::io::Error> {
+    pub fn read_files_in_directory(&self) -> eyre::Result<Vec<Entry>> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
@@ -130,10 +124,7 @@ impl Repository {
         Ok(entries)
     }
 
-    pub fn read_files_after_in_directory(
-        &self,
-        from: &Entry,
-    ) -> Result<Vec<Entry>, std::io::Error> {
+    pub fn read_files_after_in_directory(&self, from: &Entry) -> eyre::Result<Vec<Entry>> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
