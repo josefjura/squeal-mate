@@ -91,6 +91,7 @@ impl App {
                             action_tx.send(Action::RemoveAllSelectedScripts)?
                         }
                         (_, KeyCode::Char('x')) => action_tx.send(Action::RemoveSelectedScript)?,
+                        (_, KeyCode::Char('h')) => action_tx.send(Action::ToggleHelp)?,
                         (_, KeyCode::Up) => action_tx.send(Action::CursorUp)?,
                         (_, KeyCode::Down) => action_tx.send(Action::CursorDown)?,
                         (_, KeyCode::Home) => action_tx.send(Action::CursorToTop)?,

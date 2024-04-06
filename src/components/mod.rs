@@ -9,6 +9,7 @@ use ratatui::layout::Rect;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 
+pub mod help;
 pub mod list;
 pub mod script_status;
 pub mod scroll_list;

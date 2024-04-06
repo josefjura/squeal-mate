@@ -28,6 +28,7 @@ human-panic = "1.2.0"
 throbber-widgets-tui = "0.4.1"
 chrono = "0.4.35"
 async-trait = "*"
+tui-popup = "0.2.4"
 
 [dependencies.tokio-util]
 version = "0.7.10"

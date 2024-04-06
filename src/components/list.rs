@@ -2,7 +2,10 @@ use async_trait::async_trait;
 use std::{collections::HashMap, path::Path, vec};
 
 use color_eyre::eyre::{Error, Result};
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    prelude::*,
+    widgets::{block::Position, *},
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
@@ -247,7 +250,10 @@ impl Component for List {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Double),
+                    .border_type(BorderType::Double)
+                    .title_position(Position::Bottom)
+                    .title_alignment(Alignment::Right)
+                    .title("Press h for help"),
             )
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
             .highlight_symbol(">> ")
