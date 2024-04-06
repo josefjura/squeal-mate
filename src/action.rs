@@ -16,6 +16,8 @@ pub enum Action {
     DirectoryOpenSelected,
     DirectoryLeave,
     Message(String, MessageType),
+    ToggleHelp,
+    CloseHelp,
     ScriptRunning(Entry),
     ScriptFinished(Entry, u128),
     ScriptError(Entry, String),

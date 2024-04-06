@@ -250,7 +250,8 @@ impl Component for ScrollList {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Double),
+                    .border_type(BorderType::Double)
+                    .title("Selected files"),
             )
             .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
             .highlight_symbol(">> ")

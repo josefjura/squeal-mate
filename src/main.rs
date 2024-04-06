@@ -18,6 +18,7 @@ use crate::components::list::List;
 use clap::Parser;
 use cli::{AeqArgs, Command};
 use color_eyre::eyre;
+use components::help::Help;
 use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
 use components::status::Status;
@@ -27,7 +28,7 @@ use db::Database;
 use error::ArgumentsError;
 use ratatui::style::Stylize;
 use repository::{Repository, RepositoryError};
-use std::io::{self};
+use std::io::{self, stdout};
 use std::{collections::HashMap, io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
 
@@ -50,19 +51,30 @@ async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyr
             let status = Status::new();
             let script_status = ScriptStatus::new();
             let scroll_list = ScrollList::new(connection.clone(), path);
+
             let mut app = App::new(
                 vec![
-                    Screen::new(Mode::FileChooser, vec![Box::new(list), Box::new(status)]),
+                    Screen::new(
+                        Mode::FileChooser,
+                        vec![Box::new(list), Box::new(status), Box::new(Help::new())],
+                    ),
                     Screen::new(
                         Mode::ScriptRunner,
-                        vec![Box::new(scroll_list), Box::new(script_status)],
+                        vec![
+                            Box::new(scroll_list),
+                            Box::new(script_status),
+                            Box::new(Help::new()),
+                        ],
                     ),
                 ],
                 config,
             );
 
             app.run().await?;
-
+            execute!(
+                stdout(),
+                Print("🦀 Thank you for using AEQ-CAC 🦀\n".yellow())
+            )?;
             Ok(())
         }
         Err(RepositoryError::DoesNotExist) => {
@@ -132,6 +144,5 @@ async fn main() -> eyre::Result<()> {
         }
     }
 
-    println!();
     Ok(())
 }

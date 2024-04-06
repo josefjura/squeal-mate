@@ -2,7 +2,10 @@ use async_trait::async_trait;
 use color_eyre::{eyre::Result, owo_colors::OwoColorize};
 use ratatui::{
     prelude::*,
-    widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap},
+    widgets::{
+        block::{Position, Title},
+        Block, BorderType, Borders, Padding, Paragraph, Wrap,
+    },
 };
 use std::{collections::HashMap, vec};
 use tokio::sync::mpsc::UnboundedSender;
@@ -136,6 +139,11 @@ impl Component for ScriptStatus {
             .block(
                 Block::new()
                     .title("Status")
+                    .title(
+                        Title::from("Press h for help")
+                            .position(Position::Bottom)
+                            .alignment(Alignment::Right),
+                    )
                     .borders(Borders::ALL)
                     .border_type(BorderType::Plain)
                     .padding(Padding::horizontal(2)),
