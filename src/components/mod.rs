@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
-use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub mod help;

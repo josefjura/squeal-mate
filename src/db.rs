@@ -4,6 +4,8 @@ use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
+use crate::batch_parser::BatchParser;
+
 #[derive(Debug, Clone)]
 pub struct Database {
     pub server: String,
@@ -46,7 +48,11 @@ impl Database {
 
         let mut client = Client::connect(config, tcp.compat_write()).await?;
 
-        client.simple_query(script).await?;
+        let parse = BatchParser::parse(&script);
+
+        for batch in parse.batches {
+            client.simple_query(batch).await?;
+        }
 
         Ok(())
     }

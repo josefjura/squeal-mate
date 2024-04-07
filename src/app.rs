@@ -1,6 +1,5 @@
 use crate::{
     action::Action,
-    components::Component,
     config::Settings,
     screen::{Mode, Screen},
     tui,
@@ -9,7 +8,6 @@ use crate::{
 use color_eyre::eyre;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::Rect;
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

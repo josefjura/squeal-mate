@@ -1,7 +1,6 @@
 use async_trait::async_trait;
-use std::{collections::HashMap, path::Path, vec};
 
-use color_eyre::eyre::{Error, Result};
+use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
     widgets::{block::Position, *},
@@ -12,10 +11,8 @@ use super::Component;
 use crate::{
     action::Action,
     config::Settings,
-    db::Database,
     entries::{Entry, Name},
     repository::Repository,
-    screen::Mode,
     tui::Frame,
 };
 
@@ -234,7 +231,7 @@ impl Component for List {
                 let style = match entry {
                     Entry::File(_) => {
                         if self.selection.contains(entry) {
-                            Style::new().white().on_light_green()
+                            Style::new().green()
                         } else {
                             Style::new().white()
                         }

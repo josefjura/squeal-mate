@@ -81,7 +81,7 @@ pub struct ResultLine {
 }
 
 impl ResultLine {
-    pub fn None(entry: &Entry) -> Self {
+    pub fn none(entry: &Entry) -> Self {
         return Self {
             error: None,
             result: entry.clone(),
