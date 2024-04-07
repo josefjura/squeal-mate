@@ -155,7 +155,7 @@ fn simple_positive() {
         port: None,
         server: None,
         username: None,
-        name: None,
+        name: Some("db_name".to_string()),
     };
 
     let database = conn.merge(&setting);
