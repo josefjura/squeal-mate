@@ -16,13 +16,14 @@ use super::Component;
 use crate::{
     action::Action,
     app::MessageType,
+    config::Settings,
     entries::{ResultLine, ResultState},
     tui::Frame,
 };
 
 pub struct ScriptStatus {
     command_tx: Option<UnboundedSender<Action>>,
-    config: HashMap<String, String>,
+    config: Settings,
     message: String,
     path: String,
     message_type: MessageType,
@@ -34,7 +35,7 @@ impl ScriptStatus {
     pub fn new() -> Self {
         Self {
             command_tx: None,
-            config: HashMap::<String, String>::default(),
+            config: Settings::default(),
             message: "".into(),
             message_type: MessageType::Info,
             spinner_state: ThrobberState::default(),
@@ -51,7 +52,7 @@ impl Component for ScriptStatus {
         Ok(())
     }
 
-    fn register_config_handler(&mut self, config: HashMap<String, String>) -> Result<()> {
+    fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         self.config = config;
         Ok(())
     }

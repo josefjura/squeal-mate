@@ -22,7 +22,7 @@ use components::help::Help;
 use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
 use components::status::Status;
-use config::{get_config_dir, get_data_dir, read_config};
+use config::{get_config_dir, get_data_dir, SettingError, Settings};
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
@@ -32,12 +32,12 @@ use std::io::{self, stdout};
 use std::{collections::HashMap, io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
 
-async fn start_tui(config: HashMap<String, String>, connection: Database) -> eyre::Result<()> {
+async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
     initialize_logging()?;
 
     initialize_panic_handler()?;
 
-    let path: PathBuf = if let Some(content) = config.get("path") {
+    let path: PathBuf = if let Some(ref content) = config.repository.path {
         PathBuf::from(content)
     } else {
         PathBuf::from_str("./").expect("Can't open current directory")
@@ -120,7 +120,7 @@ fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {
 async fn main() -> eyre::Result<()> {
     let mut stdout = io::stdout();
 
-    let config = read_config().expect("Error while loading config!");
+    let config = Settings::new().expect("Error while loading config!");
 
     let args = AeqArgs::parse();
 

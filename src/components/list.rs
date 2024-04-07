@@ -11,6 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Component;
 use crate::{
     action::Action,
+    config::Settings,
     db::Database,
     entries::{Entry, Name},
     repository::Repository,
@@ -20,7 +21,7 @@ use crate::{
 
 pub struct List {
     command_tx: Option<UnboundedSender<Action>>,
-    config: HashMap<String, String>,
+    config: Settings,
     state: ListState,
     repository: Repository,
     entries: Vec<Entry>,
@@ -32,7 +33,7 @@ impl List {
         Self {
             state: ListState::default().with_selected(Some(0)),
             command_tx: None,
-            config: HashMap::<String, String>::default(),
+            config: Settings::default(),
             entries: repository.read_entries_in_current_directory(),
             repository,
             selection: vec![],
@@ -114,7 +115,7 @@ impl Component for List {
         Ok(())
     }
 
-    fn register_config_handler(&mut self, config: HashMap<String, String>) -> Result<()> {
+    fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         self.config = config;
         Ok(())
     }

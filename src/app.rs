@@ -1,9 +1,11 @@
 use crate::{
     action::Action,
     components::Component,
+    config::Settings,
     screen::{Mode, Screen},
     tui,
 };
+
 use color_eyre::eyre;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::Rect;
@@ -24,11 +26,11 @@ pub struct App {
     pub tick_rate: f64,
     pub frame_rate: f64,
     pub screens: Vec<Screen>,
-    pub config: HashMap<String, String>,
+    pub config: Settings,
 }
 
 impl App {
-    pub fn new(screens: Vec<Screen>, config: HashMap<String, String>) -> Self {
+    pub fn new(screens: Vec<Screen>, config: Settings) -> Self {
         Self {
             current_screen: Mode::FileChooser,
             exit: false,

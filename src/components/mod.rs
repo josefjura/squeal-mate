@@ -1,5 +1,6 @@
 use crate::{
     action::Action,
+    config::Settings,
     tui::{Event, Frame},
 };
 use async_trait::async_trait;
@@ -43,7 +44,7 @@ pub trait Component {
     ///
     /// * `Result<()>` - An Ok result or an error.
     #[allow(unused_variables)]
-    fn register_config_handler(&mut self, config: HashMap<String, String>) -> Result<()> {
+    fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         Ok(())
     }
     /// Initialize the component with a specified area if necessary.

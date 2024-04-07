@@ -12,6 +12,7 @@ use tokio::{sync::mpsc::UnboundedSender, time::Instant};
 use super::Component;
 use crate::{
     action::Action,
+    config::Settings,
     db::Database,
     entries::{Entry, ResultLine, ResultState},
     tui::Frame,
@@ -19,7 +20,7 @@ use crate::{
 
 pub struct ScrollList {
     command_tx: Option<UnboundedSender<Action>>,
-    config: HashMap<String, String>,
+    config: Settings,
     state: ListState,
     results: Vec<ResultLine>,
     db: Database,
@@ -30,7 +31,7 @@ impl ScrollList {
     pub fn new(db: Database, base: PathBuf) -> Self {
         Self {
             command_tx: None,
-            config: HashMap::<String, String>::default(),
+            config: Settings::default(),
             state: ListState::default().with_selected(Some(0)),
             results: vec![],
             db,
@@ -73,7 +74,7 @@ impl Component for ScrollList {
         Ok(())
     }
 
-    fn register_config_handler(&mut self, config: HashMap<String, String>) -> Result<()> {
+    fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         self.config = config;
         Ok(())
     }

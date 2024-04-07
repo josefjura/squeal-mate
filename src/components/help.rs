@@ -13,11 +13,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use throbber_widgets_tui::{Throbber, ThrobberState};
 
 use super::Component;
-use crate::{action::Action, app::MessageType, tui::Frame};
+use crate::{action::Action, app::MessageType, config::Settings, tui::Frame};
 
 pub struct Help {
     command_tx: Option<UnboundedSender<Action>>,
-    config: HashMap<String, String>,
+    config: Settings,
     visible: bool,
     text: String,
 }
@@ -63,7 +63,7 @@ impl Help {
 
         Self {
             command_tx: None,
-            config: HashMap::<String, String>::default(),
+            config: Settings::default(),
             visible: false,
             text,
         }
@@ -77,7 +77,7 @@ impl Component for Help {
         Ok(())
     }
 
-    fn register_config_handler(&mut self, config: HashMap<String, String>) -> Result<()> {
+    fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         self.config = config;
         Ok(())
     }

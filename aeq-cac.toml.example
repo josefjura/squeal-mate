@@ -1,4 +1,10 @@
+[repository]
 path = "/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates"
 
+[database]
+integrated = false
 username = "cli"
 password = "clipassword"
+server = "localhost"
+port = 1433
+

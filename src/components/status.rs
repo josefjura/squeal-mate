@@ -9,11 +9,11 @@ use tokio::sync::mpsc::UnboundedSender;
 use throbber_widgets_tui::{Throbber, ThrobberState};
 
 use super::Component;
-use crate::{action::Action, app::MessageType, tui::Frame};
+use crate::{action::Action, app::MessageType, config::Settings, tui::Frame};
 
 pub struct Status {
     command_tx: Option<UnboundedSender<Action>>,
-    config: HashMap<String, String>,
+    config: Settings,
     message: String,
     message_type: MessageType,
     message_timestamp: Option<String>,
@@ -25,7 +25,7 @@ impl Status {
     pub fn new() -> Self {
         Self {
             command_tx: None,
-            config: HashMap::<String, String>::default(),
+            config: Settings::default(),
             message: "".into(),
             message_timestamp: None,
             message_type: MessageType::Info,
@@ -42,7 +42,7 @@ impl Component for Status {
         Ok(())
     }
 
-    fn register_config_handler(&mut self, config: HashMap<String, String>) -> Result<()> {
+    fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         self.config = config;
         Ok(())
     }

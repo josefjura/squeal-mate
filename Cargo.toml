@@ -9,7 +9,7 @@ edition = "2021"
 crossterm = { version = "0.27.0", features = ["event-stream"] }
 config = "0.14.0"
 ratatui = "0.26.1"
-tiberius = "0.12.2"
+tiberius = { varsion = "0.12.2", features = ["integrated-auth-gssapi"] }
 tokio = { version = "1.36.0", features = ["full"] }
 futures = "0.3.30"
 libc = "0.2.148"
@@ -29,6 +29,7 @@ throbber-widgets-tui = "0.4.1"
 chrono = "0.4.35"
 async-trait = "*"
 tui-popup = "0.2.4"
+serde = "1.0.197"
 
 [dependencies.tokio-util]
 version = "0.7.10"

@@ -8,8 +8,13 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 pub struct Database {
     pub server: String,
     pub port: u16,
-    pub username: String,
-    pub password: String,
+    pub authentication: Authentication,
+}
+
+#[derive(Debug, Clone)]
+pub enum Authentication {
+    Integrated,
+    SqlServer { username: String, password: String },
 }
 
 impl Database {
@@ -22,8 +27,16 @@ impl Database {
         let mut config = Config::new();
 
         config.host(&self.server);
-        config.port(self.port);
-        config.authentication(AuthMethod::sql_server(&self.username, &self.password));
+        config.port(self.port as u16);
+        let auth: AuthMethod = match self.authentication {
+            Authentication::Integrated => AuthMethod::Integrated,
+            Authentication::SqlServer {
+                ref username,
+                ref password,
+            } => AuthMethod::sql_server(username, password),
+        };
+        config.authentication(auth);
+
         config.trust_cert();
 
         let tcp = TcpStream::connect(config.get_addr()).await?;
