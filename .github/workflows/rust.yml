@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Chackout
+    - name: Checkout
       uses: actions/checkout@v3
     - name: Install nightly toolchain with rustfmt available
       uses: actions-rs/toolchain@v1
@@ -22,6 +22,8 @@ jobs:
         toolchain: nightly
         override: true
         components: rustfmt
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y libclang-dev libkrb5-dev
     - name: Run cargo fmt
       uses: actions-rs/cargo@v1
       with:
@@ -31,3 +33,4 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+	
