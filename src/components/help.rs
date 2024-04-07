@@ -1,19 +1,12 @@
 use async_trait::async_trait;
-use std::{collections::HashMap, vec};
 use tui_popup::Popup;
 
-use chrono::Local;
 use color_eyre::eyre::Result;
-use ratatui::{
-    prelude::*,
-    widgets::{Block, BorderType, Borders, Paragraph},
-};
+use ratatui::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
-use throbber_widgets_tui::{Throbber, ThrobberState};
-
 use super::Component;
-use crate::{action::Action, app::MessageType, config::Settings, tui::Frame};
+use crate::{action::Action, config::Settings, tui::Frame};
 
 pub struct Help {
     command_tx: Option<UnboundedSender<Action>>,
@@ -93,7 +86,7 @@ impl Component for Help {
         Ok(None)
     }
 
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, _area: Rect) -> Result<()> {
         if self.visible {
             let popup = Popup::new("Keybindings", self.text.clone())
                 .style(Style::new().black().on_light_yellow());

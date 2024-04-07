@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 // use crossterm::style::{StyledContent, Stylize};
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 use color_eyre::eyre::Result;
 use ratatui::{
@@ -137,7 +137,7 @@ impl Component for ScrollList {
             Action::SelectScripts(scripts) => {
                 self.results.clear();
                 self.results
-                    .extend(scripts.iter().map(|s| ResultLine::None(s)));
+                    .extend(scripts.iter().map(|s| ResultLine::none(s)));
                 self.results.sort();
 
                 return self.get_update();
@@ -146,7 +146,7 @@ impl Component for ScrollList {
                 let mut only_new: Vec<ResultLine> = scripts
                     .into_iter()
                     .filter(|s| !self.results.iter().any(|r| r.result == *s))
-                    .map(|s| ResultLine::None(&s))
+                    .map(|s| ResultLine::none(&s))
                     .collect();
                 self.results.append(&mut only_new);
                 self.results.sort();

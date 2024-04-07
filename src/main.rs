@@ -1,5 +1,6 @@
 mod action;
 mod app;
+mod batch_parser;
 mod cli;
 mod components;
 mod config;
@@ -22,14 +23,14 @@ use components::help::Help;
 use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
 use components::status::Status;
-use config::{get_config_dir, get_data_dir, SettingError, Settings};
+use config::{get_config_dir, get_data_dir, Settings};
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
 use ratatui::style::Stylize;
 use repository::{Repository, RepositoryError};
 use std::io::{self, stdout};
-use std::{collections::HashMap, io::Write, path::PathBuf, str::FromStr};
+use std::{io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
 
 async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {

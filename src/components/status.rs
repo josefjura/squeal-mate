@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::{collections::HashMap, vec};
+use std::vec;
 
 use chrono::Local;
 use color_eyre::eyre::Result;

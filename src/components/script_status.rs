@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use color_eyre::{eyre::Result, owo_colors::OwoColorize};
+use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
     widgets::{
@@ -7,15 +7,14 @@ use ratatui::{
         Block, BorderType, Borders, Padding, Paragraph, Wrap,
     },
 };
-use std::{collections::HashMap, vec};
+use std::vec;
 use tokio::sync::mpsc::UnboundedSender;
 
-use throbber_widgets_tui::{Throbber, ThrobberState};
+use throbber_widgets_tui::ThrobberState;
 
 use super::Component;
 use crate::{
     action::Action,
-    app::MessageType,
     config::Settings,
     entries::{ResultLine, ResultState},
     tui::Frame,
@@ -26,9 +25,7 @@ pub struct ScriptStatus {
     config: Settings,
     message: String,
     path: String,
-    message_type: MessageType,
     spinner_state: ThrobberState,
-    loading: bool,
 }
 
 impl ScriptStatus {
@@ -37,9 +34,7 @@ impl ScriptStatus {
             command_tx: None,
             config: Settings::default(),
             message: "".into(),
-            message_type: MessageType::Info,
             spinner_state: ThrobberState::default(),
-            loading: false,
             path: "".into(),
         }
     }
