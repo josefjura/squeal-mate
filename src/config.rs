@@ -18,6 +18,8 @@ pub struct Database {
     pub server: Option<String>,
     #[serde(default)]
     pub port: Option<u16>,
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -73,6 +75,7 @@ impl Settings {
                 port: None,
                 server: None,
                 username: None,
+                name: None,
             },
             repository: Repository { path: None },
         }

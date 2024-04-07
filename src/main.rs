@@ -137,6 +137,9 @@ async fn main() -> eyre::Result<()> {
                 Err(ArgumentsError::MissingUsername) => {
                     println!("ERROR: Missing DB username");
                 }
+                Err(ArgumentsError::MissingDBName) => {
+                    println!("ERROR: Missing DB name");
+                }
                 Err(ArgumentsError::PortNotNumber) => {
                     println!("ERROR: Supplied port is not a valid number");
                 }

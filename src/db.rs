@@ -8,6 +8,7 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 pub struct Database {
     pub server: String,
     pub port: u16,
+    pub name: String,
     pub authentication: Authentication,
 }
 
@@ -36,6 +37,7 @@ impl Database {
             } => AuthMethod::sql_server(username, password),
         };
         config.authentication(auth);
+        config.database(&self.name);
 
         config.trust_cert();
 
