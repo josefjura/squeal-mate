@@ -35,6 +35,9 @@ pub struct ConnectionArgs {
     /// Password used to log into db
     #[arg(long, short = 'p')]
     pub password: Option<String>,
+    /// Name of the database to connect to
+    #[arg(long, short = 'n')]
+    pub name: Option<String>,
     /// Use integrated authentication. Skips username and password.
     #[arg(long, short = 'i')]
     pub is_integrated: Option<bool>,
@@ -56,6 +59,12 @@ impl ConnectionArgs {
             .clone()
             .or_else(|| settings.database.port)
             .unwrap_or_else(|| DEFAULT_PORT.to_owned());
+
+        let name = self
+            .name
+            .clone()
+            .or_else(|| settings.database.name.clone())
+            .ok_or(ArgumentsError::MissingDBName)?;
 
         let is_integrated = self
             .is_integrated
@@ -84,6 +93,7 @@ impl ConnectionArgs {
         Ok(Database {
             server,
             port,
+            name,
             authentication,
         })
     }
@@ -108,6 +118,7 @@ fn missing_password() {
         port: None,
         server: None,
         username: None,
+        name: None,
     };
 
     let database = conn.merge(&setting);
@@ -125,6 +136,7 @@ fn missing_username() {
         port: None,
         server: None,
         username: None,
+        name: None,
     };
 
     let database = conn.merge(&setting);
@@ -143,6 +155,7 @@ fn simple_positive() {
         port: None,
         server: None,
         username: None,
+        name: Some("db_name".to_string()),
     };
 
     let database = conn.merge(&setting);
@@ -152,6 +165,7 @@ fn simple_positive() {
     if let Ok(Database {
         server: _,
         port: _,
+        name: _,
         authentication: Authentication::SqlServer { username, password },
     }) = database
     {
