@@ -165,12 +165,13 @@ fn simple_positive() {
     if let Ok(Database {
         server: _,
         port: _,
-        name: _,
+        name,
         authentication: Authentication::SqlServer { username, password },
     }) = database
     {
         assert_eq!("test", username);
         assert_eq!("password", password);
+        assert_eq!("db_name", name);
     } else {
         panic!("simple_positive: Cannot parse correct result");
     }
