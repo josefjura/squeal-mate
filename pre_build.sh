@@ -1,3 +1,3 @@
 #!/bin/sh
 
-apt-get update && apt-get install -y libclang-dev libkrb5-dev
+apk add --no-cache libclang-dev libkrb5-dev
