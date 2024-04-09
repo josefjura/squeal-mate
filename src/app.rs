@@ -10,13 +10,6 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::Rect;
 use tokio::sync::mpsc;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MessageType {
-    Success,
-    Error,
-    Info,
-}
-
 pub struct App {
     pub current_screen: Mode,
     pub exit: bool,

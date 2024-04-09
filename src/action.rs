@@ -1,5 +1,4 @@
 use crate::{
-    app::MessageType,
     entries::{Entry, ResultLine},
     screen::Mode,
 };
@@ -15,7 +14,6 @@ pub enum Action {
     CursorToBottom,
     DirectoryOpenSelected,
     DirectoryLeave,
-    Message(String, MessageType),
     ToggleHelp,
     CloseHelp,
     ScriptRunning(Entry),
