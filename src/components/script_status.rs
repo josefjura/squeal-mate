@@ -60,12 +60,12 @@ impl Component for ScriptStatus {
             Action::ScriptHighlighted(result_line) => {
                 let message = match &result_line {
                     Some(ResultLine {
-                        state: ResultState::ERROR,
+                        state: ResultState::Error,
                         error: Some(err),
                         ..
-                    }) => String::from(err.clone()),
+                    }) => err.clone(),
                     Some(ResultLine {
-                        state: ResultState::FINISHED,
+                        state: ResultState::Finished,
                         elapsed: Some(elapsed),
                         ..
                     }) => elapsed.to_string(),
@@ -73,7 +73,7 @@ impl Component for ScriptStatus {
                     _ => String::from(""),
                 };
 
-                self.message = message.into();
+                self.message = message;
                 self.path = result_line.map_or(String::from(""), |f| {
                     f.result
                         .get_full_path()
@@ -91,20 +91,20 @@ impl Component for ScriptStatus {
             Action::ScriptHighlighted(result_line) => {
                 let message = match &result_line {
                     Some(ResultLine {
-                        state: ResultState::ERROR,
+                        state: ResultState::Error,
                         error: Some(err),
                         ..
-                    }) => String::from(err.clone()),
+                    }) => err.clone(),
                     Some(ResultLine {
-                        state: ResultState::FINISHED,
+                        state: ResultState::Finished,
                         elapsed: Some(elapsed),
                         ..
-                    }) => format!("Finished in: {}ms", elapsed.to_string()),
+                    }) => format!("Finished in: {}ms", elapsed),
                     None => String::from(""),
                     _ => String::from(""),
                 };
 
-                self.message = message.into();
+                self.message = message;
                 self.path = result_line.map_or(String::from(""), |f| {
                     f.result
                         .get_full_path()

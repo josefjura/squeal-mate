@@ -79,8 +79,8 @@ pub fn initialize_logging() -> eyre::Result<()> {
     Ok(())
 }
 
+#[allow(unused)]
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
-
 pub enum PathWrapper {
     Filename(String),
     Relative {
@@ -96,7 +96,7 @@ pub enum PathWrapper {
 impl PathWrapper {
     pub fn get_full_path(&self) -> Result<PathBuf, PathError> {
         match self {
-            PathWrapper::Filename(name) => Err(PathError::CantCreateFromFilenameOnly),
+            PathWrapper::Filename(_) => Err(PathError::CantCreateFromFilenameOnly),
             PathWrapper::Relative {
                 relative_dir,
                 filename,

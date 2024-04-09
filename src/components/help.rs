@@ -50,9 +50,7 @@ impl Help {
                     vwidth = value_length.unwrap_or(1)
                 )
             })
-            .reduce(|acc, line| {
-                return acc + "\n" + &line;
-            })
+            .reduce(|acc, line| acc + "\n" + &line)
             .unwrap_or_default();
 
         Self {

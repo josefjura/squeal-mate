@@ -118,7 +118,7 @@ impl Component for ScrollList {
                 .iter_mut()
                 .filter(|s| s.result == entry)
                 .for_each(|s| {
-                    s.state = ResultState::FINISHED;
+                    s.state = ResultState::Finished;
                     s.elapsed = Some(elapsed);
                 }),
             Action::ScriptError(entry, message) => self
@@ -126,18 +126,17 @@ impl Component for ScrollList {
                 .iter_mut()
                 .filter(|s| s.result == entry)
                 .for_each(|s| {
-                    s.state = ResultState::ERROR;
+                    s.state = ResultState::Error;
                     s.error = Some(message.clone())
                 }),
             Action::ScriptRunning(entry) => self
                 .results
                 .iter_mut()
                 .filter(|s| s.result == entry)
-                .for_each(|s| s.state = ResultState::RUNNING),
+                .for_each(|s| s.state = ResultState::Running),
             Action::SelectScripts(scripts) => {
                 self.results.clear();
-                self.results
-                    .extend(scripts.iter().map(|s| ResultLine::none(s)));
+                self.results.extend(scripts.iter().map(ResultLine::none));
                 self.results.sort();
 
                 return self.get_update();
@@ -164,9 +163,9 @@ impl Component for ScrollList {
                 let entry = self
                     .results
                     .iter()
-                    .skip_while(|f| f.state != ResultState::NONE)
-                    .cloned()
-                    .next();
+                    .skip_while(|f| f.state != ResultState::None)
+                    .next()
+                    .cloned();
 
                 if entry.is_none() {
                     return Ok(None);
@@ -174,7 +173,7 @@ impl Component for ScrollList {
                 let entry = entry.unwrap();
                 if let Entry::File(_) = entry.result {
                     let rel_dir = entry.result.get_full_path()?;
-                    let full_path = self.base.join(&rel_dir);
+                    let full_path = self.base.join(rel_dir);
 
                     let connection = self.db.clone();
                     let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
@@ -231,16 +230,16 @@ impl Component for ScrollList {
                 let text = e.result.get_full_path().ok()?.to_str().map(String::from);
 
                 match e.state {
-                    ResultState::NONE => {
+                    ResultState::None => {
                         text.map(|f| ListItem::new(f).style(Style::new().fg(Color::White)))
                     }
-                    ResultState::RUNNING => {
+                    ResultState::Running => {
                         text.map(|f| ListItem::new(f).style(Style::new().fg(Color::Yellow)))
                     }
-                    ResultState::FINISHED => {
+                    ResultState::Finished => {
                         text.map(|f| ListItem::new(f).style(Style::new().fg(Color::Green)))
                     }
-                    ResultState::ERROR => {
+                    ResultState::Error => {
                         text.map(|f| ListItem::new(f).style(Style::new().fg(Color::Red)))
                     }
                 }
@@ -274,7 +273,8 @@ impl ScrollList {
                 return Ok(Some(Action::ScriptHighlighted(None)));
             }
         }
-        return Ok(None);
+
+        Ok(None)
     }
 }
 

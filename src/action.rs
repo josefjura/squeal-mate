@@ -3,6 +3,7 @@ use crate::{
     screen::Mode,
 };
 
+#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Tick,

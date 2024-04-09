@@ -23,14 +23,14 @@ pub enum Authentication {
 impl Database {
     pub async fn execute_script(&self, path: PathBuf) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut script = tokio::fs::read_to_string(path).await?;
-        if script.starts_with("\u{feff}") {
+        if script.starts_with('\u{feff}') {
             script = script[3..].to_string();
         }
 
         let mut config = Config::new();
 
         config.host(&self.server);
-        config.port(self.port as u16);
+        config.port(self.port);
         let auth: AuthMethod = match self.authentication {
             Authentication::Integrated => AuthMethod::Integrated,
             Authentication::SqlServer {

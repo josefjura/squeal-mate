@@ -56,9 +56,8 @@ impl ConnectionArgs {
 
         let port = self
             .port
-            .clone()
-            .or_else(|| settings.database.port)
-            .unwrap_or_else(|| DEFAULT_PORT.to_owned());
+            .or(settings.database.port)
+            .unwrap_or(DEFAULT_PORT.to_owned());
 
         let name = self
             .name
@@ -68,9 +67,8 @@ impl ConnectionArgs {
 
         let is_integrated = self
             .is_integrated
-            .clone()
-            .or_else(|| settings.database.integrated)
-            .unwrap_or_else(|| false);
+            .or(settings.database.integrated)
+            .unwrap_or(false);
 
         let authentication = if is_integrated {
             Authentication::Integrated

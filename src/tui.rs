@@ -29,6 +29,7 @@ pub fn io() -> IO {
 }
 pub type Frame<'a> = ratatui::Frame<'a>;
 
+#[allow(unused)]
 #[derive(Clone, Debug)]
 pub enum Event {
     Init,
@@ -208,11 +209,6 @@ impl Tui {
         self.exit()?;
         #[cfg(not(windows))]
         signal_hook::low_level::raise(signal_hook::consts::signal::SIGTSTP)?;
-        Ok(())
-    }
-
-    pub fn resume(&mut self) -> Result<()> {
-        self.enter()?;
         Ok(())
     }
 

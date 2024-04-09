@@ -67,10 +67,10 @@ impl List {
             if let Some(entry) = dir_name {
                 match entry {
                     Entry::Directory(dir_name) => {
-                        self.repository.open_directory(&dir_name);
+                        self.repository.open_directory(dir_name);
                         self.entries = self.repository.read_entries_in_current_directory();
 
-                        if self.entries.len() > 0 {
+                        if !self.entries.is_empty() {
                             self.state.select(Some(0))
                         } else {
                             self.state.select(None)
@@ -94,12 +94,10 @@ impl List {
 
             if let Some(old_index) = old_index {
                 self.state.select(Some(old_index));
+            } else if !self.entries.is_empty() {
+                self.state.select(Some(0))
             } else {
-                if self.entries.len() > 0 {
-                    self.state.select(Some(0))
-                } else {
-                    self.state.select(None)
-                }
+                self.state.select(None)
             }
         }
     }

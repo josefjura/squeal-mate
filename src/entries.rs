@@ -66,10 +66,10 @@ impl Display for Entry {
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
 pub enum ResultState {
-    FINISHED,
-    RUNNING,
-    ERROR,
-    NONE,
+    Finished,
+    Running,
+    Error,
+    None,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
@@ -82,11 +82,11 @@ pub struct ResultLine {
 
 impl ResultLine {
     pub fn none(entry: &Entry) -> Self {
-        return Self {
+        Self {
             error: None,
             result: entry.clone(),
-            state: ResultState::NONE,
+            state: ResultState::None,
             elapsed: None,
-        };
+        }
     }
 }
