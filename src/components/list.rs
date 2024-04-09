@@ -147,7 +147,7 @@ impl Component for List {
                     if let Some(entry) = self.entries.get(index) {
                         if self.selection.contains(entry) {
                             self.selection.retain(|e| *e != *entry);
-                            return Ok(Some(Action::RemoveScript(entry.clone())));
+                            return Ok(Some(Action::RemoveScripts(vec![entry.clone()])));
                         }
                     }
                 }
@@ -155,12 +155,13 @@ impl Component for List {
             Action::SelectCurrent => {
                 if let Some(index) = self.state.selected() {
                     if let Some(entry) = self.entries.get(index) {
+                        let items = entry.get_paths()?;
                         if self.selection.contains(entry) {
-                            self.selection.retain(|e| *e != *entry);
-                            return Ok(Some(Action::RemoveScript(entry.clone())));
+                            self.selection.retain(|e| !items.contains(e));
+                            return Ok(Some(Action::RemoveScripts(items)));
                         } else {
-                            self.selection.push(entry.clone());
-                            return Ok(Some(Action::AppendScripts(vec![entry.clone()])));
+                            self.selection.extend(items.clone());
+                            return Ok(Some(Action::AppendScripts(items)));
                         }
                     }
                 }
@@ -196,7 +197,7 @@ impl Component for List {
     async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
         match action {
             Action::RemoveAllSelectedScripts => self.selection.clear(),
-            Action::RemoveScript(entry) => self.selection.retain(|e| *e != entry),
+            Action::RemoveScripts(entries) => self.selection.retain(|e| !entries.contains(e)),
             _ => {}
         }
         Ok(None)

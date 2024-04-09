@@ -27,7 +27,7 @@ pub enum Action {
     AppendScripts(Vec<Entry>),
     ScriptHighlighted(Option<ResultLine>),
     RemoveSelectedScript,
-    RemoveScript(Entry),
+    RemoveScripts(Vec<Entry>),
     RemoveAllSelectedScripts,
     SwitchMode(Mode),
     ScriptRun,

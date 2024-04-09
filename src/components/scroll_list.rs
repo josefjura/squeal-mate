@@ -102,7 +102,7 @@ impl Component for ScrollList {
                 if let Some(pos) = self.state.selected() {
                     let entry = self.results.get(pos);
                     if let Some(entry) = entry {
-                        return Ok(Some(Action::RemoveScript(entry.result.clone())));
+                        return Ok(Some(Action::RemoveScripts(vec![entry.result.clone()])));
                     }
                 }
             }
@@ -151,8 +151,8 @@ impl Component for ScrollList {
                 self.results.sort();
                 return self.get_update();
             }
-            Action::RemoveScript(entry) => {
-                self.results.retain(|e| e.result != entry);
+            Action::RemoveScripts(entries) => {
+                self.results.retain(|e| !entries.contains(&e.result));
                 return self.get_update();
             }
             Action::RemoveAllSelectedScripts => {

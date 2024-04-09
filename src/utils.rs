@@ -112,6 +112,8 @@ impl PathWrapper {
 #[derive(Debug)]
 pub enum PathError {
     CantCreateFromFilenameOnly,
+    CantReadDirectoryContents,
+    CantReadFile,
 }
 
 impl Display for PathError {

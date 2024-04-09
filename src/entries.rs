@@ -56,6 +56,33 @@ impl Entry {
             Entry::File(wrapper) => Ok(wrapper.get_full_path()?),
         }
     }
+
+    pub fn get_paths(&self) -> Result<Vec<Entry>, PathError> {
+        match self {
+            Entry::Directory(path) => Ok(files_from_directory(path.clone())?),
+            Entry::File(_) => Ok(vec![self.clone()]),
+        }
+    }
+}
+
+fn files_from_directory(path: String) -> Result<Vec<Entry>, PathError> {
+    let dir = std::fs::read_dir(path).map_err(|_| PathError::CantReadDirectoryContents)?;
+    let mut files = vec![];
+    for entry in dir {
+        let entry = entry.map_err(|_| PathError::CantReadFile)?;
+        let path = entry.path();
+
+        let absolute_dir = path.parent().unwrap().to_path_buf();
+        let filename = path.file_name().unwrap().to_str().unwrap().to_string();
+        let e = Entry::File(PathWrapper::Absolute {
+            absolute_dir,
+            filename,
+        });
+
+        let items = e.get_paths()?;
+        files.extend(items);
+    }
+    Ok(files)
 }
 
 impl Display for Entry {
