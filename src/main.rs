@@ -22,7 +22,6 @@ use color_eyre::eyre;
 use components::help::Help;
 use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
-use components::status::Status;
 use config::{get_config_dir, get_data_dir, Settings};
 use crossterm::{execute, style::Print};
 use db::Database;
@@ -49,7 +48,6 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
     match repository {
         Ok(repository) => {
             let list = List::new(repository);
-            let status = Status::new();
             let script_status = ScriptStatus::new();
             let scroll_list = ScrollList::new(connection.clone(), path);
 
@@ -57,7 +55,7 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
                 vec![
                     Screen::new(
                         Mode::FileChooser,
-                        vec![Box::new(list), Box::new(status), Box::new(Help::new())],
+                        vec![Box::new(list), Box::new(Help::new())],
                     ),
                     Screen::new(
                         Mode::ScriptRunner,

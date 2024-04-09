@@ -80,6 +80,7 @@ pub fn initialize_logging() -> eyre::Result<()> {
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+
 pub enum PathWrapper {
     Filename(String),
     Relative {

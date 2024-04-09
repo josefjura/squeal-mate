@@ -207,11 +207,7 @@ impl Component for List {
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
         let rects = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Length(1),
-                Constraint::Fill(1),
-                Constraint::Length(1), // first row
-            ])
+            .constraints(vec![Constraint::Length(1), Constraint::Fill(1)])
             .split(area);
 
         let path_span = Span::raw(
