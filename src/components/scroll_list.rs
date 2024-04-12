@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-// use crossterm::style::{StyledContent, Stylize};
 use std::path::PathBuf;
 
 use color_eyre::eyre::Result;
@@ -12,9 +10,9 @@ use tokio::{sync::mpsc::UnboundedSender, time::Instant};
 use super::Component;
 use crate::{
     action::Action,
+    app::{AppState, Script, ScriptState},
     config::Settings,
     db::Database,
-    entries::{Entry, ResultLine, ResultState},
     tui::Frame,
 };
 
@@ -22,7 +20,6 @@ pub struct ScrollList {
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
     state: ListState,
-    results: Vec<ResultLine>,
     db: Database,
     base: PathBuf,
 }
@@ -33,10 +30,44 @@ impl ScrollList {
             command_tx: None,
             config: Settings::default(),
             state: ListState::default().with_selected(Some(0)),
-            results: vec![],
             db,
             base,
         }
+    }
+
+    fn update_selection(&mut self, state: &mut AppState) {
+        if self.command_tx.is_none() {
+            return;
+        }
+
+        if let Some(channel) = self.command_tx.as_mut() {
+            let selected: Vec<String> = state
+                .selected
+                .iter()
+                .map(|e| e.relative_path.clone())
+                .collect();
+
+            if selected.is_empty() {
+                return;
+            }
+
+            if let Err(error) = channel.send(Action::SelectionChanged(selected)) {
+                log::error!("{}", error);
+            }
+        }
+    }
+
+    fn get_update(&self, state: &mut AppState) -> Result<Option<Action>> {
+        if let Some(pos) = self.state.selected() {
+            let entry = state.selected.get(pos);
+            if let Some(entry) = entry {
+                return Ok(Some(Action::ScriptHighlighted(Some(entry.clone()))));
+            } else {
+                return Ok(Some(Action::ScriptHighlighted(None)));
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn cursor_up(&mut self) {
@@ -65,9 +96,27 @@ impl ScrollList {
     pub fn go_to_bottom(&mut self, entries_len: usize) {
         self.state.select(Some(entries_len - 1));
     }
+
+    pub fn unselect_current(&mut self, state: &mut AppState) {
+        let entry = self
+            .state
+            .selected()
+            .and_then(|pos| state.selected.get(pos).cloned());
+
+        if entry.is_none() {
+            return;
+        };
+
+        let entry = entry.unwrap();
+
+        state.remove(entry.relative_path);
+    }
+
+    pub fn unselect_all(&mut self, state: &mut AppState) {
+        state.selected.clear()
+    }
 }
 
-#[async_trait]
 impl Component for ScrollList {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -79,142 +128,130 @@ impl Component for ScrollList {
         Ok(())
     }
 
-    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+    fn update(&mut self, state: &mut AppState, action: Action) -> Result<Option<Action>> {
         match action {
             Action::Tick => {}
             Action::CursorUp => {
                 self.cursor_up();
-                return self.get_update();
+                return self.get_update(state);
             }
             Action::CursorDown => {
-                self.cursor_down(self.results.len());
-                return self.get_update();
+                self.cursor_down(state.selected.len());
+                return self.get_update(state);
             }
             Action::CursorToTop => {
                 self.go_to_top();
-                return self.get_update();
+                return self.get_update(state);
             }
             Action::CursorToBottom => {
-                self.go_to_bottom(self.results.len());
-                return self.get_update();
+                self.go_to_bottom(state.selected.len());
+                return self.get_update(state);
             }
-            Action::RemoveSelectedScript => {
-                if let Some(pos) = self.state.selected() {
-                    let entry = self.results.get(pos);
-                    if let Some(entry) = entry {
-                        return Ok(Some(Action::RemoveScripts(vec![entry.result.clone()])));
-                    }
-                }
-            }
-            _ => {}
-        }
-        Ok(None)
-    }
-
-    async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
-        match action {
-            Action::ScriptFinished(entry, elapsed) => self
-                .results
+            Action::ScriptFinished(entry, elapsed) => state
+                .selected
                 .iter_mut()
-                .filter(|s| s.result == entry)
+                .filter(|s| s.relative_path == entry)
                 .for_each(|s| {
-                    s.state = ResultState::Finished;
+                    s.state = ScriptState::Finished;
                     s.elapsed = Some(elapsed);
                 }),
-            Action::ScriptError(entry, message) => self
-                .results
+            Action::ScriptError(entry, message) => state
+                .selected
                 .iter_mut()
-                .filter(|s| s.result == entry)
+                .filter(|s| s.relative_path == entry)
                 .for_each(|s| {
-                    s.state = ResultState::Error;
+                    s.state = ScriptState::Error;
                     s.error = Some(message.clone())
                 }),
-            Action::ScriptRunning(entry) => self
-                .results
+            Action::ScriptRunning(entry) => state
+                .selected
                 .iter_mut()
-                .filter(|s| s.result == entry)
-                .for_each(|s| s.state = ResultState::Running),
-            Action::SelectScripts(scripts) => {
-                self.results.clear();
-                self.results.extend(scripts.iter().map(ResultLine::none));
-                self.results.sort();
-
-                return self.get_update();
+                .filter(|s| s.relative_path == entry)
+                .for_each(|s| s.state = ScriptState::Running),
+            Action::UnselectCurrent => {
+                self.unselect_current(state);
+                return Ok(None);
             }
-            Action::AppendScripts(scripts) => {
-                let mut only_new: Vec<ResultLine> = scripts
+            Action::UnselectAll => {
+                self.unselect_all(state);
+                return Ok(None);
+            }
+            Action::AddSelection(scripts) => {
+                let mut only_new: Vec<Script> = scripts
                     .into_iter()
-                    .filter(|s| !self.results.iter().any(|r| r.result == *s))
-                    .map(|s| ResultLine::none(&s))
+                    .filter(|s| !state.selected.iter().any(|r| r.relative_path == *s))
+                    .map(|s| Script::none(&s))
                     .collect();
-                self.results.append(&mut only_new);
-                self.results.sort();
-                return self.get_update();
+                state.selected.append(&mut only_new);
+                state.selected.sort();
+
+                self.update_selection(state);
+
+                return self.get_update(state);
             }
-            Action::RemoveScripts(entries) => {
-                self.results.retain(|e| !entries.contains(&e.result));
-                return self.get_update();
-            }
-            Action::RemoveAllSelectedScripts => {
-                self.results.clear();
-                return self.get_update();
+            Action::RemoveSelection(scripts) => {
+                state
+                    .selected
+                    .retain(|e| !scripts.contains(&e.relative_path));
+
+                self.update_selection(state);
+
+                return self.get_update(state);
             }
             Action::ScriptRun => {
-                let entry = self
-                    .results
+                let entry = state
+                    .selected
                     .iter()
-                    .skip_while(|f| f.state != ResultState::None)
-                    .next()
+                    .find(|f| f.state == ScriptState::None)
                     .cloned();
 
                 if entry.is_none() {
                     return Ok(None);
                 }
                 let entry = entry.unwrap();
-                if let Entry::File(_) = entry.result {
-                    let rel_dir = entry.result.get_full_path()?;
-                    let full_path = self.base.join(rel_dir);
 
-                    let connection = self.db.clone();
-                    let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
-                    let cloned = entry;
+                let full_path = self.base.join(&entry.relative_path);
 
-                    tokio::spawn(async move {
-                        send_through_channel(
-                            &channel,
-                            Action::ScriptRunning(cloned.result.clone()),
-                        );
+                let connection = self.db.clone();
+                let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+                let cloned = entry.clone();
 
-                        let now = Instant::now();
-                        let result = connection.execute_script(full_path).await;
-                        let elapsed = now.elapsed().as_millis();
+                tokio::spawn(async move {
+                    send_through_channel(
+                        &channel,
+                        Action::ScriptRunning(cloned.relative_path.clone()),
+                    );
 
-                        match result {
-                            Ok(_) => {
-                                send_through_channel(
-                                    &channel,
-                                    Action::ScriptFinished(cloned.result, elapsed),
-                                );
-                                send_through_channel(&channel, Action::ScriptRun);
-                            }
-                            Err(err) => {
-                                send_through_channel(
-                                    &channel,
-                                    Action::ScriptError(cloned.result, err.to_string()),
-                                );
-                            }
+                    let now = Instant::now();
+                    let result = connection.execute_script(full_path).await;
+                    let elapsed = now.elapsed().as_millis();
+
+                    match result {
+                        Ok(_) => {
+                            send_through_channel(
+                                &channel,
+                                Action::ScriptFinished(cloned.relative_path, elapsed),
+                            );
+                            send_through_channel(&channel, Action::ScriptRun);
                         }
-                    });
-                }
+                        Err(err) => {
+                            send_through_channel(
+                                &channel,
+                                Action::ScriptError(cloned.relative_path, err.to_string()),
+                            );
+                        }
+                    }
+                });
+
                 //}
-                return self.get_update();
+                return self.get_update(state);
             }
             _ => {}
         }
         Ok(None)
     }
 
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()> {
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
@@ -223,26 +260,20 @@ impl Component for ScrollList {
             ])
             .split(area);
 
-        let items: Vec<ListItem> = self
-            .results
+        let items: Vec<ListItem> = state
+            .selected
             .iter()
-            .filter_map(|e| {
-                let text = e.result.get_full_path().ok()?.to_str().map(String::from);
+            .map(|e| {
+                let text = &e.relative_path;
 
-                match e.state {
-                    ResultState::None => {
-                        text.map(|f| ListItem::new(f).style(Style::new().fg(Color::White)))
-                    }
-                    ResultState::Running => {
-                        text.map(|f| ListItem::new(f).style(Style::new().fg(Color::Yellow)))
-                    }
-                    ResultState::Finished => {
-                        text.map(|f| ListItem::new(f).style(Style::new().fg(Color::Green)))
-                    }
-                    ResultState::Error => {
-                        text.map(|f| ListItem::new(f).style(Style::new().fg(Color::Red)))
-                    }
-                }
+                let style = match e.state {
+                    ScriptState::None => Style::new().fg(Color::White),
+                    ScriptState::Running => Style::new().fg(Color::Yellow),
+                    ScriptState::Finished => Style::new().fg(Color::Green),
+                    ScriptState::Error => Style::new().fg(Color::Red),
+                };
+
+                ListItem::new(Span::styled(text, style))
             })
             .collect();
 
@@ -260,21 +291,6 @@ impl Component for ScrollList {
         f.render_stateful_widget(&list_draw, rects[0], &mut self.state);
 
         Ok(())
-    }
-}
-
-impl ScrollList {
-    fn get_update(&self) -> Result<Option<Action>> {
-        if let Some(pos) = self.state.selected() {
-            let entry = self.results.get(pos);
-            if let Some(entry) = entry {
-                return Ok(Some(Action::ScriptHighlighted(Some(entry.clone()))));
-            } else {
-                return Ok(Some(Action::ScriptHighlighted(None)));
-            }
-        }
-
-        Ok(None)
     }
 }
 

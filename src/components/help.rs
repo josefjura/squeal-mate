@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use tui_popup::Popup;
 
 use color_eyre::eyre::Result;
@@ -6,7 +5,7 @@ use ratatui::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, config::Settings, tui::Frame};
+use crate::{action::Action, app::AppState, config::Settings, tui::Frame};
 
 pub struct Help {
     command_tx: Option<UnboundedSender<Action>>,
@@ -28,7 +27,7 @@ impl Help {
             ("End".to_string(), "Bottom of the list".to_string()),
             ("Enter".to_string(), "Enter directory".to_string()),
             ("Backspace".to_string(), "Up a level".to_string()),
-            ("Space".to_string(), "Toggle file selection".to_string()),
+            ("Space".to_string(), "Toggle selection".to_string()),
             ("s".to_string(), "Select all after cursor".to_string()),
             ("S".to_string(), "Select all in directory".to_string()),
             ("x".to_string(), "Unselect current file".to_string()),
@@ -62,7 +61,6 @@ impl Help {
     }
 }
 
-#[async_trait]
 impl Component for Help {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -74,7 +72,7 @@ impl Component for Help {
         Ok(())
     }
 
-    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+    fn update(&mut self, _: &mut AppState, action: Action) -> Result<Option<Action>> {
         match action {
             Action::ToggleHelp => self.visible = !self.visible,
             Action::CloseHelp => self.visible = false,
@@ -84,7 +82,7 @@ impl Component for Help {
         Ok(None)
     }
 
-    fn draw(&mut self, f: &mut Frame<'_>, _area: Rect) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, _area: Rect, _: &AppState) -> Result<()> {
         if self.visible {
             let popup = Popup::new("Keybindings", self.text.clone())
                 .style(Style::new().black().on_light_yellow());

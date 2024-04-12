@@ -1,6 +1,5 @@
-use async_trait::async_trait;
+use color_eyre::eyre::{Ok, Result};
 
-use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
     widgets::{block::Position, *},
@@ -8,21 +7,14 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{
-    action::Action,
-    config::Settings,
-    entries::{Entry, Name},
-    repository::Repository,
-    tui::Frame,
-};
-
+use crate::{action::Action, config::Settings, repository::Repository, tui::Frame};
+use crate::{app::AppState, entries::ListEntry};
 pub struct List {
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
     state: ListState,
     repository: Repository,
-    entries: Vec<Entry>,
-    selection: Vec<Entry>,
+    entries: Vec<ListEntry>,
 }
 
 impl List {
@@ -33,7 +25,6 @@ impl List {
             config: Settings::default(),
             entries: repository.read_entries_in_current_directory(),
             repository,
-            selection: vec![],
         }
     }
 
@@ -61,23 +52,30 @@ impl List {
         self.state.select(Some(entries_len - 1));
     }
 
-    pub fn open_selected_directory(&mut self) {
+    pub fn get_selection(&self) -> Option<&ListEntry> {
         if let Some(selected) = self.state.selected() {
-            let dir_name = self.entries.get(selected);
-            if let Some(entry) = dir_name {
-                match entry {
-                    Entry::Directory(dir_name) => {
-                        self.repository.open_directory(dir_name);
-                        self.entries = self.repository.read_entries_in_current_directory();
+            self.entries.get(selected)
+        } else {
+            None
+        }
+    }
 
-                        if !self.entries.is_empty() {
-                            self.state.select(Some(0))
-                        } else {
-                            self.state.select(None)
-                        }
-                    }
-                    _ => {}
-                }
+    pub fn open_selected_directory(&mut self) {
+        let entry = self.get_selection().cloned();
+
+        if let Some(ListEntry {
+            is_directory: true,
+            name,
+            ..
+        }) = entry
+        {
+            self.repository.open_directory(&name);
+            self.entries = self.repository.read_entries_in_current_directory();
+
+            if !self.entries.is_empty() {
+                self.state.select(Some(0))
+            } else {
+                self.state.select(None)
             }
         }
     }
@@ -87,10 +85,7 @@ impl List {
             self.entries = self.repository.read_entries_in_current_directory();
             self.state.select(Some(0));
 
-            let old_index = self
-                .entries
-                .iter()
-                .position(|r| r.get_filename_ref() == &old_dir);
+            let old_index = self.entries.iter().position(|r| r.name == old_dir);
 
             if let Some(old_index) = old_index {
                 self.state.select(Some(old_index));
@@ -101,9 +96,72 @@ impl List {
             }
         }
     }
+
+    pub fn select_current(&mut self, state: &mut AppState) {
+        let entry = self.get_selection().cloned();
+
+        if entry.is_none() {
+            return;
+        };
+
+        let entry = entry.unwrap();
+
+        if entry.is_directory {
+            let items = self.repository.get_children(entry.relative_path);
+            state.toggle_many(&items);
+        } else {
+            state.toggle(entry.relative_path);
+        }
+    }
+
+    pub fn unselect_current(&mut self, state: &mut AppState) {
+        let entry = self.get_selection().cloned();
+
+        if entry.is_none() {
+            return;
+        };
+
+        let entry = entry.unwrap();
+
+        if entry.is_directory {
+            let items = self.repository.get_children(entry.relative_path);
+            state.remove_many(&items);
+        } else {
+            state.remove(entry.relative_path);
+        }
+    }
+
+    pub fn unselect_all(&mut self, state: &mut AppState) {
+        state.selected.clear()
+    }
+
+    pub fn select_all_after(&mut self, state: &mut AppState) {
+        let entry = self.get_selection().cloned();
+
+        if entry.is_none() {
+            return;
+        };
+
+        let entry = entry.unwrap();
+
+        let entries = self
+            .repository
+            .read_files_after_in_directory(&entry.name)
+            .unwrap_or_default();
+
+        state.add_many(&entries);
+    }
+
+    pub fn select_all_in_directory(&mut self, state: &mut AppState) {
+        let entries = self
+            .repository
+            .read_files_in_directory()
+            .unwrap_or_default();
+
+        state.add_many(&entries);
+    }
 }
 
-#[async_trait]
 impl Component for List {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -115,7 +173,7 @@ impl Component for List {
         Ok(())
     }
 
-    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+    fn update(&mut self, state: &mut AppState, action: Action) -> Result<Option<Action>> {
         match action {
             Action::Tick => {}
             Action::CursorUp => {
@@ -142,68 +200,32 @@ impl Component for List {
                 self.leave_current_directory();
                 return Ok(None);
             }
-            Action::RemoveSelectedScript => {
-                if let Some(index) = self.state.selected() {
-                    if let Some(entry) = self.entries.get(index) {
-                        if self.selection.contains(entry) {
-                            self.selection.retain(|e| *e != *entry);
-                            return Ok(Some(Action::RemoveScripts(vec![entry.clone()])));
-                        }
-                    }
-                }
-            }
             Action::SelectCurrent => {
-                if let Some(index) = self.state.selected() {
-                    if let Some(entry) = self.entries.get(index) {
-                        let items = entry.get_paths()?;
-                        if self.selection.contains(entry) {
-                            self.selection.retain(|e| !items.contains(e));
-                            return Ok(Some(Action::RemoveScripts(items)));
-                        } else {
-                            self.selection.extend(items.clone());
-                            return Ok(Some(Action::AppendScripts(items)));
-                        }
-                    }
-                }
+                self.select_current(state);
+                return Ok(None);
+            }
+            Action::UnselectCurrent => {
+                self.unselect_current(state);
+                return Ok(None);
+            }
+            Action::UnselectAll => {
+                self.unselect_all(state);
+                return Ok(None);
             }
             Action::SelectAllAfter => {
-                if let Some(index) = self.state.selected() {
-                    let filename = self.entries.get(index);
-                    if let Some(entry) = filename {
-                        let entries = self.repository.read_files_after_in_directory(entry);
-                        let result = entries.unwrap();
-                        self.selection.extend(result.iter().cloned());
-                        return Ok(Some(Action::AppendScripts(result)));
-                    }
-                }
+                self.select_all_after(state);
+                return Ok(None);
             }
             Action::SelectAllInDirectory => {
-                let entries = self.repository.read_files_in_directory();
-                let result = entries.unwrap();
-                // let mut selection: Vec<String> = result
-                //     .iter()
-                //     .filter_map(|f| f.as_path().to_str())
-                //     .map(|f| String::from(f))
-                //     .collect();
-
-                self.selection.extend(result.iter().cloned());
-                return Ok(Some(Action::AppendScripts(result)));
+                self.select_all_in_directory(state);
+                return Ok(None);
             }
             _ => {}
         }
         Ok(None)
     }
 
-    async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
-        match action {
-            Action::RemoveAllSelectedScripts => self.selection.clear(),
-            Action::RemoveScripts(entries) => self.selection.retain(|e| !entries.contains(e)),
-            _ => {}
-        }
-        Ok(None)
-    }
-
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()> {
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Length(1), Constraint::Fill(1)])
@@ -221,21 +243,20 @@ impl Component for List {
         let items: Vec<ListItem> = self
             .entries
             .iter()
-            .filter_map(|entry| {
-                let name = entry.get_filename_ref().clone();
-                let style = match entry {
-                    Entry::File(_) => {
-                        if self.selection.contains(entry) {
-                            Style::new().green()
-                        } else {
-                            Style::new().white()
-                        }
-                    }
-                    Entry::Directory(_) => Style::new().light_blue(),
+            .map(|entry| {
+                let name = entry.name.clone();
+                let selected = state
+                    .selected
+                    .iter()
+                    .any(|s| s.relative_path == entry.relative_path);
+                let style = match (selected, entry.is_directory) {
+                    (true, false) => Style::new().green(),
+                    (false, false) => Style::new().white(),
+                    (_, true) => Style::new().light_blue(),
                 };
 
                 let list_item = ListItem::new(name).style(style);
-                Some(list_item)
+                list_item
             })
             .collect();
 
