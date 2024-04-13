@@ -10,6 +10,115 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::Rect;
 use tokio::sync::mpsc;
 
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+pub enum ScriptState {
+    Finished,
+    Running,
+    Error,
+    None,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+pub struct Script {
+    pub relative_path: String,
+    pub state: ScriptState,
+    pub error: Option<String>,
+    pub elapsed: Option<u128>,
+}
+
+impl Script {
+    pub fn none(path: &str) -> Self {
+        Self {
+            error: None,
+            relative_path: path.into(),
+            state: ScriptState::None,
+            elapsed: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn error(path: &str, error: String) -> Self {
+        Self {
+            error: Some(error),
+            relative_path: path.into(),
+            state: ScriptState::Error,
+            elapsed: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn finished(path: &str, elapsed: u128) -> Self {
+        Self {
+            error: None,
+            relative_path: path.into(),
+            state: ScriptState::Finished,
+            elapsed: Some(elapsed),
+        }
+    }
+}
+
+pub struct AppState {
+    pub selected: Vec<Script>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self { selected: vec![] }
+    }
+
+    pub fn add(&mut self, script: String) {
+        if !self.selected.iter().any(|s| s.relative_path == script) {
+            self.selected.push(Script::none(&script));
+            self.selected.sort()
+        }
+    }
+
+    pub fn remove(&mut self, script: String) {
+        self.selected.retain(|s| s.relative_path != script);
+        self.selected.sort()
+    }
+
+    pub fn remove_many(&mut self, script: &[String]) {
+        self.selected.retain(|s| !script.contains(&s.relative_path));
+        self.selected.sort()
+    }
+
+    pub fn toggle(&mut self, scripts: String) {
+        if self.selected.iter().any(|s| s.relative_path == scripts) {
+            self.selected.retain(|s| s.relative_path != scripts);
+        } else {
+            self.add(scripts);
+        }
+        self.selected.sort()
+    }
+
+    pub fn toggle_many(&mut self, scripts: &[String]) {
+        if self
+            .selected
+            .iter()
+            .any(|s| scripts.contains(&s.relative_path))
+        {
+            self.selected
+                .retain(|s| !scripts.contains(&s.relative_path));
+        } else {
+            self.add_many(scripts);
+        }
+
+        self.selected.sort()
+    }
+
+    pub fn add_many(&mut self, scripts: &[String]) {
+        let new_items: Vec<Script> = scripts
+            .iter()
+            .filter(|s| !self.selected.iter().any(|r| r.relative_path == **s))
+            .map(|s| Script::none(s))
+            .collect();
+
+        self.selected.extend(new_items);
+        self.selected.sort()
+    }
+}
+
 pub struct App {
     pub current_screen: Mode,
     pub exit: bool,
@@ -18,6 +127,7 @@ pub struct App {
     pub frame_rate: f64,
     pub screens: Vec<Screen>,
     pub config: Settings,
+    pub state: AppState,
 }
 
 impl App {
@@ -30,6 +140,7 @@ impl App {
             tick_rate: 1.0,
             screens,
             config,
+            state: AppState::new(),
         }
     }
 
@@ -80,10 +191,8 @@ impl App {
                         (_, KeyCode::Char(' ')) => action_tx.send(Action::SelectCurrent)?,
                         (_, KeyCode::Char('s')) => action_tx.send(Action::SelectAllAfter)?,
                         (_, KeyCode::Char('S')) => action_tx.send(Action::SelectAllInDirectory)?,
-                        (_, KeyCode::Char('X')) => {
-                            action_tx.send(Action::RemoveAllSelectedScripts)?
-                        }
-                        (_, KeyCode::Char('x')) => action_tx.send(Action::RemoveSelectedScript)?,
+                        (_, KeyCode::Char('X')) => action_tx.send(Action::UnselectAll)?,
+                        (_, KeyCode::Char('x')) => action_tx.send(Action::UnselectCurrent)?,
                         (_, KeyCode::Char('h')) => action_tx.send(Action::ToggleHelp)?,
                         (_, KeyCode::Up) => action_tx.send(Action::CursorUp)?,
                         (_, KeyCode::Down) => action_tx.send(Action::CursorDown)?,
@@ -132,7 +241,7 @@ impl App {
                         if let Some(screen) = screen {
                             tui.draw(|f| {
                                 for component in screen.components.iter_mut() {
-                                    let r = component.draw(f, f.size());
+                                    let r = component.draw(f, f.size(), &self.state);
                                     if let Err(e) = r {
                                         action_tx
                                             .send(Action::Error(format!("Failed to draw: {:?}", e)))
@@ -150,7 +259,7 @@ impl App {
                         if let Some(screen) = screen {
                             tui.draw(|f| {
                                 for component in screen.components.iter_mut() {
-                                    let r = component.draw(f, f.size());
+                                    let r = component.draw(f, f.size(), &self.state);
                                     if let Err(e) = r {
                                         action_tx
                                             .send(Action::Error(format!("Failed to draw: {:?}", e)))
@@ -162,21 +271,15 @@ impl App {
                     }
                     _ => {}
                 }
+
                 let screen = self
                     .screens
                     .iter_mut()
                     .find(|f| f.mode == self.current_screen);
+
                 if let Some(screen) = screen {
                     for component in screen.components.iter_mut() {
-                        if let Some(action) = component.update(action.clone())? {
-                            action_tx.send(action)?
-                        };
-                    }
-                }
-
-                for screen in self.screens.iter_mut() {
-                    for component in screen.components.iter_mut() {
-                        if let Some(action) = component.update_background(action.clone()).await? {
+                        if let Some(action) = component.update(&mut self.state, action.clone())? {
                             action_tx.send(action)?
                         };
                     }

@@ -1,9 +1,9 @@
 use crate::{
     action::Action,
+    app::AppState,
     config::Settings,
     tui::{Event, Frame},
 };
-use async_trait::async_trait;
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
@@ -17,7 +17,6 @@ pub mod scroll_list;
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 /// Implementors of this trait can be registered with the main application loop and will be able to receive events,
 /// update state, and be rendered on the screen.
-#[async_trait]
 pub trait Component {
     /// Register an action handler that can send actions for processing if necessary.
     ///
@@ -102,7 +101,7 @@ pub trait Component {
         Ok(None)
     }
     /// Update the state of the component based on a received action. (REQUIRED)
-    ///	Runs only when screen is active.
+    /// Runs only when screen is active.
     ///
     /// # Arguments
     ///
@@ -112,22 +111,9 @@ pub trait Component {
     ///
     /// * `Result<Option<Action>>` - An action to be processed or none.
     #[allow(unused_variables)]
-    fn update(&mut self, action: Action) -> color_eyre::eyre::Result<Option<Action>> {
-        Ok(None)
-    }
-    /// Update the state of the component based on a received action. (REQUIRED)
-    /// Runs even when screen is not active.
-    ///
-    /// # Arguments
-    ///
-    /// * `action` - An action that may modify the state of the component.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<Option<Action>>` - An action to be processed or none.
-    #[allow(unused_variables)]
-    async fn update_background(
+    fn update(
         &mut self,
+        state: &mut AppState,
         action: Action,
     ) -> color_eyre::eyre::Result<Option<Action>> {
         Ok(None)
@@ -142,5 +128,5 @@ pub trait Component {
     /// # Returns
     ///
     /// * `Result<()>` - An Ok result or an error.
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()>;
+    fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()>;
 }

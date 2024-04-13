@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
@@ -15,8 +14,8 @@ use throbber_widgets_tui::ThrobberState;
 use super::Component;
 use crate::{
     action::Action,
+    app::{AppState, Script, ScriptState},
     config::Settings,
-    entries::{ResultLine, ResultState},
     tui::Frame,
 };
 
@@ -40,7 +39,6 @@ impl ScriptStatus {
     }
 }
 
-#[async_trait]
 impl Component for ScriptStatus {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
@@ -52,72 +50,36 @@ impl Component for ScriptStatus {
         Ok(())
     }
 
-    fn update(&mut self, action: Action) -> Result<Option<Action>> {
+    fn update(&mut self, _: &mut AppState, action: Action) -> Result<Option<Action>> {
         match action {
             Action::Tick => {
                 self.spinner_state.calc_next();
             }
             Action::ScriptHighlighted(result_line) => {
                 let message = match &result_line {
-                    Some(ResultLine {
-                        state: ResultState::ERROR,
+                    Some(Script {
+                        state: ScriptState::Error,
                         error: Some(err),
                         ..
-                    }) => String::from(err.clone()),
-                    Some(ResultLine {
-                        state: ResultState::FINISHED,
+                    }) => err.clone(),
+                    Some(Script {
+                        state: ScriptState::Finished,
                         elapsed: Some(elapsed),
                         ..
-                    }) => elapsed.to_string(),
+                    }) => format!("Finished in: {}ms", elapsed),
                     None => String::from(""),
                     _ => String::from(""),
                 };
 
-                self.message = message.into();
-                self.path = result_line.map_or(String::from(""), |f| {
-                    f.result
-                        .get_full_path()
-                        .map(|i| String::from(i.to_str().unwrap_or_default()))
-                        .unwrap_or_default()
-                })
+                self.message = message;
+                self.path = result_line.map_or(String::from(""), |f| f.relative_path)
             }
             _ => {}
         }
         Ok(None)
     }
 
-    async fn update_background(&mut self, action: Action) -> Result<Option<Action>> {
-        match action {
-            Action::ScriptHighlighted(result_line) => {
-                let message = match &result_line {
-                    Some(ResultLine {
-                        state: ResultState::ERROR,
-                        error: Some(err),
-                        ..
-                    }) => String::from(err.clone()),
-                    Some(ResultLine {
-                        state: ResultState::FINISHED,
-                        elapsed: Some(elapsed),
-                        ..
-                    }) => format!("Finished in: {}ms", elapsed.to_string()),
-                    None => String::from(""),
-                    _ => String::from(""),
-                };
-
-                self.message = message.into();
-                self.path = result_line.map_or(String::from(""), |f| {
-                    f.result
-                        .get_full_path()
-                        .map(|i| String::from(i.to_str().unwrap_or_default()))
-                        .unwrap_or_default()
-                })
-            }
-            _ => {}
-        }
-        Ok(None)
-    }
-
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, area: Rect, _: &AppState) -> Result<()> {
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![

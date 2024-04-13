@@ -1,6 +1,4 @@
-use std::{error::Error, fmt::Display, path::PathBuf};
-
-use color_eyre::eyre::{self, Result};
+use color_eyre::eyre::{self};
 use tracing::error;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -79,45 +77,46 @@ pub fn initialize_logging() -> eyre::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
+// #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Hash)]
+// pub enum PathWrapper {
+//     Filename(String),
+//     Relative {
+//         relative_dir: PathBuf,
+//         filename: String,
+//     },
+//     Absolute {
+//         absolute_dir: PathBuf,
+//         filename: String,
+//     },
+// }
 
-pub enum PathWrapper {
-    Filename(String),
-    Relative {
-        relative_dir: PathBuf,
-        filename: String,
-    },
-    Absolute {
-        absolute_dir: PathBuf,
-        filename: String,
-    },
-}
+// impl PathWrapper {
+//     pub fn get_full_path(&self) -> Result<PathBuf, PathError> {
+//         match self {
+//             PathWrapper::Filename(_) => Err(PathError::CantCreateFromFilenameOnly),
+//             PathWrapper::Relative {
+//                 relative_dir,
+//                 filename,
+//             } => Ok(PathBuf::from(relative_dir).join(filename)),
+//             PathWrapper::Absolute {
+//                 absolute_dir,
+//                 filename,
+//             } => Ok(PathBuf::from(absolute_dir).join(filename)),
+//         }
+//     }
+// }
 
-impl PathWrapper {
-    pub fn get_full_path(&self) -> Result<PathBuf, PathError> {
-        match self {
-            PathWrapper::Filename(name) => Err(PathError::CantCreateFromFilenameOnly),
-            PathWrapper::Relative {
-                relative_dir,
-                filename,
-            } => Ok(PathBuf::from(relative_dir).join(filename)),
-            PathWrapper::Absolute {
-                absolute_dir,
-                filename,
-            } => Ok(PathBuf::from(absolute_dir).join(filename)),
-        }
-    }
-}
+// #[derive(Debug)]
+// pub enum PathError {
+//     CantCreateFromFilenameOnly,
+//     CantReadDirectoryContents,
+//     CantReadFile,
+// }
 
-#[derive(Debug)]
-pub enum PathError {
-    CantCreateFromFilenameOnly,
-}
+// impl Display for PathError {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "Error while accessing a filename")
+//     }
+// }
 
-impl Display for PathError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Error while accessing a filename")
-    }
-}
-
-impl Error for PathError {}
+// impl Error for PathError {}

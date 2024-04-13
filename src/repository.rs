@@ -1,8 +1,9 @@
 use std::{fs::read_dir, path::PathBuf};
 
 use color_eyre::eyre;
+use walkdir::{DirEntry, WalkDir};
 
-use crate::{entries::Entry, utils::PathWrapper};
+use crate::entries::ListEntry;
 
 #[derive(Debug)]
 pub enum RepositoryError {
@@ -61,10 +62,12 @@ impl Repository {
             .fold(self.root.clone(), |acc, item| acc.join(item))
     }
 
+    #[allow(unused)]
     pub fn current_relative_as_path_buf(&mut self) -> PathBuf {
         PathBuf::from(self.current_relative_as_str())
     }
 
+    #[allow(unused)]
     pub fn current_relative_as_str(&self) -> String {
         let c = self.current_as_path_buf();
         let b = self.base_as_str();
@@ -80,21 +83,7 @@ impl Repository {
         self.path.pop()
     }
 
-    // pub fn add_relative_path(&self, entry: Entry) -> eyre::Result<Entry> {
-    //     let current = self.current_relative_as_str();
-    //     let base = self.base_as_str();
-    //     let partial = current.replace(&base, "");
-
-    //     match entry {
-    //         Entry::File(_) => Ok(Entry::File(PathWrapper::Relative {
-    //             relative_dir: PathBuf::from(partial),
-    //             filename: entry.get_filename(),
-    //         })),
-    //         Entry::Directory(name) => Ok(Entry::Directory(format!("{}{}", partial, name))),
-    //     }
-    // }
-
-    pub fn read_files_in_directory(&self) -> eyre::Result<Vec<Entry>> {
+    pub fn read_files_in_directory(&self) -> eyre::Result<Vec<String>> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
@@ -111,10 +100,7 @@ impl Repository {
                     let relative_path = path_str.replace(base.to_str().unwrap(), "");
                     let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
 
-                    Some(Entry::File(PathWrapper::Relative {
-                        relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
-                        filename: file_name.into(),
-                    }))
+                    Some(fixed.into())
                 } else {
                     None
                 }
@@ -124,7 +110,29 @@ impl Repository {
         Ok(entries)
     }
 
-    pub fn read_files_after_in_directory(&self, from: &Entry) -> eyre::Result<Vec<Entry>> {
+    pub fn get_children(&self, path: String) -> Vec<String> {
+        let base = self.base_as_path_buf();
+        let path = base.join(path);
+
+        if !path.is_dir() {
+            return vec![];
+        }
+
+        WalkDir::new(path)
+            .into_iter()
+            .filter_entry(|e| !is_hidden(e))
+            .filter_map(|e| e.ok())
+            .filter(|f| f.path().extension().map(|p| p == "sql").unwrap_or(false))
+            .map(|f| f.path().to_str().unwrap().to_string())
+            .map(|f| {
+                f.replace(base.to_str().unwrap(), "")
+                    .trim_start_matches(std::path::MAIN_SEPARATOR)
+                    .to_string()
+            })
+            .collect()
+    }
+
+    pub fn read_files_after_in_directory(&self, from: &str) -> eyre::Result<Vec<String>> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
         let entries = read_dir(current)?
@@ -140,23 +148,22 @@ impl Repository {
 
                 if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
                     let relative_path = path_str.replace(base.to_str().unwrap(), "");
-                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
-
-                    Some(Entry::File(PathWrapper::Relative {
-                        relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
-                        filename: file_name.into(),
-                    }))
+                    let fixed = relative_path
+                        .trim_start_matches(std::path::MAIN_SEPARATOR)
+                        .to_owned();
+                    Some((fixed, file_name.to_owned()))
                 } else {
                     None
                 }
             })
-            .skip_while(|path| path != from)
+            .skip_while(|path| path.1 != from)
+            .map(|path| path.0)
             .collect();
 
         Ok(entries)
     }
 
-    pub fn read_entries_in_current_directory(&self) -> Vec<Entry> {
+    pub fn read_entries_in_current_directory(&self) -> Vec<ListEntry> {
         let current = self.current_as_path_buf();
         let base = self.base_as_path_buf();
 
@@ -171,18 +178,24 @@ impl Repository {
                     if file_name.starts_with('_') || file_name.starts_with('.') {
                         return None;
                     }
+                    let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
 
                     // Check if it's a directory or a file with .sql extension
                     if path.is_dir() {
-                        Some(Entry::Directory(file_name.to_owned()))
+                        Some(ListEntry {
+                            is_directory: true,
+                            relative_path: fixed.into(),
+                            name: file_name.into(),
+                            selected: false,
+                        })
                     } else if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
-                        let relative_path = path_str.replace(base.to_str().unwrap(), "");
-                        let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
-                        log::info!("HERE: {}", fixed);
-                        Some(Entry::File(PathWrapper::Relative {
-                            relative_dir: PathBuf::from(fixed).parent().unwrap().to_path_buf(),
-                            filename: file_name.into(),
-                        }))
+                        Some(ListEntry {
+                            is_directory: false,
+                            relative_path: fixed.into(),
+                            name: file_name.into(),
+                            selected: false,
+                        })
                     } else {
                         None
                     }
@@ -198,6 +211,14 @@ impl Repository {
 
         entries
     }
+}
+
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with('_') || s.starts_with('.'))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -276,34 +297,29 @@ mod test {
         assert_eq!("/dir2", repository.current_relative_as_str())
     }
 
-    // #[test]
-    // fn repository_path_files() {
-    //     let path = ".tests/repository/dir1";
-    //     let r = Repository::new(PathBuf::from(path));
+    #[test]
+    fn repository_getchildren_positive() {
+        let path = ".tests/repository";
+        let r = Repository::new(PathBuf::from(path));
 
-    //     assert_eq!(true, r.is_ok());
+        assert_eq!(true, r.is_ok());
 
-    //     let mut repository = r.unwrap();
+        let repository = r.unwrap();
 
-    //     repository.open_directory("dir2");
+        let children = repository.get_children("dir1".into());
+        assert_eq!(6, children.len());
+    }
 
-    //     assert_eq!(
-    //         1,
-    //         repository
-    //             .read_files_after_in_directory(PathBuf::from("file2.sql").as_path())
-    //             .unwrap()
-    //             .len()
-    //     );
+    #[test]
+    fn repository_getchildren_positive2() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
 
-    //     repository.leave_directory();
-    //     repository.open_directory("dir3");
+        assert_eq!(true, r.is_ok());
 
-    //     assert_eq!(
-    //         2,
-    //         repository
-    //             .read_files_after_in_directory(PathBuf::from("file5.sql").as_path())
-    //             .unwrap()
-    //             .len()
-    //     );
-    // }
+        let repository = r.unwrap();
+
+        let children = repository.get_children("dir2".into());
+        assert_eq!(1, children.len());
+    }
 }
