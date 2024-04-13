@@ -26,14 +26,13 @@ use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
 use config::{get_config_dir, get_data_dir, Settings};
 use crossterm::style::Stylize;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
 use repository::{Repository, RepositoryError};
+use std::env;
 use std::io::{self, stdout};
 use std::path::Path;
-use std::{env, u32};
 use std::{io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
 
