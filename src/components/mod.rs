@@ -101,7 +101,7 @@ pub trait Component {
         Ok(None)
     }
     /// Update the state of the component based on a received action. (REQUIRED)
-    ///	Runs only when screen is active.
+    /// Runs only when screen is active.
     ///
     /// # Arguments
     ///
