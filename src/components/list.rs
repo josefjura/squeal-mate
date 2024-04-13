@@ -144,6 +144,20 @@ impl List {
 
         let entry = entry.unwrap();
 
+        let entries = self.repository.read_files_after(&entry.name);
+
+        state.add_many(&entries);
+    }
+
+    pub fn select_all_after_in_directory(&mut self, state: &mut AppState) {
+        let entry = self.get_selection().cloned();
+
+        if entry.is_none() {
+            return;
+        };
+
+        let entry = entry.unwrap();
+
         let entries = self
             .repository
             .read_files_after_in_directory(&entry.name)
@@ -215,6 +229,9 @@ impl Component for List {
             Action::SelectAllAfter => {
                 self.select_all_after(state);
                 return Ok(None);
+            }
+            Action::SelectAllAfterInDirectory => {
+                self.select_all_after_in_directory(state);
             }
             Action::SelectAllInDirectory => {
                 self.select_all_in_directory(state);

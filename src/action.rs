@@ -19,6 +19,7 @@ pub enum Action {
     ScriptError(String, String),
     SelectCurrent,
     SelectAllAfter,
+    SelectAllAfterInDirectory,
     SelectAllInDirectory,
     UnselectAll,
     UnselectCurrent,

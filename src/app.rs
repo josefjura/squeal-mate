@@ -189,10 +189,13 @@ impl App {
                         (_, KeyCode::Char('q')) => action_tx.send(Action::Quit)?,
                         (_, KeyCode::Char('r')) => action_tx.send(Action::ScriptRun)?,
                         (_, KeyCode::Char(' ')) => action_tx.send(Action::SelectCurrent)?,
-                        (_, KeyCode::Char('s')) => action_tx.send(Action::SelectAllAfter)?,
-                        (_, KeyCode::Char('S')) => action_tx.send(Action::SelectAllInDirectory)?,
-                        (_, KeyCode::Char('X')) => action_tx.send(Action::UnselectAll)?,
+                        (_, KeyCode::Char('s')) => {
+                            action_tx.send(Action::SelectAllAfterInDirectory)?
+                        }
+                        (_, KeyCode::Char('S')) => action_tx.send(Action::SelectAllAfter)?,
+                        (_, KeyCode::Char('d')) => action_tx.send(Action::SelectAllInDirectory)?,
                         (_, KeyCode::Char('x')) => action_tx.send(Action::UnselectCurrent)?,
+                        (_, KeyCode::Char('X')) => action_tx.send(Action::UnselectAll)?,
                         (_, KeyCode::Char('h')) => action_tx.send(Action::ToggleHelp)?,
                         (_, KeyCode::Up) => action_tx.send(Action::CursorUp)?,
                         (_, KeyCode::Down) => action_tx.send(Action::CursorDown)?,
