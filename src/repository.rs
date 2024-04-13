@@ -1,4 +1,7 @@
-use std::{fs::read_dir, path::PathBuf};
+use std::{
+    fs::read_dir,
+    path::{Path, PathBuf},
+};
 
 use color_eyre::eyre;
 use walkdir::{DirEntry, WalkDir};
@@ -130,6 +133,37 @@ impl Repository {
                     .to_string()
             })
             .collect()
+    }
+
+    pub fn read_files_after(&self, from: &str) -> Vec<String> {
+        let current = self.current_as_path_buf();
+        let base = self.base_as_str().to_owned();
+        let target = current.join(from);
+        let target = target.to_str().unwrap_or_default();
+
+        let files: Vec<String> = WalkDir::new(&base)
+            //.sort_by_file_name()
+            .into_iter()
+            .filter_entry(|e| !is_hidden(e))
+            .filter_map(|e| e.ok())
+            .skip_while(|f| f.path().to_str().unwrap() != target)
+            .filter_map(|f| {
+                let path = f.path();
+                if path.extension()? == "sql" {
+                    let relative_path = path.strip_prefix(&base).ok()?;
+                    Some(
+                        relative_path
+                            .to_str()?
+                            .trim_start_matches(std::path::MAIN_SEPARATOR)
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        files
     }
 
     pub fn read_files_after_in_directory(&self, from: &str) -> eyre::Result<Vec<String>> {
@@ -321,5 +355,63 @@ mod test {
 
         let children = repository.get_children("dir2".into());
         assert_eq!(1, children.len());
+    }
+
+    #[test]
+    fn repository_getchildren_positive3() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let repository = r.unwrap();
+
+        let children = repository.get_children("dir3".into());
+        assert_eq!(4, children.len());
+    }
+
+    #[test]
+    fn repository_select_all_after() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let mut repository = r.unwrap();
+
+        repository.open_directory("dir3");
+
+        let children = repository.read_files_after("file4.sql");
+        assert_eq!(4, children.len());
+    }
+
+    #[test]
+    fn repository_select_all_after2() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let mut repository = r.unwrap();
+
+        repository.open_directory("dir2");
+
+        let children = repository.read_files_after("file2.sql");
+        assert_eq!(6, children.len());
+    }
+
+    #[test]
+    fn repository_select_all_after3() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
+
+        assert_eq!(true, r.is_ok());
+
+        let mut repository = r.unwrap();
+
+        repository.open_directory("dir3");
+
+        let children = repository.read_files_after("file6.sql");
+        assert_eq!(2, children.len());
     }
 }
