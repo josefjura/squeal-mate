@@ -18,17 +18,22 @@ use crate::app::App;
 use crate::components::list::List;
 use clap::Parser;
 use cli::{AeqArgs, Command};
+use cliclack::{confirm, input, intro, outro};
+
 use color_eyre::eyre;
 use components::help::Help;
 use components::script_status::ScriptStatus;
 use components::scroll_list::ScrollList;
 use config::{get_config_dir, get_data_dir, Settings};
+use crossterm::style::Stylize;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
-use ratatui::style::Stylize;
 use repository::{Repository, RepositoryError};
 use std::io::{self, stdout};
+use std::path::Path;
+use std::{env, u32};
 use std::{io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
 
@@ -91,7 +96,7 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
     }
 }
 
-fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {
+fn draw_config(stdout: &mut io::Stdout) -> eyre::Result<()> {
     let config_path = get_config_dir();
     let data_path = get_data_dir();
     let config_path_str = config_path.to_str().expect("Unknown host system").white();
@@ -115,6 +120,165 @@ fn draw_help(stdout: &mut io::Stdout) -> eyre::Result<()> {
     Ok(())
 }
 
+fn init_config() -> eyre::Result<()> {
+    intro("Aequitas Command And Control Console")?;
+
+    let mut settings = Settings {
+        database: config::Database {
+            integrated: None,
+            username: None,
+            password: None,
+            server: None,
+            port: None,
+            name: None,
+        },
+        repository: config::Repository { path: None },
+    };
+
+    let current = env::current_dir()?;
+    let current_string = current.to_str().expect("Unknown host system").to_string();
+
+    let repository: String = input("Where are the migrations stored?")
+        .default_input(&current_string)
+        .validate(|input: &String| {
+            let exists = Path::new(input).exists();
+            if exists {
+                Ok(())
+            } else {
+                Err("Enter existing directory.")
+            }
+        })
+        .interact()?;
+    settings.repository.path = Some(repository);
+
+    let database: String = input("Database url")
+        .default_input("localhost")
+        .validate(|input: &String| {
+            if input.is_empty() {
+                Err("Please enter a username")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+    settings.database.server = Some(database);
+
+    let port: String = input("Database port")
+        .default_input("1433")
+        .validate(|input: &String| match input.parse::<u16>() {
+            Ok(_) => Ok(()),
+            Err(_) => Err("Port must be a number"),
+        })
+        .interact()?;
+    settings.database.port = Some(port.parse::<u16>().unwrap());
+
+    let integrated: bool = confirm("Do you want to use integrated security to connect to database? (e.g. Windows Authentication)")
+		.initial_value(true)
+		.interact()?;
+    settings.database.integrated = Some(integrated);
+
+    if !integrated {
+        let username: String = input("SQL user name")
+            .validate(|input: &String| {
+                if input.is_empty() {
+                    Err("Username cannot be empty")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact()?;
+        settings.database.username = Some(username);
+
+        let store_password: bool = confirm(
+            "Do you want to store the password in the configuration file? (Not recommended)",
+        )
+        .initial_value(false)
+        .interact()?;
+
+        if store_password {
+            let password: String = input("SQL user password")
+                .validate(|input: &String| {
+                    if input.is_empty() {
+                        Err("Password cannot be empty")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+            settings.database.password = Some(password);
+        }
+    }
+
+    let db_name: String = input("Datababase name")
+        .validate(|input: &String| {
+            if input.is_empty() {
+                Err("Database name cannot be empty")
+            } else {
+                Ok(())
+            }
+        })
+        .interact()?;
+    settings.database.name = Some(db_name);
+
+    if let Some(ref path) = settings.repository.path {
+        cliclack::log::info(format!("Repository path: {}", path))?;
+    }
+
+    if let Some(ref integrated) = settings.database.integrated {
+        if *integrated {
+            cliclack::log::info("Using integrated authentication")?;
+        } else {
+            if let Some(ref username) = settings.database.username {
+                cliclack::log::info(format!("SQl user name: {}", username))?;
+            }
+            if let Some(ref password) = settings.database.password {
+                cliclack::log::info(format!("SQl user password: {}", password))?;
+            }
+        }
+    }
+
+    if let Some(ref server) = settings.database.server {
+        cliclack::log::info(format!("Database server: {}", server))?;
+    }
+    if let Some(ref port) = settings.database.port {
+        cliclack::log::info(format!("Database port: {}", port))?;
+    }
+    if let Some(ref db_name) = settings.database.name {
+        cliclack::log::info(format!("Database name: {}", db_name))?;
+    }
+
+    let can_save: bool = confirm(
+        "Do you want to save the configuration? (If you choose no, the configuration will be lost)",
+    )
+    .initial_value(true)
+    .interact()?;
+
+    if !can_save {
+        outro("Configuration not saved!")?;
+        return Ok(());
+    }
+
+    let result = settings.save();
+
+    match result {
+        Ok(_) => {
+            outro("Configuration saved!")?;
+        }
+        Err(config::SettingSaveError::SerializationError(e)) => {
+            log::error!("Serialization error: {}", e);
+            outro("Error while saving configuration!")?;
+        }
+        Err(config::SettingSaveError::WriteError(e)) => {
+            log::error!("Write error: {}", e);
+            outro("Error while saving configuration!")?;
+        }
+    }
+
+    stdout().flush()?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let mut stdout = io::stdout();
@@ -125,7 +289,7 @@ async fn main() -> eyre::Result<()> {
 
     match args.command {
         Some(Command::Config) => {
-            draw_help(&mut stdout)?;
+            draw_config(&mut stdout)?;
         }
         Some(Command::Migrations) | None => {
             match args.connection.merge(&config) {
@@ -144,6 +308,7 @@ async fn main() -> eyre::Result<()> {
                 }
             };
         }
+        Some(Command::Initialize) => init_config()?,
     }
 
     Ok(())

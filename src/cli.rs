@@ -103,6 +103,9 @@ pub enum Command {
     Config,
     /// Starts the migrations explorer
     Migrations,
+    /// Helps set up the config file
+    #[command(name = "init")]
+    Initialize,
 }
 
 #[test]

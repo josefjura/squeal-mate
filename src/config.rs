@@ -3,9 +3,9 @@ use std::{fs::create_dir_all, path::PathBuf};
 use color_eyre::eyre;
 use config::{Config, ConfigError, Environment, File, FileFormat};
 use directories::ProjectDirs;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[allow(unused)]
 pub struct Database {
     #[serde(default)]
@@ -22,14 +22,14 @@ pub struct Database {
     pub name: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[allow(unused)]
 pub struct Repository {
     #[serde(default)]
     pub path: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[allow(unused)]
 pub struct Settings {
     #[serde(default)]
@@ -46,6 +46,12 @@ pub enum SettingError {
     InnerDeserializationError(ConfigError),
 }
 
+#[derive(Debug)]
+pub enum SettingSaveError {
+    SerializationError(toml::ser::Error),
+    WriteError(std::io::Error),
+}
+
 impl Settings {
     pub fn new() -> Result<Self, SettingError> {
         let config_dir = ensure_config_file().map_err(|_| SettingError::NoConfigFile)?;
@@ -53,6 +59,18 @@ impl Settings {
         let config_path_str = config_dir.to_str().ok_or(SettingError::NotAValidPath)?;
 
         Self::from_path(config_path_str)
+    }
+
+    pub fn save(&self) -> Result<(), SettingSaveError> {
+        let config = toml::to_string(self).map_err(SettingSaveError::SerializationError)?;
+
+        let path = get_config_dir();
+
+        let path = path.join("init.toml");
+
+        std::fs::write(path, config).map_err(SettingSaveError::WriteError)?;
+
+        Ok(())
     }
 
     pub fn from_path(config_path: &str) -> Result<Self, SettingError> {
