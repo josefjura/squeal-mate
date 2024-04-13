@@ -1,6 +1,7 @@
 use std::{fs::read_dir, path::PathBuf};
 
 use color_eyre::eyre;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::entries::ListEntry;
 
@@ -113,35 +114,22 @@ impl Repository {
         let base = self.base_as_path_buf();
         let path = base.join(path);
 
-        if path.is_dir() {
-            read_dir(path)
-                .map(|entries| {
-                    entries
-                        .filter_map(|entry| {
-                            let entry = entry.ok()?;
-                            let path = entry.path();
-                            let path_str = String::from(path.to_str().unwrap());
-                            let file_name = path.file_name()?.to_str()?;
-
-                            if file_name.starts_with('_') || file_name.starts_with('.') {
-                                return None;
-                            }
-                            if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
-                                let relative_path = path_str.replace(base.to_str().unwrap(), "");
-                                let fixed =
-                                    relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
-
-                                Some(fixed.into())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            vec![]
+        if !path.is_dir() {
+            return vec![];
         }
+
+        WalkDir::new(path)
+            .into_iter()
+            .filter_entry(|e| !is_hidden(e))
+            .filter_map(|e| e.ok())
+            .filter(|f| f.path().extension().map(|p| p == "sql").unwrap_or(false))
+            .map(|f| f.path().to_str().unwrap().to_string())
+            .map(|f| {
+                f.replace(base.to_str().unwrap(), "")
+                    .trim_start_matches(std::path::MAIN_SEPARATOR)
+                    .to_string()
+            })
+            .collect()
     }
 
     pub fn read_files_after_in_directory(&self, from: &str) -> eyre::Result<Vec<String>> {
@@ -225,6 +213,14 @@ impl Repository {
     }
 }
 
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with('_') || s.starts_with('.'))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -301,34 +297,29 @@ mod test {
         assert_eq!("/dir2", repository.current_relative_as_str())
     }
 
-    // #[test]
-    // fn repository_path_files() {
-    //     let path = ".tests/repository/dir1";
-    //     let r = Repository::new(PathBuf::from(path));
+    #[test]
+    fn repository_getchildren_positive() {
+        let path = ".tests/repository";
+        let r = Repository::new(PathBuf::from(path));
 
-    //     assert_eq!(true, r.is_ok());
+        assert_eq!(true, r.is_ok());
 
-    //     let mut repository = r.unwrap();
+        let repository = r.unwrap();
 
-    //     repository.open_directory("dir2");
+        let children = repository.get_children("dir1".into());
+        assert_eq!(6, children.len());
+    }
 
-    //     assert_eq!(
-    //         1,
-    //         repository
-    //             .read_files_after_in_directory(PathBuf::from("file2.sql").as_path())
-    //             .unwrap()
-    //             .len()
-    //     );
+    #[test]
+    fn repository_getchildren_positive2() {
+        let path = ".tests/repository/dir1";
+        let r = Repository::new(PathBuf::from(path));
 
-    //     repository.leave_directory();
-    //     repository.open_directory("dir3");
+        assert_eq!(true, r.is_ok());
 
-    //     assert_eq!(
-    //         2,
-    //         repository
-    //             .read_files_after_in_directory(PathBuf::from("file5.sql").as_path())
-    //             .unwrap()
-    //             .len()
-    //     );
-    // }
+        let repository = r.unwrap();
+
+        let children = repository.get_children("dir2".into());
+        assert_eq!(1, children.len());
+    }
 }
