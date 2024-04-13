@@ -139,27 +139,21 @@ impl Repository {
         let current = self.current_as_path_buf();
         let base = self.base_as_str().to_owned();
         let target = current.join(from);
-        let target = target.to_str().unwrap_or_default();
+        let target = target.as_path();
 
         let files: Vec<String> = WalkDir::new(&base)
-            //.sort_by_file_name()
+            .sort_by_file_name()
             .into_iter()
             .filter_entry(|e| !is_hidden(e))
             .filter_map(|e| e.ok())
-            .skip_while(|f| f.path().to_str().unwrap() != target)
+            .filter(|f| {
+                f.file_type().is_file() && f.path().extension().unwrap_or_default() == "sql"
+            })
+            .skip_while(|f| f.path() != target)
             .filter_map(|f| {
                 let path = f.path();
-                if path.extension()? == "sql" {
-                    let relative_path = path.strip_prefix(&base).ok()?;
-                    Some(
-                        relative_path
-                            .to_str()?
-                            .trim_start_matches(std::path::MAIN_SEPARATOR)
-                            .to_string(),
-                    )
-                } else {
-                    None
-                }
+                let relative_path = path.strip_prefix(&base).ok()?;
+                relative_path.to_str().map(|f| f.to_string())
             })
             .collect();
 
