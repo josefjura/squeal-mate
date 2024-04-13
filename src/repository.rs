@@ -1,7 +1,4 @@
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::{fs::read_dir, path::PathBuf};
 
 use color_eyre::eyre;
 use walkdir::{DirEntry, WalkDir};
@@ -137,27 +134,25 @@ impl Repository {
 
     pub fn read_files_after(&self, from: &str) -> Vec<String> {
         let current = self.current_as_path_buf();
-        let base = self.base_as_str().to_owned();
+        let base = self.base_as_path_buf();
         let target = current.join(from);
         let target = target.as_path();
 
-        let files: Vec<String> = WalkDir::new(&base)
+        WalkDir::new(&base)
             .sort_by_file_name()
             .into_iter()
             .filter_entry(|e| !is_hidden(e))
             .filter_map(|e| e.ok())
+            .skip_while(|f| f.path() != target)
             .filter(|f| {
                 f.file_type().is_file() && f.path().extension().unwrap_or_default() == "sql"
             })
-            .skip_while(|f| f.path() != target)
             .filter_map(|f| {
                 let path = f.path();
                 let relative_path = path.strip_prefix(&base).ok()?;
                 relative_path.to_str().map(|f| f.to_string())
             })
-            .collect();
-
-        files
+            .collect()
     }
 
     pub fn read_files_after_in_directory(&self, from: &str) -> eyre::Result<Vec<String>> {
