@@ -1,5 +1,5 @@
-# Aequitas Command And Control
+# SquealMate
 
-Application for project management 
+Migration scripts runner
 
 *TODO: Finish README*
