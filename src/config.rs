@@ -66,7 +66,7 @@ impl Settings {
 
         let path = get_config_dir();
 
-        let path = path.join("init.toml");
+        let path = path.join("config.toml");
 
         std::fs::write(path, config).map_err(SettingSaveError::WriteError)?;
 
@@ -77,7 +77,7 @@ impl Settings {
         let s = Config::builder()
             // Start off by merging in the "default" configuration file
             .add_source(File::new(config_path, FileFormat::Toml).required(false))
-            .add_source(Environment::with_prefix("AEQCAC").separator("_"))
+            .add_source(Environment::with_prefix("SQUEALMATE").separator("_"))
             .build()
             .map_err(SettingError::InnerInitError)?;
 
@@ -100,29 +100,8 @@ impl Settings {
     }
 }
 
-// pub fn read_config() -> eyre::Result<HashMap<String, String>, Box<dyn Error>> {
-//     // Convert config path to string and handle potential error
-//     let config_dir = ensure_config_file()?;
-
-//     let config_path_str = config_dir
-//         .to_str()
-//         .ok_or("Configuration path is not valid UTF-8")?;
-
-//     let settings = Config::builder()
-//         .add_source(File::new(config_path_str, FileFormat::Toml).required(false))
-//         .add_source(Environment::with_prefix("AEQCAC"))
-//         .build()
-//         .map_err(|e| format!("Configuration build failed: {}", e))?;
-
-//     let config = settings
-//         .try_deserialize()
-//         .map_err(|e| format!("Configuration parsing failed: {}", e))?;
-
-//     Ok(config)
-// }
-
 fn project_directory() -> Option<ProjectDirs> {
-    ProjectDirs::from("com", "Eurowag", "aeq-cac")
+    ProjectDirs::from("com", "beardo", "squealmate")
 }
 
 pub fn get_data_dir() -> PathBuf {
@@ -157,7 +136,7 @@ fn ensure_config_file() -> eyre::Result<PathBuf> {
 
     create_dir_all(&config_dir)?;
 
-    let config_path = config_dir.join("init.toml");
+    let config_path = config_dir.join("config.toml");
 
     Ok(config_path)
 }

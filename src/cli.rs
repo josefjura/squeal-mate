@@ -8,12 +8,12 @@ use crate::{
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "🦀 Aequitas Command And Control Console 🦀",
+    name = "🦀 SquealMate 🦀",
     version,
     about,
-    long_about = "Support tools collection for the Aequitas team"
+    long_about = "Migration management tool for SQL Server"
 )]
-pub struct AeqArgs {
+pub struct SquealMateArgs {
     #[clap(subcommand)]
     pub command: Option<Command>,
 

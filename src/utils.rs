@@ -60,7 +60,7 @@ pub fn initialize_panic_handler() -> eyre::Result<()> {
 pub fn initialize_logging() -> eyre::Result<()> {
     let directory = get_data_dir();
     std::fs::create_dir_all(&directory)?;
-    let log_path = directory.join("aeq-cac.log");
+    let log_path = directory.join("squealmate.log");
     let log_file = std::fs::File::create(log_path)?;
 
     let file_subscriber = tracing_subscriber::fmt::layer()
