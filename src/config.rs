@@ -42,7 +42,9 @@ pub struct Settings {
 pub enum SettingError {
     NoConfigFile,
     NotAValidPath,
+    #[allow(unused)]
     InnerInitError(ConfigError),
+    #[allow(unused)]
     InnerDeserializationError(ConfigError),
 }
 
