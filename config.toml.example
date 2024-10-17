@@ -5,6 +5,6 @@ path = "/mnt/c/Users/josef/source/eurowag/Aequitas/Database/Migrates"
 integrated = false
 username = "cli"
 password = "clipassword"
-server = "localhost"
+server = "172.19.64.1"
 port = 1433
-
+name = "AEQDB_DEV"

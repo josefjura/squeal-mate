@@ -17,7 +17,7 @@ use crate::screen::{Mode, Screen};
 use crate::app::App;
 use crate::components::list::List;
 use clap::Parser;
-use cli::{AeqArgs, Command};
+use cli::{Command, SquealMateArgs};
 use cliclack::{confirm, input, intro, outro};
 
 use color_eyre::eyre;
@@ -76,7 +76,7 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
             app.run().await?;
             execute!(
                 stdout(),
-                Print("🦀 Thank you for using AEQ-CAC 🦀\n".yellow())
+                Print("🦀 Thank you for using SquealMate 🦀\n".yellow())
             )?;
             Ok(())
         }
@@ -106,7 +106,7 @@ fn draw_config(stdout: &mut io::Stdout) -> eyre::Result<()> {
     let data_msg = format!("Logs dir: {}\n", data_path_str);
     execute!(
         stdout,
-        Print("🦀 Aequitas Command And Control Console 🦀\n".yellow()),
+        Print("🦀 SquealMate 🦀\n".yellow()),
         Print("\n"),
         Print(version_msg),
         Print("Edition: "),
@@ -120,7 +120,7 @@ fn draw_config(stdout: &mut io::Stdout) -> eyre::Result<()> {
 }
 
 fn init_config() -> eyre::Result<()> {
-    intro("Aequitas Command And Control Console")?;
+    intro("SquealMate")?;
 
     let mut settings = Settings {
         database: config::Database {
@@ -284,7 +284,7 @@ async fn main() -> eyre::Result<()> {
 
     let config = Settings::new().expect("Error while loading config!");
 
-    let args = AeqArgs::parse();
+    let args = SquealMateArgs::parse();
 
     match args.command {
         Some(Command::Config) => {

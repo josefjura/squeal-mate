@@ -27,5 +27,5 @@ jobs:
           ARCHIVE_TYPES: ${{ matrix.archive }}
           EXTRA_FILES: "README.md LICENSE"
           PRE_BUILD: "pre_build.sh"
-          ARCHIVE_NAME: "aeqcac-${{ matrix.target }}-${{ github.event.release.tag_name }}"
+          ARCHIVE_NAME: "squealmate-${{ matrix.target }}-${{ github.event.release.tag_name }}"
           STATIC_LINKING: false

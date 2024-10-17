@@ -7,15 +7,15 @@
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Debug executable 'aeq-cac'",
+			"name": "Debug executable 'squealmate'",
 			"cargo": {
 				"args": [
 					"build",
-					"--bin=aeq-cac",
-					"--package=aeq-cac"
+					"--bin=squealmate",
+					"--package=squealmate"
 				],
 				"filter": {
-					"name": "aeq-cac",
+					"name": "squealmate",
 					"kind": "bin"
 				}
 			},
@@ -25,16 +25,16 @@
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Debug unit tests in executable 'aeq-cac'",
+			"name": "Debug unit tests in executable 'squealmate'",
 			"cargo": {
 				"args": [
 					"test",
 					"--no-run",
-					"--bin=aeq-cac",
-					"--package=aeq-cac"
+					"--bin=squealmate",
+					"--package=squealmate"
 				],
 				"filter": {
-					"name": "aeq-cac",
+					"name": "squealmate",
 					"kind": "bin"
 				}
 			},
