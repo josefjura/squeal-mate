@@ -1,6 +1,6 @@
 [package]
 name = "squealmate"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,7 +26,7 @@ tracing-error = "0.2.0"
 human-panic = "2.0.2"
 throbber-widgets-tui = "0.7.1"
 chrono = "0.4.38"
-tui-popup = "0.5.0"
+tui-popup = "0.5.1"
 serde = "1.0.210"
 walkdir = "2"
 cliclack = "0.3.5"

@@ -2007,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "squealmate"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "better-panic",
  "chrono",
@@ -2386,9 +2386,9 @@ dependencies = [
 
 [[package]]
 name = "tui-popup"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f0125f70f5b7b1ef457452c88db3f7ecf615922ccbfac70e292b53912695b53"
+checksum = "08f7ada5028cc20b922b35e6accac4d4fca0cbe72ae5962685cf0742b31c8565"
 dependencies = [
  "derive-getters",
  "derive_setters",
