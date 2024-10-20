@@ -97,6 +97,10 @@ impl ScrollList {
         self.state.select(Some(entries_len - 1));
     }
 
+    pub fn go_to_entry(&mut self, new_position: usize) {
+        self.state.select(Some(new_position));
+    }
+
     pub fn unselect_current(&mut self, state: &mut AppState) {
         let entry = self
             .state
@@ -147,22 +151,48 @@ impl Component for ScrollList {
                 self.go_to_bottom(state.selected.len());
                 return self.get_update(state);
             }
-            Action::ScriptFinished(entry, elapsed) => state
-                .selected
-                .iter_mut()
-                .filter(|s| s.relative_path == entry)
-                .for_each(|s| {
-                    s.state = ScriptState::Finished;
-                    s.elapsed = Some(elapsed);
-                }),
-            Action::ScriptError(entry, message) => state
-                .selected
-                .iter_mut()
-                .filter(|s| s.relative_path == entry)
-                .for_each(|s| {
-                    s.state = ScriptState::Error;
-                    s.error = Some(message.clone())
-                }),
+            Action::ScriptFinished(entry, elapsed) => {
+                let new_position = state
+                    .selected
+                    .iter_mut()
+                    .position(|s| s.relative_path == entry);
+
+                if let Some(new_position) = new_position {
+                    self.go_to_entry(new_position);
+                }
+
+                state
+                    .selected
+                    .iter_mut()
+                    .filter(|s| s.relative_path == entry)
+                    .for_each(|s| {
+                        s.state = ScriptState::Finished;
+                        s.elapsed = Some(elapsed);
+                    });
+
+                return self.get_update(state);
+            }
+            Action::ScriptError(entry, message) => {
+                let new_position = state
+                    .selected
+                    .iter_mut()
+                    .position(|s| s.relative_path == entry);
+
+                if let Some(new_position) = new_position {
+                    self.go_to_entry(new_position);
+                }
+
+                state
+                    .selected
+                    .iter_mut()
+                    .filter(|s| s.relative_path == entry)
+                    .for_each(|s| {
+                        s.state = ScriptState::Error;
+                        s.error = Some(message.clone())
+                    });
+
+                return self.get_update(state);
+            }
             Action::ScriptRunning(entry) => state
                 .selected
                 .iter_mut()
