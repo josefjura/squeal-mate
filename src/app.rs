@@ -244,7 +244,7 @@ impl App {
                         if let Some(screen) = screen {
                             tui.draw(|f| {
                                 for component in screen.components.iter_mut() {
-                                    let r = component.draw(f, f.size(), &self.state);
+                                    let r = component.draw(f, f.area(), &self.state);
                                     if let Err(e) = r {
                                         action_tx
                                             .send(Action::Error(format!("Failed to draw: {:?}", e)))
@@ -262,7 +262,7 @@ impl App {
                         if let Some(screen) = screen {
                             tui.draw(|f| {
                                 for component in screen.components.iter_mut() {
-                                    let r = component.draw(f, f.size(), &self.state);
+                                    let r = component.draw(f, f.area(), &self.state);
                                     if let Err(e) = r {
                                         action_tx
                                             .send(Action::Error(format!("Failed to draw: {:?}", e)))

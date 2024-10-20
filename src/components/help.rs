@@ -91,9 +91,11 @@ impl Component for Help {
 
     fn draw(&mut self, f: &mut Frame<'_>, _area: Rect, _: &AppState) -> Result<()> {
         if self.visible {
-            let popup = Popup::new("Keybindings", self.text.clone())
+            let text = self.text.clone();
+            let popup = Popup::new(text.as_str())
+                .title("Keybindings")
                 .style(Style::new().black().on_light_yellow());
-            f.render_widget(popup.to_widget(), f.size());
+            f.render_widget(&popup, f.area());
         }
 
         Ok(())
