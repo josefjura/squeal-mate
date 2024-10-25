@@ -1,9 +1,10 @@
 use color_eyre::eyre::{self};
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::error;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::config::get_data_dir;
+use crate::{action::Action, config::get_data_dir};
 
 pub fn initialize_panic_handler() -> eyre::Result<()> {
     let (panic_hook, eyre_hook) = color_eyre::config::HookBuilder::default()
@@ -75,6 +76,14 @@ pub fn initialize_logging() -> eyre::Result<()> {
         .with(ErrorLayer::default())
         .init();
     Ok(())
+}
+
+pub fn send_through_channel(channel: &Option<UnboundedSender<Action>>, action: Action) {
+    if let Some(channel) = channel {
+        if let Err(error) = channel.send(action) {
+            log::error!("{}", error);
+        }
+    }
 }
 
 // #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Hash)]

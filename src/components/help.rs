@@ -40,6 +40,10 @@ impl Help {
             ("x".to_string(), "Unselect current file".to_string()),
             ("X".to_string(), "Unselect all in directory".to_string()),
             ("r".to_string(), "Run selected scripts".to_string()),
+            (
+                "R".to_string(),
+                "Run selected scripts, skipping errors".to_string(),
+            ),
         ];
 
         let key_length = lines.iter().map(|tuple| tuple.0.len()).max();

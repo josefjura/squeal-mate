@@ -31,6 +31,8 @@ serde = "1.0.210"
 walkdir = "2"
 cliclack = "0.3.5"
 toml = "0.8.19"
+rusqlite = { version = "0.32.0", features = ["bundled", "array"] }
+crc = "3.2.1"
 
 [dependencies.tokio-util]
 version = "0.7.12"

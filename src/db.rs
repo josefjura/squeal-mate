@@ -1,4 +1,4 @@
-use std::{error::Error, path::PathBuf};
+use std::error::Error;
 
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
@@ -21,10 +21,13 @@ pub enum Authentication {
 }
 
 impl Database {
-    pub async fn execute_script(&self, path: PathBuf) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut script = tokio::fs::read_to_string(path).await?;
+    pub async fn execute_script(
+        &self,
+        mut script: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        //let mut script = tokio::fs::read_to_string(path).await?;
         if script.starts_with('\u{feff}') {
-            script = script[3..].to_string();
+            script = &script[3..];
         }
 
         let mut config = Config::new();

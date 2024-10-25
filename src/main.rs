@@ -9,6 +9,7 @@ mod entries;
 mod error;
 mod repository;
 mod screen;
+mod script_memory;
 mod tui;
 mod utils;
 
@@ -30,6 +31,7 @@ use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
 use repository::{Repository, RepositoryError};
+use script_memory::ScriptDatabase;
 use std::env;
 use std::io::{self, stdout};
 use std::path::Path;
@@ -48,12 +50,13 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
     };
 
     let repository = Repository::new(path.clone());
+    let script_memory = ScriptDatabase::new().await?;
 
     match repository {
         Ok(repository) => {
-            let list = List::new(repository);
+            let list = List::new(repository, path.clone(), script_memory.clone())?;
             let script_status = ScriptStatus::new();
-            let scroll_list = ScrollList::new(connection.clone(), path);
+            let scroll_list = ScrollList::new(connection.clone(), path, script_memory);
 
             let mut app = App::new(
                 vec![
@@ -122,17 +125,7 @@ fn draw_config(stdout: &mut io::Stdout) -> eyre::Result<()> {
 fn init_config() -> eyre::Result<()> {
     intro("SquealMate")?;
 
-    let mut settings = Settings {
-        database: config::Database {
-            integrated: None,
-            username: None,
-            password: None,
-            server: None,
-            port: None,
-            name: None,
-        },
-        repository: config::Repository { path: None },
-    };
+    let mut settings = Settings::default();
 
     let current = env::current_dir()?;
     let current_string = current.to_str().expect("Unknown host system").to_string();

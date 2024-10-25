@@ -1,4 +1,4 @@
-use crate::{app::Script, screen::Mode};
+use crate::{app::Script, entries::EntryStatus, screen::Mode};
 
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
@@ -15,8 +15,10 @@ pub enum Action {
     ToggleHelp,
     CloseHelp,
     ScriptRunning(String),
-    ScriptFinished(String, u128),
-    ScriptError(String, String),
+    ScriptFinished(String, u128, u32),
+    ScriptError(String, String, Option<u32>),
+    CalculateEntryStatus,
+    EntryStatusChanged(String, EntryStatus),
     SelectCurrent,
     SelectAllAfter,
     SelectAllAfterInDirectory,
@@ -29,7 +31,7 @@ pub enum Action {
     SelectionChanged(Vec<String>),
     ScriptHighlighted(Option<Script>),
     SwitchMode(Mode),
-    ScriptRun,
+    ScriptRun(bool),
     Suspend,
     Resume,
     Quit,

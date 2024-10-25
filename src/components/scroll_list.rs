@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use color_eyre::eyre::Result;
+use crc::{Crc, CRC_32_ISO_HDLC};
 use ratatui::{
     prelude::*,
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
@@ -13,7 +14,9 @@ use crate::{
     app::{AppState, Script, ScriptState},
     config::Settings,
     db::Database,
+    script_memory::ScriptDatabase,
     tui::Frame,
+    utils::send_through_channel,
 };
 
 pub struct ScrollList {
@@ -22,16 +25,18 @@ pub struct ScrollList {
     state: ListState,
     db: Database,
     base: PathBuf,
+    script_memory: ScriptDatabase,
 }
 
 impl ScrollList {
-    pub fn new(db: Database, base: PathBuf) -> Self {
+    pub fn new(db: Database, base: PathBuf, script_memory: ScriptDatabase) -> Self {
         Self {
             command_tx: None,
             config: Settings::default(),
             state: ListState::default().with_selected(Some(0)),
             db,
             base,
+            script_memory,
         }
     }
 
@@ -151,7 +156,7 @@ impl Component for ScrollList {
                 self.go_to_bottom(state.selected.len());
                 return self.get_update(state);
             }
-            Action::ScriptFinished(entry, elapsed) => {
+            Action::ScriptFinished(entry, elapsed, crc) => {
                 let new_position = state
                     .selected
                     .iter_mut()
@@ -170,9 +175,11 @@ impl Component for ScrollList {
                         s.elapsed = Some(elapsed);
                     });
 
+                self.script_memory.insert(entry, crc, true)?;
+
                 return self.get_update(state);
             }
-            Action::ScriptError(entry, message) => {
+            Action::ScriptError(entry, message, crc) => {
                 let new_position = state
                     .selected
                     .iter_mut()
@@ -190,6 +197,10 @@ impl Component for ScrollList {
                         s.state = ScriptState::Error;
                         s.error = Some(message.clone())
                     });
+
+                if let Some(crc) = crc {
+                    self.script_memory.insert(entry, crc, false)?;
+                }
 
                 return self.get_update(state);
             }
@@ -228,17 +239,17 @@ impl Component for ScrollList {
 
                 return self.get_update(state);
             }
-            Action::ScriptRun => {
-                let entry = state
+            Action::ScriptRun(skip_errors) => {
+                let first_not_run_entry = state
                     .selected
                     .iter()
                     .find(|f| f.state == ScriptState::None)
                     .cloned();
 
-                if entry.is_none() {
+                if first_not_run_entry.is_none() {
                     return Ok(None);
                 }
-                let entry = entry.unwrap();
+                let entry = first_not_run_entry.unwrap();
 
                 let full_path = self.base.join(&entry.relative_path);
 
@@ -253,21 +264,61 @@ impl Component for ScrollList {
                     );
 
                     let now = Instant::now();
-                    let result = connection.execute_script(full_path).await;
-                    let elapsed = now.elapsed().as_millis();
-
-                    match result {
-                        Ok(_) => {
-                            send_through_channel(
-                                &channel,
-                                Action::ScriptFinished(cloned.relative_path, elapsed),
-                            );
-                            send_through_channel(&channel, Action::ScriptRun);
+                    let content = tokio::fs::read_to_string(full_path).await;
+                    match content {
+                        Ok(content) => {
+                            let result = connection.execute_script(&content).await;
+                            let elapsed = now.elapsed().as_millis();
+                            let hasher = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+                            let crc = hasher.checksum(content.as_bytes());
+                            match result {
+                                Ok(_) => {
+                                    send_through_channel(
+                                        &channel,
+                                        Action::ScriptFinished(
+                                            cloned.relative_path.clone(),
+                                            elapsed,
+                                            crc,
+                                        ),
+                                    );
+                                    send_through_channel(
+                                        &channel,
+                                        Action::EntryStatusChanged(
+                                            cloned.relative_path,
+                                            crate::entries::EntryStatus::Finished(true),
+                                        ),
+                                    );
+                                    send_through_channel(&channel, Action::ScriptRun(skip_errors));
+                                }
+                                Err(err) => {
+                                    send_through_channel(
+                                        &channel,
+                                        Action::ScriptError(
+                                            cloned.relative_path.clone(),
+                                            err.to_string(),
+                                            Some(crc),
+                                        ),
+                                    );
+                                    send_through_channel(
+                                        &channel,
+                                        Action::EntryStatusChanged(
+                                            cloned.relative_path,
+                                            crate::entries::EntryStatus::Finished(false),
+                                        ),
+                                    );
+                                    if skip_errors {
+                                        send_through_channel(
+                                            &channel,
+                                            Action::ScriptRun(skip_errors),
+                                        );
+                                    }
+                                }
+                            }
                         }
                         Err(err) => {
                             send_through_channel(
                                 &channel,
-                                Action::ScriptError(cloned.relative_path, err.to_string()),
+                                Action::ScriptError(cloned.relative_path, err.to_string(), None),
                             );
                         }
                     }
@@ -321,13 +372,5 @@ impl Component for ScrollList {
         f.render_stateful_widget(&list_draw, rects[0], &mut self.state);
 
         Ok(())
-    }
-}
-
-fn send_through_channel(channel: &Option<UnboundedSender<Action>>, action: Action) {
-    if let Some(channel) = channel {
-        if let Err(error) = channel.send(action) {
-            log::error!("{}", error);
-        }
     }
 }

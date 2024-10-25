@@ -187,7 +187,8 @@ impl App {
                             action_tx.send(Action::Quit)?
                         }
                         (_, KeyCode::Char('q')) => action_tx.send(Action::Quit)?,
-                        (_, KeyCode::Char('r')) => action_tx.send(Action::ScriptRun)?,
+                        (_, KeyCode::Char('r')) => action_tx.send(Action::ScriptRun(false))?,
+                        (_, KeyCode::Char('R')) => action_tx.send(Action::ScriptRun(true))?,
                         (_, KeyCode::Char(' ')) => action_tx.send(Action::SelectCurrent)?,
                         (_, KeyCode::Char('s')) => {
                             action_tx.send(Action::SelectAllAfterInDirectory)?
@@ -225,7 +226,7 @@ impl App {
 
             while let Ok(action) = action_rx.try_recv() {
                 if action != Action::Tick && action != Action::Render {
-                    log::debug!("{action:?}");
+                    //log::debug!("{action:?}");
                 }
                 match action {
                     Action::Tick => {
@@ -275,16 +276,36 @@ impl App {
                     _ => {}
                 }
 
-                let screen = self
-                    .screens
-                    .iter_mut()
-                    .find(|f| f.mode == self.current_screen);
+                if let Action::EntryStatusChanged(_, _) = action {
+                    for screen in self.screens.iter_mut() {
+                        for component in screen.components.iter_mut() {
+                            if action != Action::Tick && action != Action::Render {
+                                log::debug!("Running: {action:?} {:?}", screen.mode);
+                            }
+                            if let Some(action) =
+                                component.update(&mut self.state, action.clone())?
+                            {
+                                action_tx.send(action)?
+                            };
+                        }
+                    }
+                } else {
+                    let screen = self
+                        .screens
+                        .iter_mut()
+                        .find(|f| f.mode == self.current_screen);
 
-                if let Some(screen) = screen {
-                    for component in screen.components.iter_mut() {
-                        if let Some(action) = component.update(&mut self.state, action.clone())? {
-                            action_tx.send(action)?
-                        };
+                    if let Some(screen) = screen {
+                        for component in screen.components.iter_mut() {
+                            if action != Action::Tick && action != Action::Render {
+                                log::debug!("Running: {action:?} {:?}", screen.mode);
+                            }
+                            if let Some(action) =
+                                component.update(&mut self.state, action.clone())?
+                            {
+                                action_tx.send(action)?
+                            };
+                        }
                     }
                 }
             }

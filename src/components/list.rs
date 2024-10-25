@@ -1,5 +1,8 @@
-use color_eyre::eyre::{Ok, Result};
+use std::path::PathBuf;
 
+use color_eyre::eyre::{self, Ok, Result};
+
+use crc::{Crc, CRC_32_ISO_HDLC};
 use ratatui::{
     prelude::*,
     widgets::{block::Position, *},
@@ -7,25 +10,36 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, config::Settings, repository::Repository, tui::Frame};
+use crate::{
+    action::Action, config::Settings, entries::EntryStatus, repository::Repository,
+    script_memory::ScriptDatabase, tui::Frame, utils::send_through_channel,
+};
 use crate::{app::AppState, entries::ListEntry};
 pub struct List {
+    base: PathBuf,
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
     state: ListState,
     repository: Repository,
     entries: Vec<ListEntry>,
+    script_memory: ScriptDatabase,
 }
 
 impl List {
-    pub fn new(repository: Repository) -> Self {
-        Self {
+    pub fn new(
+        repository: Repository,
+        base: PathBuf,
+        script_memory: ScriptDatabase,
+    ) -> Result<Self> {
+        Ok(Self {
             state: ListState::default().with_selected(Some(0)),
             command_tx: None,
             config: Settings::default(),
-            entries: repository.read_entries_in_current_directory(),
+            entries: repository.read_entries_in_current_directory()?,
+            script_memory,
             repository,
-        }
+            base,
+        })
     }
 
     pub fn cursor_up(&mut self) {
@@ -60,7 +74,7 @@ impl List {
         }
     }
 
-    pub fn open_selected_directory(&mut self) {
+    pub fn open_selected_directory(&mut self) -> eyre::Result<()> {
         let entry = self.get_selection().cloned();
 
         if let Some(ListEntry {
@@ -70,7 +84,10 @@ impl List {
         }) = entry
         {
             self.repository.open_directory(&name);
-            self.entries = self.repository.read_entries_in_current_directory();
+            self.entries = self.repository.read_entries_in_current_directory()?;
+            if let Some(command_tx) = &self.command_tx {
+                command_tx.send(Action::CalculateEntryStatus)?;
+            }
 
             if !self.entries.is_empty() {
                 self.state.select(Some(0))
@@ -78,13 +95,17 @@ impl List {
                 self.state.select(None)
             }
         }
+
+        Ok(())
     }
-    pub fn leave_current_directory(&mut self) {
+    pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
         let old_dir = self.repository.leave_directory();
         if let Some(old_dir) = old_dir {
-            self.entries = self.repository.read_entries_in_current_directory();
+            self.entries = self.repository.read_entries_in_current_directory()?;
             self.state.select(Some(0));
-
+            if let Some(command_tx) = &self.command_tx {
+                command_tx.send(Action::CalculateEntryStatus)?;
+            }
             let old_index = self.entries.iter().position(|r| r.name == old_dir);
 
             if let Some(old_index) = old_index {
@@ -95,6 +116,8 @@ impl List {
                 self.state.select(None)
             }
         }
+
+        Ok(())
     }
 
     pub fn select_current(&mut self, state: &mut AppState) {
@@ -178,6 +201,7 @@ impl List {
 
 impl Component for List {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+        tx.send(Action::CalculateEntryStatus)?;
         self.command_tx = Some(tx);
         Ok(())
     }
@@ -207,11 +231,11 @@ impl Component for List {
                 return Ok(None);
             }
             Action::DirectoryOpenSelected => {
-                self.open_selected_directory();
+                self.open_selected_directory()?;
                 return Ok(None);
             }
             Action::DirectoryLeave => {
-                self.leave_current_directory();
+                self.leave_current_directory()?;
                 return Ok(None);
             }
             Action::SelectCurrent => {
@@ -235,6 +259,58 @@ impl Component for List {
             }
             Action::SelectAllInDirectory => {
                 self.select_all_in_directory(state);
+                return Ok(None);
+            }
+            Action::CalculateEntryStatus => {
+                let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+                let memory = self.script_memory.clone();
+                let base = self.base.clone();
+                let entries: Vec<_> = self.entries.clone();
+                tokio::spawn(async move {
+                    for entry in entries {
+                        if entry.is_directory {
+                            send_through_channel(
+                                &channel,
+                                Action::EntryStatusChanged(
+                                    entry.relative_path,
+                                    EntryStatus::Directory,
+                                ),
+                            );
+                            continue;
+                        }
+                        let full_path = base.join(&entry.relative_path);
+
+                        let content = tokio::fs::read_to_string(full_path).await;
+                        match content {
+                            core::result::Result::Ok(content) => {
+                                let hasher = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+                                let crc = hasher.checksum(content.as_bytes());
+                                let status = memory.get_file_status(&entry.relative_path, &crc);
+
+                                if let core::result::Result::Ok(status) = status {
+                                    send_through_channel(
+                                        &channel,
+                                        Action::EntryStatusChanged(entry.relative_path, status),
+                                    )
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Error reading file {} : {}", e, entry.relative_path);
+                            }
+                        }
+                    }
+                });
+
+                return Ok(None);
+            }
+            Action::EntryStatusChanged(path, status) => {
+                let index = self
+                    .entries
+                    .iter()
+                    .position(|e| e.relative_path == path)
+                    .unwrap();
+                self.entries[index].status = status.clone();
+                log::info!("Entry status changed: {:?} {:?} {:?}", path, status, index);
                 return Ok(None);
             }
             _ => {}
@@ -262,6 +338,14 @@ impl Component for List {
             .iter()
             .map(|entry| {
                 let name = entry.name.clone();
+                let decoratation = match entry.status {
+                    EntryStatus::Finished(true) => ("✓ ", Style::new().bg(Color::Green)),
+                    EntryStatus::Finished(false) => ("𐄂 ", Style::new().bg(Color::Yellow)),
+                    EntryStatus::Changed => ("! ", Style::new().bg(Color::Red)),
+                    EntryStatus::Unknown => ("? ", Style::default()),
+                    EntryStatus::NeverStarted => ("𐄂 ", Style::new().bg(Color::Rgb(255, 165, 0))),
+                    EntryStatus::Directory => ("", Style::default().bg(Color::LightBlue)),
+                };
                 let selected = state
                     .selected
                     .iter()
@@ -272,7 +356,12 @@ impl Component for List {
                     (_, true) => Style::new().light_blue(),
                 };
 
-                let list_item = ListItem::new(name).style(style);
+                let line = Line::default().spans(vec![
+                    Span::styled(decoratation.0, decoratation.1),
+                    Span::styled(format!(" {}", name), style),
+                ]);
+
+                let list_item = ListItem::new(line).style(style);
                 list_item
             })
             .collect();
@@ -286,7 +375,7 @@ impl Component for List {
                     .title_alignment(Alignment::Right)
                     .title("Press h for help"),
             )
-            .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
             .highlight_symbol(">> ")
             .repeat_highlight_symbol(true);
 
