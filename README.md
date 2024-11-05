@@ -19,7 +19,7 @@ To install **squealmate** on Windows, you can use the following one-liner in Pow
 2. Run the following command:
 
    ```powershell
-   iex (New-Object Net.WebClient).DownloadString("https://github.com/josefjura/squeal-mate/raw/master/deployment/install_windows.ps1")
+   irm https://github.com/josefjura/squeal-mate/raw/master/deployment/install_windows.ps1 | iex
    ```
 
 This will:
