@@ -2094,7 +2094,7 @@ dependencies = [
 
 [[package]]
 name = "squealmate"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "better-panic",
  "chrono",
