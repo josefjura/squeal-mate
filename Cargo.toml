@@ -1,6 +1,6 @@
 [package]
 name = "squealmate"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 config = "0.14.0"
-ratatui = "0.28.1"
+ratatui = "0.29.0"
 tiberius = { version = "0.12.3", features = ["integrated-auth-gssapi"] }
 tokio = { version = "1.40.0", features = ["full"] }
 futures = "0.3.31"
@@ -26,7 +26,7 @@ tracing-error = "0.2.0"
 human-panic = "2.0.2"
 throbber-widgets-tui = "0.7.1"
 chrono = "0.4.38"
-tui-popup = "0.5.1"
+tui-popup = "0.6.0"
 serde = "1.0.210"
 walkdir = "2"
 cliclack = "0.3.5"

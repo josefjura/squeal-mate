@@ -85,9 +85,12 @@ impl List {
         {
             self.repository.open_directory(&name);
             self.entries = self.repository.read_entries_in_current_directory()?;
-            if let Some(command_tx) = &self.command_tx {
-                command_tx.send(Action::CalculateEntryStatus)?;
-            }
+
+            let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+
+            tokio::spawn(async move {
+                send_through_channel(&channel, Action::CalculateEntryStatus);
+            });
 
             if !self.entries.is_empty() {
                 self.state.select(Some(0))
@@ -98,14 +101,19 @@ impl List {
 
         Ok(())
     }
+
     pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
         let old_dir = self.repository.leave_directory();
         if let Some(old_dir) = old_dir {
             self.entries = self.repository.read_entries_in_current_directory()?;
             self.state.select(Some(0));
-            if let Some(command_tx) = &self.command_tx {
-                command_tx.send(Action::CalculateEntryStatus)?;
-            }
+
+            let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+
+            tokio::spawn(async move {
+                send_through_channel(&channel, Action::CalculateEntryStatus);
+            });
+
             let old_index = self.entries.iter().position(|r| r.name == old_dir);
 
             if let Some(old_index) = old_index {
@@ -339,11 +347,16 @@ impl Component for List {
             .map(|entry| {
                 let name = entry.name.clone();
                 let decoratation = match entry.status {
-                    EntryStatus::Finished(true) => ("✓ ", Style::new().bg(Color::Green)),
-                    EntryStatus::Finished(false) => ("𐄂 ", Style::new().bg(Color::Yellow)),
-                    EntryStatus::Changed => ("! ", Style::new().bg(Color::Red)),
-                    EntryStatus::Unknown => ("? ", Style::default()),
-                    EntryStatus::NeverStarted => ("𐄂 ", Style::new().bg(Color::Rgb(255, 165, 0))),
+                    EntryStatus::Finished(true) => (" ✓ ", Style::new().bg(Color::Green)),
+                    EntryStatus::Finished(false) => {
+                        (" 𐄂 ", Style::new().bg(Color::Green).fg(Color::Red))
+                    }
+                    EntryStatus::Changed => (
+                        " ! ",
+                        Style::new().bg(Color::Rgb(255, 165, 0)).fg(Color::Black),
+                    ),
+                    EntryStatus::Unknown => (" ? ", Style::default()),
+                    EntryStatus::NeverStarted => ("   ", Style::new().bg(Color::Rgb(255, 165, 0))),
                     EntryStatus::Directory => ("", Style::default().bg(Color::LightBlue)),
                 };
                 let selected = state

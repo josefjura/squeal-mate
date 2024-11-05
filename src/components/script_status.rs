@@ -1,10 +1,7 @@
 use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
-    widgets::{
-        block::{Position, Title},
-        Block, BorderType, Borders, Padding, Paragraph, Wrap,
-    },
+    widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap},
 };
 use std::vec;
 use tokio::sync::mpsc::UnboundedSender;
@@ -97,11 +94,8 @@ impl Component for ScriptStatus {
             .block(
                 Block::new()
                     .title("Status")
-                    .title(
-                        Title::from("Press h for help")
-                            .position(Position::Bottom)
-                            .alignment(Alignment::Right),
-                    )
+                    .title_top("Press h for help")
+                    .title_alignment(Alignment::Right)
                     .borders(Borders::ALL)
                     .border_type(BorderType::Plain)
                     .padding(Padding::horizontal(2)),
