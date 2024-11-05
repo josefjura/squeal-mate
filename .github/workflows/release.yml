@@ -29,3 +29,4 @@ jobs:
           PRE_BUILD: "pre_build.sh"
           ARCHIVE_NAME: "squealmate-${{ matrix.target }}-${{ github.event.release.tag_name }}"
           STATIC_LINKING: false
+          TOOLCHAIN_VERSION: 1.79.0
