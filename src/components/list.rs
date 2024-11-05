@@ -317,8 +317,9 @@ impl Component for List {
                     .iter()
                     .position(|e| e.relative_path == path)
                     .unwrap();
+
                 self.entries[index].status = status.clone();
-                log::info!("Entry status changed: {:?} {:?} {:?}", path, status, index);
+
                 return Ok(None);
             }
             _ => {}
@@ -347,31 +348,32 @@ impl Component for List {
             .map(|entry| {
                 let name = entry.name.clone();
                 let decoratation = match entry.status {
-                    EntryStatus::Finished(true) => (" ✓ ", Style::new().bg(Color::Green)),
-                    EntryStatus::Finished(false) => {
-                        (" 𐄂 ", Style::new().bg(Color::Green).fg(Color::Red))
+                    EntryStatus::Finished(true) => ("\u{02705}", Style::new().fg(Color::Green)),
+                    EntryStatus::Finished(false) => ("\u{0274E}", Style::new().fg(Color::Red)),
+                    EntryStatus::Changed => ("\u{02755}", Style::new().fg(Color::Rgb(255, 165, 0))),
+                    EntryStatus::Unknown => ("\u{02754}", Style::default()),
+                    EntryStatus::NeverStarted => {
+                        ("\u{1F195}", Style::new().fg(Color::Rgb(255, 165, 0)))
                     }
-                    EntryStatus::Changed => (
-                        " ! ",
-                        Style::new().bg(Color::Rgb(255, 165, 0)).fg(Color::Black),
-                    ),
-                    EntryStatus::Unknown => (" ? ", Style::default()),
-                    EntryStatus::NeverStarted => ("   ", Style::new().bg(Color::Rgb(255, 165, 0))),
                     EntryStatus::Directory => ("", Style::default().bg(Color::LightBlue)),
                 };
                 let selected = state
                     .selected
                     .iter()
                     .any(|s| s.relative_path == entry.relative_path);
+
                 let style = match (selected, entry.is_directory) {
+                    (_, true) => Style::new().light_blue(),
                     (true, false) => Style::new().green(),
                     (false, false) => Style::new().white(),
-                    (_, true) => Style::new().light_blue(),
                 };
 
+                let symbol = Span::styled(decoratation.0, decoratation.1);
+
                 let line = Line::default().spans(vec![
-                    Span::styled(decoratation.0, decoratation.1),
-                    Span::styled(format!(" {}", name), style),
+                    symbol,
+                    Span::styled(" ", style),
+                    Span::styled(name, style),
                 ]);
 
                 let list_item = ListItem::new(line).style(style);
