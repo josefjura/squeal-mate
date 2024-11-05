@@ -7,14 +7,14 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Component;
 use crate::{action::Action, app::AppState, config::Settings, tui::Frame};
 
-pub struct Help {
+pub struct Help<'a> {
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
     visible: bool,
-    text: String,
+    text: Text<'a>,
 }
 
-impl Help {
+impl<'a> Help<'a> {
     pub fn new() -> Self {
         let lines = vec![
             ("q".to_string(), "Quit".to_string()),
@@ -46,22 +46,12 @@ impl Help {
             ),
         ];
 
-        let key_length = lines.iter().map(|tuple| tuple.0.len()).max();
-        let value_length = lines.iter().map(|tuple| tuple.1.len()).max();
+        let max = lines.iter().map(|line| line.0.len()).max().unwrap_or(1);
 
-        let text = lines
+        let text: Text = lines
             .iter()
-            .map(|tuple| {
-                format!(
-                    "{:>kwidth$} | {:vwidth$}",
-                    tuple.0,
-                    tuple.1,
-                    kwidth = key_length.unwrap_or(1),
-                    vwidth = value_length.unwrap_or(1)
-                )
-            })
-            .reduce(|acc, line| acc + "\n" + &line)
-            .unwrap_or_default();
+            .map(|line| Span::raw(format!(" {:>kwidth$} | {} ", line.0, line.1, kwidth = max)))
+            .collect();
 
         Self {
             command_tx: None,
@@ -72,7 +62,7 @@ impl Help {
     }
 }
 
-impl Component for Help {
+impl<'a> Component for Help<'a> {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         self.command_tx = Some(tx);
         Ok(())
@@ -95,10 +85,10 @@ impl Component for Help {
 
     fn draw(&mut self, f: &mut Frame<'_>, _area: Rect, _: &AppState) -> Result<()> {
         if self.visible {
-            let text = self.text.clone();
-            let popup = Popup::new(text.as_str())
+            let popup = Popup::new(self.text.clone())
                 .title("Keybindings")
                 .style(Style::new().black().on_light_yellow());
+
             f.render_widget(&popup, f.area());
         }
 
