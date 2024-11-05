@@ -1,28 +1,83 @@
-# Script to download and install squealmate from GitHub
-$version = "v0.8.1-alpha"
-$downloadUrl = "https://github.com/josefjura/squeal-mate/releases/download/$version/squealmate-x86_64-pc-windows-gnu-$version.zip"
-$installPath = "$env:ProgramFiles\squealmate"
+# Set error action to stop on any error
+$ErrorActionPreference = 'stop'
 
-# Create the installation folder if it doesn't exist
-if (!(Test-Path -Path $installPath)) {
-    New-Item -ItemType Directory -Force -Path $installPath
+# GitHub Org and Repo for squealmate
+$GitHubOrg = "josefjura"
+$GitHubRepo = "squeal-mate"
+
+# Installation path in a non-privileged location for testing
+$InstallDir = "$env:LOCALAPPDATA\squealmate"
+$ExecutableName = "squealmate.exe"
+$ExecutablePath = "${InstallDir}\${ExecutableName}"
+
+Write-Output "Installing squealmate..."
+Write-Output "Creating $InstallDir directory"
+New-Item -ErrorAction Ignore -Path $InstallDir -ItemType "directory"
+if (!(Test-Path $InstallDir -PathType Container)) {
+    throw "Could not create $InstallDir"
 }
 
-# Download the zip file
-$zipPath = "$installPath\squealmate.zip"
-Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath
+# Fetch the latest release from GitHub
+Write-Output "Fetching the latest squealmate release..."
+$releases = Invoke-RestMethod -Uri "https://api.github.com/repos/${GitHubOrg}/${GitHubRepo}/releases" -Method Get
+if ($releases.Count -eq 0) {
+    throw "No releases found in github.com/$GitHubOrg/$GitHubRepo repository"
+}
+
+# Find the Windows asset
+$windowsAsset = $releases[0].assets | Where-Object { $_.name -Like "*windows-gnu*.zip" }
+if (!$windowsAsset) {
+    throw "Cannot find the Windows squealmate archive"
+}
+
+# Log the URL to verify correctness
+$zipFilePath = "${InstallDir}\${windowsAsset.name}\squealmate.zip"
+Write-Output "Found the latest release: $($windowsAsset.browser_download_url)"
+Write-Output "Downloading $($windowsAsset.name) to $zipFilePath..."
+
+# Attempt download with Invoke-WebRequest or fallback to curl
+try {
+    # Attempt to download with Invoke-WebRequest
+    Invoke-WebRequest -Uri $windowsAsset.browser_download_url -OutFile $zipFilePath -UseBasicParsing
+} catch {
+    Write-Output "Invoke-WebRequest failed. Attempting download with curl..."
+    $curlCommand = "curl -L -o `"$zipFilePath`" `"$($windowsAsset.browser_download_url)`""
+    Write-Output "Running curl command: $curlCommand"
+    Invoke-Expression $curlCommand
+}
+
+# Confirm download success
+if (!(Test-Path $zipFilePath -PathType Leaf)) {
+    throw "Failed to download squealmate - $zipFilePath"
+}
+
+Write-Output "Successfully downloaded squealmate to $zipFilePath."
 
 # Extract the zip file
-Expand-Archive -Path $zipPath -DestinationPath $installPath -Force
-
-# Remove the zip file after extraction
-Remove-Item -Path $zipPath
-
-# Add the application path to the PATH environment variable for easy access from any command line
-$envPath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
-if (-not ($envPath -contains $installPath)) {
-    [System.Environment]::SetEnvironmentVariable("Path", "$envPath;$installPath", [System.EnvironmentVariableTarget]::Machine)
+Write-Output "Extracting $zipFilePath to $InstallDir..."
+Expand-Archive -Force -Path $zipFilePath -DestinationPath $InstallDir
+if (!(Test-Path $ExecutablePath -PathType Leaf)) {
+    throw "Failed to extract squealmate executable - $ExecutablePath"
 }
 
-Write-Output "squealmate has been successfully installed to $installPath"
-Write-Output "Please restart your terminal to apply the changes."
+# Verify the installation by checking the version
+Write-Output "Verifying installation..."
+Invoke-Expression "$ExecutablePath --version"
+
+# Clean up the downloaded zip file
+Write-Output "Cleaning up $zipFilePath..."
+Remove-Item $zipFilePath -Force
+
+# Add the installation directory to the User Path environment variable
+Write-Output "Adding $InstallDir to the User PATH..."
+$UserPathEnvironmentVar = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($UserPathEnvironmentVar -notlike "*$InstallDir*") {
+    [System.Environment]::SetEnvironmentVariable("PATH", "$UserPathEnvironmentVar;$InstallDir", "User")
+    Write-Output "Successfully added $InstallDir to the PATH."
+} else {
+    Write-Output "Path $InstallDir is already in the User PATH."
+}
+
+Write-Output "`r`nSquealmate has been installed successfully!"
+Write-Output "Please restart your terminal to apply the PATH changes."
+Write-Output "For more information, visit https://github.com/$GitHubOrg/$GitHubRepo"
