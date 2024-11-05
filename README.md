@@ -44,7 +44,52 @@ If you prefer manual installation, you can download the latest release from the 
 This section will guide users through the PowerShell installation process with minimal effort!
 
 ## Usage
-TODO
+
+`squealmate.exe` provides a set of commands and options for managing database configurations and migrations. Below is a detailed description of each command and option available.
+
+### First run
+
+It's recommended to start with `squealmate init` which will help you with first setup.
+
+### Commands
+
+- **`config`**  
+  Displays application information and configuration details for the current system, including paths and environment settings.
+
+- **`migrations`**  
+  Launches the migrations explorer, allowing you to view and manage database migrations interactively.
+
+- **`init`**  
+  Assists in setting up the initial configuration file. This command guides you through the setup process and stores configuration settings locally.
+
+- **`help`**  
+  Provides help information. Use this command to view usage details for specific commands or options.
+
+### Options
+
+- **`-s`, `--server <SERVER>`**  
+  Specify the database server URL. If not provided, it defaults to `localhost`.
+
+- **`--port <PORT>`**  
+  Set the port number for the database connection. Defaults to `1433` if omitted.
+
+- **`-u`, `--username <USERNAME>`**  
+  Define the username to log into the database. Required unless integrated authentication is used.
+
+- **`-p`, `--password <PASSWORD>`**  
+  Specify the password associated with the database username. This option is also skipped if integrated authentication is enabled.
+
+- **`-n`, `--name <NAME>`**  
+  The name of the database you wish to connect to.
+
+- **`-i`, `--is-integrated <IS_INTEGRATED>`**  
+  Enable integrated authentication by setting this option to `true`, which bypasses the need for a username and password. Accepts values `true` or `false`.
+
+- **`-h`, `--help`**  
+  Display help information for the main command or for a specific subcommand when combined with a command.
+
+- **`-V`, `--version`**  
+  Output the version information for `squealmate`.
 
 ## Contributing
 TODO
