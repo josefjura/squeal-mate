@@ -51,7 +51,7 @@ impl Database {
 
         let mut client = Client::connect(config, tcp.compat_write()).await?;
 
-        let parse = BatchParser::parse(&script);
+        let parse = BatchParser::parse(script);
 
         for batch in parse.batches {
             client.simple_query(batch).await?;
