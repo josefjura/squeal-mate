@@ -1,18 +1,13 @@
 use crate::{
     action::Action,
     app::AppState,
-    config::Settings,
+    infrastructure::Settings,
     tui::{Event, Frame},
 };
 use color_eyre::eyre::Result;
 use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::{Rect, Size};
 use tokio::sync::mpsc::UnboundedSender;
-
-pub mod help;
-pub mod list;
-pub mod script_status;
-pub mod scroll_list;
 
 /// `Component` is a trait that represents a visual and interactive element of the user interface.
 /// Implementors of this trait can be registered with the main application loop and will be able to receive events,

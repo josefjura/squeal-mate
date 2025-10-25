@@ -2,30 +2,32 @@ mod action;
 mod app;
 mod batch_parser;
 mod cli;
-mod components;
-mod config;
 mod db;
+mod domain;
 mod entries;
 mod error;
+mod infrastructure;
 mod repository;
 mod screen;
 mod script_memory;
+mod services;
 mod tui;
+mod ui;
 mod utils;
 
 use crate::screen::{Mode, Screen};
 
 use crate::app::App;
-use crate::components::list::List;
+use crate::ui::list::List;
 use clap::Parser;
 use cli::{Command, SquealMateArgs};
 use cliclack::{confirm, input, intro, outro};
 
 use color_eyre::eyre;
-use components::help::Help;
-use components::script_status::ScriptStatus;
-use components::scroll_list::ScrollList;
-use config::{get_config_dir, get_data_dir, Settings};
+use ui::help::Help;
+use ui::script_status::ScriptStatus;
+use ui::scroll_list::ScrollList;
+use infrastructure::{get_config_dir, get_data_dir, Settings};
 use crossterm::style::Stylize;
 use crossterm::{execute, style::Print};
 use db::Database;
@@ -256,11 +258,11 @@ fn init_config() -> eyre::Result<()> {
         Ok(_) => {
             outro("Configuration saved!")?;
         }
-        Err(config::SettingSaveError::SerializationError(e)) => {
+        Err(infrastructure::config::SettingSaveError::SerializationError(e)) => {
             log::error!("Serialization error: {}", e);
             outro("Error while saving configuration!")?;
         }
-        Err(config::SettingSaveError::WriteError(e)) => {
+        Err(infrastructure::config::SettingSaveError::WriteError(e)) => {
             log::error!("Write error: {}", e);
             outro("Error while saving configuration!")?;
         }

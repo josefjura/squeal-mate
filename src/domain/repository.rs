@@ -1,0 +1,41 @@
+//! Repository traits for domain layer
+//!
+//! These traits define the interface for accessing migration scripts
+//! without coupling to infrastructure details.
+
+use crate::domain::error::DomainResult;
+use crate::domain::script::{MigrationScript, ScriptPath};
+use async_trait::async_trait;
+use std::path::Path;
+
+/// Repository for accessing migration scripts from storage
+#[async_trait]
+pub trait MigrationRepository: Send + Sync {
+    /// List all script paths in a directory
+    async fn list_scripts(&self, directory: &Path) -> DomainResult<Vec<ScriptPath>>;
+
+    /// Read a script's content
+    async fn read_script(&self, path: &ScriptPath) -> DomainResult<MigrationScript>;
+
+    /// Get all child scripts under a directory path (recursive)
+    async fn get_children(&self, directory_path: &Path) -> DomainResult<Vec<ScriptPath>>;
+
+    /// Get scripts after a given script in the same directory
+    async fn get_scripts_after(
+        &self,
+        directory: &Path,
+        after: &ScriptPath,
+    ) -> DomainResult<Vec<ScriptPath>>;
+
+    /// Navigate to a subdirectory (returns true if successful)
+    fn enter_directory(&mut self, name: &str) -> bool;
+
+    /// Navigate to parent directory (returns the directory we left)
+    fn leave_directory(&mut self) -> Option<String>;
+
+    /// Get the current directory path
+    fn current_directory(&self) -> &Path;
+
+    /// Get the repository root path
+    fn root_directory(&self) -> &Path;
+}

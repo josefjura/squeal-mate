@@ -5,7 +5,7 @@ use ratatui::prelude::*;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, app::AppState, config::Settings, tui::Frame};
+use crate::{action::Action, app::AppState, infrastructure::Settings, tui::Frame};
 
 pub struct Help<'a> {
     command_tx: Option<UnboundedSender<Action>>,

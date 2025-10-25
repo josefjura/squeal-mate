@@ -1,4 +1,4 @@
-use crate::{config::get_script_database, entries::EntryStatus};
+use crate::{infrastructure::get_script_database, entries::EntryStatus};
 use color_eyre::eyre::{self};
 use rusqlite::{named_params, Connection};
 use std::path::PathBuf;

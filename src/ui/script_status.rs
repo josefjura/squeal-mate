@@ -12,7 +12,7 @@ use super::Component;
 use crate::{
     action::Action,
     app::{AppState, Script, ScriptState},
-    config::Settings,
+    infrastructure::Settings,
     tui::Frame,
 };
 

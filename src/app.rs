@@ -1,6 +1,6 @@
 use crate::{
     action::Action,
-    config::Settings,
+    infrastructure::Settings,
     screen::{Mode, Screen},
     tui,
 };

@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
 use crate::{
-    action::Action, config::Settings, entries::EntryStatus, repository::Repository,
+    action::Action, infrastructure::Settings, entries::EntryStatus, repository::Repository,
     script_memory::ScriptDatabase, tui::Frame, utils::send_through_channel,
 };
 use crate::{app::AppState, entries::ListEntry};

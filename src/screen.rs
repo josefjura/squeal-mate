@@ -1,4 +1,4 @@
-use crate::components::Component;
+use crate::ui::Component;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {

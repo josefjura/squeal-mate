@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
 use crate::{
-    config::Settings,
+    infrastructure::Settings,
     db::{Authentication, Database},
     ArgumentsError,
 };
