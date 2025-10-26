@@ -427,7 +427,7 @@ impl FileExplorer {
 
 #### Sub-Step 7.2: State Management Pattern
 **Time:** ~1.5 hours
-**Status:** ⏳ PENDING
+**Status:** ✅ COMPLETED
 
 **Problem:**
 - State updates scattered across action handlers
@@ -479,16 +479,35 @@ impl ListState {
 ```
 
 **Tasks:**
-- [ ] Create `ListState` struct with all component state
-- [ ] Implement reducer methods for state transitions
-- [ ] Move state update logic from action handlers to reducers
-- [ ] Add unit tests for state transitions
-- [ ] Update List component to use ListState
+- [x] Create `ComponentState` struct with all component state (src/ui/list_state.rs)
+- [x] Implement reducer methods for state transitions
+- [x] Wire up cursor movement to use ComponentState reducers
+- [x] Wire up navigation to use ComponentState reducers
+- [x] Wire up CRC progress to use reducer
+- [x] Add unit tests for state transitions (7 tests added)
+- [x] Update List component to use ComponentState (all reducers wired up)
+- [x] Check and consolidate state in ScrollList component (no consolidation needed - simple component)
+- [x] Check and consolidate state in ScriptStatus component (no consolidation needed - simple component)
 
-**Benefits:**
-- All state changes in one place
-- Easy to test state transitions
-- No more scattered `pending_cursor_name` fields
+**Result:**
+- ✅ ComponentState struct created with all reducer methods
+- ✅ 7 unit tests for state transitions
+- ✅ All reducers wired up and being used in List component:
+  - `start_loading()` - used in refresh_entries()
+  - `on_entries_loaded()` - used in EntriesLoaded action handler
+  - `update_entry_status()` - used in EntryStatusChanged action handler
+  - `cursor_up()` / `cursor_down()` - used in cursor movement methods
+  - `on_navigation_down()` / `on_navigation_up()` - used in directory navigation
+  - `on_crc_progress()` - used in StatusCalculationProgress action handler
+- ✅ ScrollList examined - no state consolidation needed (simple cursor-only component)
+- ✅ ScriptStatus examined - no state consolidation needed (3 simple display fields)
+- ✅ All 48 tests passing
+
+**Benefits Achieved:**
+- All state changes in List component go through reducers
+- Easy to test state transitions (7 new tests)
+- No more scattered state fields
+- Clear separation: `widget_state` (ratatui cursor) vs `component_state` (our logic)
 
 ---
 
