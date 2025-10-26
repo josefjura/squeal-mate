@@ -69,7 +69,7 @@ impl List {
         }
 
         // Spawn async task to load entries
-        let current_dir = self.component_state.current_directory.clone();
+        let current_dir = self.component_state.current_directory().clone();
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
         let dispatcher = self.dispatcher.clone();
@@ -117,13 +117,13 @@ impl List {
     pub fn cursor_up(&mut self) {
         self.component_state.cursor_up();
         // Sync widget state with component state
-        self.widget_state.select(Some(self.component_state.cursor));
+        self.widget_state.select(Some(self.component_state.cursor()));
     }
 
     pub fn cursor_down(&mut self, _entries_len: usize) {
         self.component_state.cursor_down();
         // Sync widget state with component state
-        self.widget_state.select(Some(self.component_state.cursor));
+        self.widget_state.select(Some(self.component_state.cursor()));
     }
 
     pub fn go_to_top(&mut self) {
@@ -136,7 +136,7 @@ impl List {
 
     pub fn get_selection(&self) -> Option<&ListEntry> {
         if let Some(selected) = self.widget_state.selected() {
-            self.component_state.entries.get(selected)
+            self.component_state.entries().get(selected)
         } else {
             None
         }
@@ -152,11 +152,11 @@ impl List {
         }) = entry
         {
             // Use reducer to navigate down
-            let new_dir = self.component_state.current_directory.join(&name);
+            let new_dir = self.component_state.current_directory().join(&name);
             self.component_state.on_navigation_down(new_dir);
 
             // Sync widget state and trigger refresh
-            self.widget_state.select(Some(self.component_state.cursor));
+            self.widget_state.select(Some(self.component_state.cursor()));
             self.refresh_entries()?;
             // Note: CalculateEntryStatus will be dispatched when EntriesLoaded action is received
         }
@@ -169,7 +169,7 @@ impl List {
         self.component_state.on_navigation_up();
 
         // Sync widget state and trigger refresh
-        self.widget_state.select(Some(self.component_state.cursor));
+        self.widget_state.select(Some(self.component_state.cursor()));
         self.refresh_entries()?;
         // Note: Cursor will be positioned when EntriesLoaded action is received
 
@@ -275,7 +275,7 @@ impl List {
         // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
         let root_dir = self.base.clone();
-        let current_dir = self.component_state.current_directory.clone();
+        let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let after_name = entry.name.clone();
 
@@ -319,7 +319,7 @@ impl List {
         // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
         let root_dir = self.base.clone();
-        let current_dir = self.component_state.current_directory.clone();
+        let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let after_name = entry.name.clone();
 
@@ -355,7 +355,7 @@ impl List {
         // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
         let root_dir = self.base.clone();
-        let current_dir = self.component_state.current_directory.clone();
+        let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
 
         let entries = handle.block_on(async {
@@ -404,7 +404,7 @@ impl Component for List {
                 return Ok(None);
             }
             Action::CursorDown => {
-                self.cursor_down(self.component_state.entries.len());
+                self.cursor_down(self.component_state.entries().len());
                 return Ok(None);
             }
             Action::CursorToTop => {
@@ -412,7 +412,7 @@ impl Component for List {
                 return Ok(None);
             }
             Action::CursorToBottom => {
-                self.go_to_bottom(self.component_state.entries.len());
+                self.go_to_bottom(self.component_state.entries().len());
                 return Ok(None);
             }
             Action::DirectoryOpenSelected => {
@@ -448,7 +448,7 @@ impl Component for List {
             }
             Action::CalculateEntryStatus => {
                 // Reset progress tracking
-                let file_count = self.component_state.entries.iter().filter(|e| !e.is_directory).count();
+                let file_count = self.component_state.entries().iter().filter(|e| !e.is_directory).count();
 
                 // Only show progress if there are files to process
                 if file_count > 0 {
@@ -464,7 +464,7 @@ impl Component for List {
                     use crate::domain::ScriptPath;
 
                     // Convert entries to ScriptPaths (only files, not directories)
-                    let script_paths: Vec<ScriptPath> = self.component_state.entries
+                    let script_paths: Vec<ScriptPath> = self.component_state.entries()
                         .iter()
                         .filter(|e| !e.is_directory)
                         .filter_map(|e| {
@@ -473,7 +473,7 @@ impl Component for List {
                         .collect();
 
                     // Dispatch directory statuses immediately
-                    for entry in &self.component_state.entries {
+                    for entry in self.component_state.entries() {
                         if entry.is_directory {
                             dispatcher.dispatch(Action::EntryStatusChanged(
                                 entry.relative_path.clone(),
@@ -490,7 +490,7 @@ impl Component for List {
                     let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
                     let memory = self.script_memory.clone();
                     let base = self.base.clone();
-                    let entries: Vec<_> = self.component_state.entries.clone();
+                    let entries: Vec<_> = self.component_state.entries().to_vec();
                     tokio::spawn(async move {
                         for entry in entries {
                             if entry.is_directory {
@@ -538,7 +538,7 @@ impl Component for List {
                 self.component_state.on_entries_loaded(entries);
 
                 // Sync widget state cursor with component state cursor
-                self.widget_state.select(Some(self.component_state.cursor));
+                self.widget_state.select(Some(self.component_state.cursor()));
 
                 // Now that entries are loaded, calculate their statuses
                 if let Some(ref dispatcher) = self.dispatcher {
@@ -573,7 +573,7 @@ impl Component for List {
             .split(area);
 
         let path_span = Span::raw(
-            self.component_state.current_directory
+            self.component_state.current_directory()
                 .display()
                 .to_string(),
         );
@@ -581,7 +581,7 @@ impl Component for List {
 
         let items: Vec<ListItem> = self
             .component_state
-            .entries
+            .entries()
             .iter()
             .map(|entry| {
                 let name = entry.name.clone();

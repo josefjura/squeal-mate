@@ -6,91 +6,153 @@
 use std::path::PathBuf;
 use crate::entries::{EntryStatus, ListEntry};
 
+/// Navigation state machine - makes async flow explicit
+#[derive(Debug, Clone)]
+pub enum NavigationState {
+    /// Actively browsing entries
+    Browsing {
+        path: PathBuf,
+        entries: Vec<ListEntry>,
+        cursor: usize,
+    },
+    /// Loading entries from filesystem
+    Loading {
+        path: PathBuf,
+        /// Name to position cursor on after loading
+        position_cursor_on: Option<String>,
+    },
+    /// Error occurred during loading
+    Error {
+        path: PathBuf,
+        error: String,
+    },
+}
+
 /// Consolidated state for the List component
 /// All state updates happen through reducer methods
 #[derive(Debug, Clone)]
 pub struct ComponentState {
-    /// Current directory being displayed
-    pub current_directory: PathBuf,
-
-    /// Entries in the current directory
-    pub entries: Vec<ListEntry>,
-
-    /// Current cursor position
-    pub cursor: usize,
-
-    /// Loading state
-    pub loading: bool,
+    /// Navigation state machine
+    pub nav_state: NavigationState,
 
     /// CRC calculation progress (current, total)
     pub crc_progress: Option<(usize, usize)>,
+}
 
-    /// Name to position cursor on after loading completes
-    pub pending_cursor_name: Option<String>,
+impl ComponentState {
+    /// Convenience getters for common access patterns
+    pub fn current_directory(&self) -> &PathBuf {
+        match &self.nav_state {
+            NavigationState::Browsing { path, .. } => path,
+            NavigationState::Loading { path, .. } => path,
+            NavigationState::Error { path, .. } => path,
+        }
+    }
+
+    pub fn entries(&self) -> &[ListEntry] {
+        match &self.nav_state {
+            NavigationState::Browsing { entries, .. } => entries,
+            _ => &[],
+        }
+    }
+
+    pub fn cursor(&self) -> usize {
+        match &self.nav_state {
+            NavigationState::Browsing { cursor, .. } => *cursor,
+            _ => 0,
+        }
+    }
+
+    pub fn is_loading(&self) -> bool {
+        matches!(&self.nav_state, NavigationState::Loading { .. })
+    }
+
+    pub fn is_error(&self) -> bool {
+        matches!(&self.nav_state, NavigationState::Error { .. })
+    }
 }
 
 impl ComponentState {
     /// Create new state with initial directory
     pub fn new(initial_directory: PathBuf) -> Self {
         Self {
-            current_directory: initial_directory,
-            entries: Vec::new(),
-            cursor: 0,
-            loading: false,
+            nav_state: NavigationState::Browsing {
+                path: initial_directory,
+                entries: Vec::new(),
+                cursor: 0,
+            },
             crc_progress: None,
-            pending_cursor_name: None,
         }
     }
 
     // ===== Reducer Methods =====
     // Pure state transition functions
 
-    /// Start loading entries - clear entries and show loading state
+    /// Start loading entries - transition to Loading state
     pub fn start_loading(&mut self) {
-        self.loading = true;
-        self.entries = vec![ListEntry {
-            name: "Loading...".to_string(),
-            relative_path: "".to_string(),
-            selected: false,
-            is_directory: false,
-            status: EntryStatus::Loading,
-        }];
+        let path = self.current_directory().clone();
+        self.nav_state = NavigationState::Loading {
+            path,
+            position_cursor_on: None,
+        };
     }
 
-    /// Entries have been loaded - update entries and position cursor
+    /// Entries have been loaded - transition to Browsing state
     pub fn on_entries_loaded(&mut self, entries: Vec<ListEntry>) {
-        self.entries = entries;
-        self.loading = false;
+        let path = self.current_directory().clone();
 
-        // Position cursor on pending name if set
-        if let Some(name) = self.pending_cursor_name.take() {
-            self.cursor = self.find_entry_index(&name).unwrap_or(0);
+        // Get pending cursor name if we're in Loading state
+        let cursor = if let NavigationState::Loading { position_cursor_on, .. } = &self.nav_state {
+            if let Some(name) = position_cursor_on {
+                // Find entry by name
+                entries.iter().position(|e| &e.name == name).unwrap_or(0)
+            } else {
+                0
+            }
         } else {
-            // Default to first entry
-            self.cursor = if !self.entries.is_empty() { 0 } else { 0 };
-        }
+            0
+        };
+
+        self.nav_state = NavigationState::Browsing {
+            path,
+            entries,
+            cursor,
+        };
     }
 
-    /// Navigate into a directory - prepare state for loading
+    /// Handle loading error - transition to Error state
+    pub fn on_loading_error(&mut self, error: String) {
+        let path = self.current_directory().clone();
+        self.nav_state = NavigationState::Error {
+            path,
+            error,
+        };
+    }
+
+    /// Navigate into a directory - transition to Loading state
     pub fn on_navigation_down(&mut self, new_directory: PathBuf) {
-        self.current_directory = new_directory;
-        self.pending_cursor_name = None;
-        self.start_loading();
+        self.nav_state = NavigationState::Loading {
+            path: new_directory,
+            position_cursor_on: None,
+        };
     }
 
-    /// Navigate up to parent directory - remember current directory name for cursor positioning
+    /// Navigate up to parent directory - transition to Loading state with cursor positioning
     pub fn on_navigation_up(&mut self) -> Option<String> {
+        let current_path = self.current_directory().clone();
+
         // Get current directory name to position cursor on
-        let old_name = self.current_directory
+        let old_name = current_path
             .file_name()
             .and_then(|n| n.to_str())
             .map(|s| s.to_string());
 
         // Move to parent
-        if let Some(parent) = self.current_directory.parent() {
-            self.current_directory = parent.to_path_buf();
-            self.pending_cursor_name = old_name.clone();
-            self.start_loading();
+        if let Some(parent) = current_path.parent() {
+            self.nav_state = NavigationState::Loading {
+                path: parent.to_path_buf(),
+                position_cursor_on: old_name.clone(),
+            };
         }
 
         old_name
@@ -106,42 +168,49 @@ impl ComponentState {
         }
     }
 
-    /// Update status for a specific entry
+    /// Update status for a specific entry (only in Browsing state)
     pub fn update_entry_status(&mut self, relative_path: &str, status: EntryStatus) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.relative_path == relative_path) {
-            entry.status = status;
+        if let NavigationState::Browsing { entries, .. } = &mut self.nav_state {
+            if let Some(entry) = entries.iter_mut().find(|e| e.relative_path == relative_path) {
+                entry.status = status;
+            }
         }
     }
 
-    /// Move cursor up
+    /// Move cursor up (only in Browsing state)
     pub fn cursor_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor = self.cursor.saturating_sub(1);
+        if let NavigationState::Browsing { cursor, .. } = &mut self.nav_state {
+            if *cursor > 0 {
+                *cursor = cursor.saturating_sub(1);
+            }
         }
     }
 
-    /// Move cursor down
+    /// Move cursor down (only in Browsing state)
     pub fn cursor_down(&mut self) {
-        if self.cursor < self.entries.len().saturating_sub(1) {
-            self.cursor = self.cursor.saturating_add(1);
+        if let NavigationState::Browsing { cursor, entries, .. } = &mut self.nav_state {
+            if *cursor < entries.len().saturating_sub(1) {
+                *cursor = cursor.saturating_add(1);
+            }
         }
     }
 
-    /// Get the currently selected entry
+    /// Get the currently selected entry (only in Browsing state)
     pub fn selected_entry(&self) -> Option<&ListEntry> {
-        self.entries.get(self.cursor)
+        if let NavigationState::Browsing { entries, cursor, .. } = &self.nav_state {
+            entries.get(*cursor)
+        } else {
+            None
+        }
     }
 
-    /// Get mutable reference to currently selected entry
+    /// Get mutable reference to currently selected entry (only in Browsing state)
     pub fn selected_entry_mut(&mut self) -> Option<&mut ListEntry> {
-        self.entries.get_mut(self.cursor)
-    }
-
-    // ===== Helper Methods =====
-
-    /// Find the index of an entry by name
-    fn find_entry_index(&self, name: &str) -> Option<usize> {
-        self.entries.iter().position(|e| e.name == name)
+        if let NavigationState::Browsing { entries, cursor, .. } = &mut self.nav_state {
+            entries.get_mut(*cursor)
+        } else {
+            None
+        }
     }
 
     /// Get progress percentage (0-100)
@@ -153,11 +222,6 @@ impl ComponentState {
                 ((current as f64 / total as f64) * 100.0) as u8
             }
         })
-    }
-
-    /// Check if we're currently loading
-    pub fn is_loading(&self) -> bool {
-        self.loading
     }
 
     /// Check if we have CRC calculation in progress
@@ -173,11 +237,12 @@ mod tests {
     #[test]
     fn test_initial_state() {
         let state = ComponentState::new(PathBuf::from("/test"));
-        assert_eq!(state.current_directory, PathBuf::from("/test"));
-        assert_eq!(state.entries.len(), 0);
-        assert_eq!(state.cursor, 0);
-        assert!(!state.loading);
+        assert_eq!(state.current_directory(), &PathBuf::from("/test"));
+        assert_eq!(state.entries().len(), 0);
+        assert_eq!(state.cursor(), 0);
+        assert!(!state.is_loading());
         assert!(state.crc_progress.is_none());
+        assert!(matches!(state.nav_state, NavigationState::Browsing { .. }));
     }
 
     #[test]
@@ -185,9 +250,8 @@ mod tests {
         let mut state = ComponentState::new(PathBuf::from("/test"));
         state.start_loading();
 
-        assert!(state.loading);
-        assert_eq!(state.entries.len(), 1);
-        assert_eq!(state.entries[0].name, "Loading...");
+        assert!(state.is_loading());
+        assert!(matches!(state.nav_state, NavigationState::Loading { .. }));
     }
 
     #[test]
@@ -214,15 +278,20 @@ mod tests {
 
         state.on_entries_loaded(entries);
 
-        assert!(!state.loading);
-        assert_eq!(state.entries.len(), 2);
-        assert_eq!(state.cursor, 0); // Default to first entry
+        assert!(!state.is_loading());
+        assert_eq!(state.entries().len(), 2);
+        assert_eq!(state.cursor(), 0); // Default to first entry
+        assert!(matches!(state.nav_state, NavigationState::Browsing { .. }));
     }
 
     #[test]
     fn test_entries_loaded_with_pending_cursor() {
         let mut state = ComponentState::new(PathBuf::from("/test"));
-        state.pending_cursor_name = Some("file2.sql".to_string());
+        // Set up Loading state with cursor positioning
+        state.nav_state = NavigationState::Loading {
+            path: PathBuf::from("/test"),
+            position_cursor_on: Some("file2.sql".to_string()),
+        };
 
         let entries = vec![
             ListEntry {
@@ -243,8 +312,8 @@ mod tests {
 
         state.on_entries_loaded(entries);
 
-        assert_eq!(state.cursor, 1); // Should position on file2.sql
-        assert!(state.pending_cursor_name.is_none()); // Should be consumed
+        assert_eq!(state.cursor(), 1); // Should position on file2.sql
+        assert!(matches!(state.nav_state, NavigationState::Browsing { .. }));
     }
 
     #[test]
@@ -254,9 +323,13 @@ mod tests {
         let old_name = state.on_navigation_up();
 
         assert_eq!(old_name, Some("subdir".to_string()));
-        assert_eq!(state.current_directory, PathBuf::from("/test"));
-        assert_eq!(state.pending_cursor_name, Some("subdir".to_string()));
-        assert!(state.loading);
+        assert_eq!(state.current_directory(), &PathBuf::from("/test"));
+        assert!(state.is_loading());
+        if let NavigationState::Loading { position_cursor_on, .. } = &state.nav_state {
+            assert_eq!(position_cursor_on, &Some("subdir".to_string()));
+        } else {
+            panic!("Expected Loading state");
+        }
     }
 
     #[test]
@@ -274,48 +347,54 @@ mod tests {
     #[test]
     fn test_cursor_movement() {
         let mut state = ComponentState::new(PathBuf::from("/test"));
-        state.entries = vec![
-            ListEntry {
-                name: "file1.sql".to_string(),
-                relative_path: "file1.sql".to_string(),
-                selected: false,
-                is_directory: false,
-                status: EntryStatus::Unknown,
-            },
-            ListEntry {
-                name: "file2.sql".to_string(),
-                relative_path: "file2.sql".to_string(),
-                selected: false,
-                is_directory: false,
-                status: EntryStatus::Unknown,
-            },
-            ListEntry {
-                name: "file3.sql".to_string(),
-                relative_path: "file3.sql".to_string(),
-                selected: false,
-                is_directory: false,
-                status: EntryStatus::Unknown,
-            },
-        ];
 
-        assert_eq!(state.cursor, 0);
+        // Set up Browsing state with entries
+        state.nav_state = NavigationState::Browsing {
+            path: PathBuf::from("/test"),
+            entries: vec![
+                ListEntry {
+                    name: "file1.sql".to_string(),
+                    relative_path: "file1.sql".to_string(),
+                    selected: false,
+                    is_directory: false,
+                    status: EntryStatus::Unknown,
+                },
+                ListEntry {
+                    name: "file2.sql".to_string(),
+                    relative_path: "file2.sql".to_string(),
+                    selected: false,
+                    is_directory: false,
+                    status: EntryStatus::Unknown,
+                },
+                ListEntry {
+                    name: "file3.sql".to_string(),
+                    relative_path: "file3.sql".to_string(),
+                    selected: false,
+                    is_directory: false,
+                    status: EntryStatus::Unknown,
+                },
+            ],
+            cursor: 0,
+        };
+
+        assert_eq!(state.cursor(), 0);
 
         state.cursor_down();
-        assert_eq!(state.cursor, 1);
+        assert_eq!(state.cursor(), 1);
 
         state.cursor_down();
-        assert_eq!(state.cursor, 2);
+        assert_eq!(state.cursor(), 2);
 
         state.cursor_down(); // Should not go beyond last entry
-        assert_eq!(state.cursor, 2);
+        assert_eq!(state.cursor(), 2);
 
         state.cursor_up();
-        assert_eq!(state.cursor, 1);
+        assert_eq!(state.cursor(), 1);
 
         state.cursor_up();
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.cursor(), 0);
 
         state.cursor_up(); // Should not go below 0
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.cursor(), 0);
     }
 }
