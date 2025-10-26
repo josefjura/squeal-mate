@@ -22,14 +22,16 @@ use std::sync::Arc;
 
 pub struct List {
     base: PathBuf,
+    current_directory: PathBuf,  // Navigation state - now owned by UI
     command_tx: Option<UnboundedSender<Action>>,
     dispatcher: Option<ActionDispatcher>,
     migration_service: Option<Arc<MigrationService>>,
     config: Settings,
     state: ListState,
-    repository: FilesystemRepository,  // Owned, not Arc - List needs mutable access for navigation
+    repository: Arc<FilesystemRepository>,  // Now Arc - can be shared with async tasks
     entries: Vec<ListEntry>,
     script_memory: ScriptDatabase,
+    status_calculation_progress: Option<(usize, usize)>,  // (current, total) for CRC calculation
 }
 
 impl List {
@@ -38,7 +40,8 @@ impl List {
         base: PathBuf,
         script_memory: ScriptDatabase,
     ) -> Result<Self> {
-        // Build initial entries - we'll populate them after construction
+        let current_directory = base.clone();
+
         Ok(Self {
             state: ListState::default().with_selected(Some(0)),
             command_tx: None,
@@ -47,8 +50,10 @@ impl List {
             config: Settings::default(),
             entries: Vec::new(),  // Will be populated via refresh_entries()
             script_memory,
-            repository,
-            base,
+            repository: Arc::new(repository),
+            base: base.clone(),
+            current_directory,
+            status_calculation_progress: None,
         })
     }
 
@@ -57,81 +62,98 @@ impl List {
     }
 
     /// Refresh the entries list from the current directory
+    /// This now spawns an async task and returns immediately
     pub fn refresh_entries(&mut self) -> eyre::Result<()> {
-        use std::fs;
+        // Show loading state immediately
+        self.entries = vec![ListEntry {
+            name: "Loading...".to_string(),
+            relative_path: "".to_string(),
+            selected: false,
+            is_directory: false,
+            status: EntryStatus::Loading,
+        }];
 
-        let current_dir = self.repository.current_directory().to_path_buf();
-        let root_dir = self.repository.root_directory().to_path_buf();
+        // Dispatch loading action
+        if let Some(ref dispatcher) = self.dispatcher {
+            dispatcher.dispatch(Action::EntriesLoading);
+        }
 
-        let mut entries = Vec::new();
+        // Spawn async task to load entries
+        let current_dir = self.current_directory.clone();
+        let root_dir = self.base.clone();
+        let repository = self.repository.clone();
+        let dispatcher = self.dispatcher.clone();
 
-        // Use repository trait to get SQL scripts
-        let handle = tokio::runtime::Handle::current();
-        let scripts = handle.block_on(async {
-            self.repository.list_scripts(&current_dir).await
-        });
+        tokio::spawn(async move {
+            let mut entries = Vec::new();
 
-        match scripts {
-            Ok(script_paths) => {
-                // Add script files
-                for script_path in script_paths {
-                    if let (Some(name), Some(path_str)) = (
-                        script_path.as_path().file_name().and_then(|n| n.to_str()),
-                        script_path.as_str()
-                    ) {
-                        entries.push(ListEntry {
-                            name: name.to_string(),
-                            relative_path: path_str.to_string(),
-                            selected: false,
-                            is_directory: false,
-                            status: EntryStatus::Unknown,
-                        });
+            // Get SQL scripts from repository
+            match repository.list_scripts(&current_dir).await {
+                Ok(script_paths) => {
+                    for script_path in script_paths {
+                        if let (Some(name), Some(path_str)) = (
+                            script_path.as_path().file_name().and_then(|n| n.to_str()),
+                            script_path.as_str()
+                        ) {
+                            entries.push(ListEntry {
+                                name: name.to_string(),
+                                relative_path: path_str.to_string(),
+                                selected: false,
+                                is_directory: false,
+                                status: EntryStatus::Unknown,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to list scripts: {}", e);
+                }
+            }
+
+            // List directories (synchronous fs operations are OK in async task)
+            if let Ok(dir_entries) = std::fs::read_dir(&current_dir) {
+                for entry in dir_entries.flatten() {
+                    if let Ok(metadata) = entry.metadata() {
+                        if metadata.is_dir() {
+                            let file_name = entry.file_name().to_string_lossy().to_string();
+
+                            // Skip hidden directories
+                            if file_name.starts_with('.') || file_name.starts_with('_') {
+                                continue;
+                            }
+
+                            let relative_path = match entry.path().strip_prefix(&root_dir) {
+                                Ok(rel) => rel.to_string_lossy().to_string(),
+                                Err(_) => file_name.clone(),
+                            };
+
+                            entries.push(ListEntry {
+                                name: file_name,
+                                relative_path,
+                                selected: false,
+                                is_directory: true,
+                                status: EntryStatus::Unknown,
+                            });
+                        }
                     }
                 }
             }
-            Err(e) => {
-                log::error!("Failed to list scripts: {}", e);
-            }
-        }
 
-        // Also need to list directories (repository trait is for scripts only)
-        for entry in fs::read_dir(&current_dir)? {
-            let entry = entry?;
-            let metadata = entry.metadata()?;
-
-            if metadata.is_dir() {
-                let file_name = entry.file_name().to_string_lossy().to_string();
-
-                // Skip hidden directories
-                if file_name.starts_with('.') || file_name.starts_with('_') {
-                    continue;
+            // Sort entries: directories first, then by name
+            entries.sort_by(|a, b| {
+                match (a.is_directory, b.is_directory) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.name.cmp(&b.name),
                 }
+            });
 
-                let relative_path = match entry.path().strip_prefix(&root_dir) {
-                    Ok(rel) => rel.to_string_lossy().to_string(),
-                    Err(_) => file_name.clone(),
-                };
-
-                entries.push(ListEntry {
-                    name: file_name,
-                    relative_path,
-                    selected: false,
-                    is_directory: true,
-                    status: EntryStatus::Unknown,
-                });
-            }
-        }
-
-        // Sort entries: directories first, then by name
-        entries.sort_by(|a, b| {
-            match (a.is_directory, b.is_directory) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
+            // Send results back via action
+            if let Some(dispatcher) = dispatcher {
+                dispatcher.dispatch(Action::EntriesLoaded(entries));
             }
         });
 
-        self.entries = entries;
         Ok(())
     }
 
@@ -176,7 +198,8 @@ impl List {
             ..
         }) = entry
         {
-            self.repository.enter_directory(&name);
+            // Navigate by updating current_directory state
+            self.current_directory = self.current_directory.join(&name);
             self.refresh_entries()?;
 
             if let Some(ref dispatcher) = self.dispatcher {
@@ -194,8 +217,14 @@ impl List {
     }
 
     pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
-        let old_dir = self.repository.leave_directory();
-        if let Some(old_dir) = old_dir {
+        // Navigate up by updating current_directory state
+        if let Some(parent) = self.current_directory.parent() {
+            let old_dir_name = self.current_directory
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string());
+
+            self.current_directory = parent.to_path_buf();
             self.refresh_entries()?;
             self.state.select(Some(0));
 
@@ -203,7 +232,9 @@ impl List {
                 dispatcher.dispatch(Action::CalculateEntryStatus);
             }
 
-            let old_index = self.entries.iter().position(|r| r.name == old_dir);
+            let old_index = old_dir_name.and_then(|name|
+                self.entries.iter().position(|r| r.name == name)
+            );
 
             if let Some(old_index) = old_index {
                 self.state.select(Some(old_index));
@@ -227,12 +258,14 @@ impl List {
         let entry = entry.unwrap();
 
         if entry.is_directory {
-            // Use async task to get children via trait method
-            let repo_base = self.repository.root_directory().to_path_buf();
+            // Get children via repository trait
+            let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
 
-            // For now, we need blocking behavior in this sync context
-            // Spawn a task and block on it
+            // NOTE: Using block_on here is acceptable because:
+            // 1. This operation is fast (just reading directory listing from memory)
+            // 2. It's triggered by explicit user action (selection)
+            // 3. Alternative would add significant complexity for minimal UX benefit
             let handle = tokio::runtime::Handle::current();
             let items = handle.block_on(async {
                 match self.repository.get_children(&rel_path).await {
@@ -263,9 +296,13 @@ impl List {
 
         if entry.is_directory {
             // Use async task to get children via trait method
-            let repo_base = self.repository.root_directory().to_path_buf();
+            let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
 
+            // NOTE: Using block_on here is acceptable because:
+            // 1. This operation is fast (just reading directory listing from memory)
+            // 2. It's triggered by explicit user action (selection)
+            // 3. Alternative would add significant complexity for minimal UX benefit
             let handle = tokio::runtime::Handle::current();
             let items = handle.block_on(async {
                 match self.repository.get_children(&rel_path).await {
@@ -298,7 +335,10 @@ impl List {
 
         let entry = entry.unwrap();
 
-        // Use async task to get scripts after (globally from repo root)
+        // NOTE: Using block_on here is acceptable because:
+        // 1. This operation is fast (just reading directory listing from memory)
+        // 2. It's triggered by explicit user action (selection)
+        // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
         let entries = handle.block_on(async {
             match self.repository.get_scripts_after_global(&entry.name).await {
@@ -324,7 +364,10 @@ impl List {
 
         let entry = entry.unwrap();
 
-        // Use async task to get scripts after in current directory
+        // NOTE: Using block_on here is acceptable because:
+        // 1. This operation is fast (just reading directory listing from memory)
+        // 2. It's triggered by explicit user action (selection)
+        // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
         let entries = handle.block_on(async {
             match self.repository.get_scripts_after_in_current(&entry.name).await {
@@ -342,7 +385,10 @@ impl List {
     }
 
     pub fn select_all_in_directory(&mut self, state: &mut AppState) {
-        // Use async task to get all scripts in current directory
+        // NOTE: Using block_on here is acceptable because:
+        // 1. This operation is fast (just reading directory listing from memory)
+        // 2. It's triggered by explicit user action (selection)
+        // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
         let entries = handle.block_on(async {
             match self.repository.get_scripts_in_current().await {
@@ -425,6 +471,10 @@ impl Component for List {
                 return Ok(None);
             }
             Action::CalculateEntryStatus => {
+                // Reset progress tracking
+                let file_count = self.entries.iter().filter(|e| !e.is_directory).count();
+                self.status_calculation_progress = Some((0, file_count));
+
                 // Use MigrationService if available, otherwise fall back to legacy
                 if let (Some(migration_service), Some(dispatcher)) =
                     (&self.migration_service, &self.dispatcher) {
@@ -508,20 +558,52 @@ impl Component for List {
 
                 return Ok(None);
             }
+            Action::EntriesLoaded(entries) => {
+                // Update entries from async task
+                self.entries = entries;
+
+                // Restore cursor position or set to first item
+                if !self.entries.is_empty() {
+                    if self.state.selected().is_none() {
+                        self.state.select(Some(0));
+                    }
+                } else {
+                    self.state.select(None);
+                }
+
+                return Ok(None);
+            }
+            Action::StatusCalculationProgress(current, total) => {
+                // Update progress tracking
+                self.status_calculation_progress = Some((current, total));
+
+                // Clear progress when complete
+                if current >= total {
+                    self.status_calculation_progress = None;
+                }
+
+                return Ok(None);
+            }
             _ => {}
         }
         Ok(None)
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()> {
+        // Add constraint for progress bar if calculating statuses
+        let constraints = if self.status_calculation_progress.is_some() {
+            vec![Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]
+        } else {
+            vec![Constraint::Length(1), Constraint::Fill(1)]
+        };
+
         let rects = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Length(1), Constraint::Fill(1)])
+            .constraints(constraints)
             .split(area);
 
         let path_span = Span::raw(
-            self.repository
-                .current_directory()
+            self.current_directory
                 .display()
                 .to_string(),
         );
@@ -541,6 +623,7 @@ impl Component for List {
                         ("\u{1F195}", Style::new().fg(Color::Rgb(255, 165, 0)))
                     }
                     EntryStatus::Directory => ("", Style::default().bg(Color::LightBlue)),
+                    EntryStatus::Loading => ("\u{231B}", Style::new().fg(Color::Yellow)),  // ⌛ hourglass
                 };
                 let selected = state
                     .selected
@@ -581,6 +664,24 @@ impl Component for List {
 
         f.render_widget(path_draw, rects[0]);
         f.render_stateful_widget(list_draw, rects[1], &mut self.state);
+
+        // Render progress indicator if status calculation is in progress
+        if let Some((current, total)) = self.status_calculation_progress {
+            let percentage = if total > 0 {
+                (current as f64 / total as f64 * 100.0) as u16
+            } else {
+                0
+            };
+
+            let progress_text = format!(" Calculating checksums: {}/{} ({}%) ", current, total, percentage);
+            let progress_line = Line::from(vec![
+                Span::styled("⏳ ", Style::default().fg(Color::Yellow)),
+                Span::styled(progress_text, Style::default().fg(Color::Cyan)),
+            ]);
+
+            f.render_widget(progress_line, rects[2]);
+        }
+
         Ok(())
     }
 }

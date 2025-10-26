@@ -41,16 +41,4 @@ pub trait MigrationRepository: Send + Sync {
         &self,
         after_name: &str,
     ) -> DomainResult<Vec<ScriptPath>>;
-
-    /// Navigate to a subdirectory (returns true if successful)
-    fn enter_directory(&mut self, name: &str) -> bool;
-
-    /// Navigate to parent directory (returns the directory we left)
-    fn leave_directory(&mut self) -> Option<String>;
-
-    /// Get the current directory path
-    fn current_directory(&self) -> &Path;
-
-    /// Get the repository root path
-    fn root_directory(&self) -> &Path;
 }

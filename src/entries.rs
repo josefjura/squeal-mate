@@ -17,6 +17,7 @@ pub enum EntryStatus {
     Changed,
     Unknown,
     Directory,
+    Loading,  // New: file/directory is being processed
 }
 
 impl Display for ListEntry {

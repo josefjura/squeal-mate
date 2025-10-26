@@ -73,7 +73,7 @@ impl MigrationService {
     }
 
     /// Calculate checksums for all scripts and dispatch status updates
-    pub async fn calculate_statuses(
+    pub fn calculate_statuses(
         &self,
         scripts: Vec<ScriptPath>,
         dispatcher: &ActionDispatcher,
@@ -81,9 +81,12 @@ impl MigrationService {
         let tracker = self.tracker.clone();
         let repo = self.repository.clone();
         let disp = dispatcher.clone();
+        let total = scripts.len();
 
         tokio::spawn(async move {
-            for script_path in scripts {
+            for (index, script_path) in scripts.iter().enumerate() {
+                // Send progress update
+                disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
                 // Read the script to get its checksum
                 match repo.read_script(&script_path).await {
                     Ok(script) => {

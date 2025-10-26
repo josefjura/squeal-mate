@@ -37,6 +37,11 @@ pub enum Action {
     CalculateEntryStatus,
     EntryStatusChanged(String, EntryStatus),
 
+    // Async loading actions
+    EntriesLoading,  // Signal that entries are being loaded
+    EntriesLoaded(Vec<crate::entries::ListEntry>),  // Entries loaded from async task
+    StatusCalculationProgress(usize, usize),  // (current, total) for CRC calculation progress
+
     // Selection actions
     SelectCurrent,
     SelectAllAfter,

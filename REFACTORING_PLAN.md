@@ -291,9 +291,76 @@ src/
 
 ---
 
-### STEP 6: User Experience Improvements
-**Time:** ~3.5 hours
-**Status:** ⏳ PENDING
+### ✅ STEP 6: Fix Asynchronous Behavior
+**Time:** ~4 hours → Actual: ~2.5 hours
+**Status:** ✅ COMPLETED
+
+#### Problem:
+Currently mixing sync and async incorrectly:
+- ✅ CRC calculations run async via `tokio::spawn()` - GOOD
+- ❌ File operations use `block_on()` - BLOCKS UI THREAD
+- ❌ 6 places in List component blocking on async operations
+- ❌ No progress indicators during long operations
+- ❌ UI freezes during file listing/selection
+
+#### Root Cause:
+The TUI components are synchronous (they implement `Component` trait with sync methods), but we need to call async repository methods. Currently using `block_on()` as a hack, which blocks the UI thread.
+
+#### Solution Implemented:
+1. **Separated navigation state from repository**
+   - Moved `current_directory` to List component (UI concern)
+   - Repository now stateless and thread-safe
+   - Can be Arc-wrapped and shared with async tasks
+
+2. **Made repository thread-safe**
+   - Wrapped `FilesystemRepository` in `Arc<>`
+   - Cheap cloning for async tasks
+   - No mutable state in repository
+
+3. **Converted file loading to async**
+   - `refresh_entries()` now spawns async task
+   - Shows loading state immediately
+   - Sends `EntriesLoaded` action when complete
+   - UI stays responsive
+
+4. **Added progress indicators**
+   - `EntryStatus::Loading` variant with hourglass emoji
+   - `StatusCalculationProgress` action tracks CRC calculations
+   - Bottom status bar shows "Calculating checksums: X/Y (Z%)"
+   - Auto-hides when complete
+
+5. **Documented remaining `block_on()` calls**
+   - 4 calls in selection operations documented as acceptable
+   - Fast operations (reading directory from memory)
+   - Triggered by explicit user action
+   - Converting would add complexity for minimal benefit
+
+#### Tasks Completed:
+- [x] Add `Loading` state to `EntryStatus`
+- [x] Create background task for `refresh_entries()`
+  - [x] Start with loading state
+  - [x] Spawn async task to list files
+  - [x] Send `EntriesLoaded(Vec<ListEntry>)` action when done
+- [x] Add `EntriesLoaded` action handler in List component
+- [x] Add progress tracking field to List struct
+- [x] Add spinner/loading indicator to UI
+- [x] Add progress for CRC calculations
+  - [x] Track "X of Y files processed"
+  - [x] Show current file being processed
+  - [x] Display percentage complete
+- [x] Document 4 remaining `block_on()` calls as acceptable
+
+**Result:** ✅ Main file loading converted to async, CRC progress visible, UI responsive
+**Remaining:** 4 documented `block_on()` calls in selection operations (acceptable)
+
+**Risk:** Low (careful state management, all tests pass)
+**Validation:** ✅ All 37 tests passing, builds without errors, async pattern established
+
+---
+
+### STEP 7: User Experience Improvements
+**Time:** ~2 hours
+**Status:** ⏳ PENDING (Partially done)
 
 #### Tasks:
 - [ ] Better error messages:

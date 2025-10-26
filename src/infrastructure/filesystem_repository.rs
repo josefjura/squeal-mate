@@ -12,14 +12,12 @@ use std::path::{Path, PathBuf};
 pub struct FilesystemRepository {
     inner: Repository,
     root_path: PathBuf,  // Store owned path for returning references
-    current_path: PathBuf,  // Cache current path for borrowing
 }
 
 impl FilesystemRepository {
     /// Create a new filesystem repository
     pub fn new(root: PathBuf) -> InfraResult<Self> {
         let root_path = root.clone();
-        let current_path = root.clone();
         let inner = Repository::new(root).map_err(|e| match e {
             crate::repository::RepositoryError::DoesNotExist => {
                 InfraError::RepositoryNotFound("Repository path does not exist".to_string())
@@ -30,12 +28,7 @@ impl FilesystemRepository {
             }
         })?;
 
-        Ok(Self { inner, root_path, current_path })
-    }
-
-    /// Update the cached current path
-    fn update_current_path(&mut self) {
-        self.current_path = self.inner.current_as_path_buf();
+        Ok(Self { inner, root_path })
     }
 }
 
@@ -144,23 +137,4 @@ impl MigrationRepository for FilesystemRepository {
         script_paths.map_err(Into::into)
     }
 
-    fn enter_directory(&mut self, name: &str) -> bool {
-        self.inner.open_directory(name);
-        self.update_current_path();
-        true // Existing implementation doesn't validate, always succeeds
-    }
-
-    fn leave_directory(&mut self) -> Option<String> {
-        let result = self.inner.leave_directory();
-        self.update_current_path();
-        result
-    }
-
-    fn current_directory(&self) -> &Path {
-        &self.current_path
-    }
-
-    fn root_directory(&self) -> &Path {
-        &self.root_path
-    }
 }

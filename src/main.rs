@@ -55,6 +55,14 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
     // Validate that the path exists before proceeding
     if !path.exists() {
         log::error!("Repository path does not exist: {}", path.display());
+        eprintln!("❌ ERROR: Repository path does not exist");
+        eprintln!();
+        eprintln!("Path: {}", path.display());
+        eprintln!();
+        eprintln!("To fix this:");
+        eprintln!("  1. Run 'squealmate init' to set up a valid repository path");
+        eprintln!("  2. Create the directory: mkdir -p {}", path.display());
+        eprintln!("  3. Check your configuration: squealmate config");
         return Ok(());
     }
 
@@ -325,16 +333,36 @@ async fn main() -> eyre::Result<()> {
             match args.connection.merge(&config) {
                 Ok(conn) => start_tui(config, conn).await?,
                 Err(ArgumentsError::MissingPassword) => {
-                    println!("ERROR: Missing DB password");
+                    eprintln!("❌ ERROR: Missing database password");
+                    eprintln!();
+                    eprintln!("To fix this, either:");
+                    eprintln!("  1. Run 'squealmate init' to configure your database connection");
+                    eprintln!("  2. Pass the password via: squealmate -p <PASSWORD>");
+                    eprintln!("  3. Set SQUEALMATE_DATABASE_PASSWORD environment variable");
+                    eprintln!("  4. Use integrated authentication: squealmate -i true");
                 }
                 Err(ArgumentsError::MissingUsername) => {
-                    println!("ERROR: Missing DB username");
+                    eprintln!("❌ ERROR: Missing database username");
+                    eprintln!();
+                    eprintln!("To fix this, either:");
+                    eprintln!("  1. Run 'squealmate init' to configure your database connection");
+                    eprintln!("  2. Pass the username via: squealmate -u <USERNAME>");
+                    eprintln!("  3. Set SQUEALMATE_DATABASE_USERNAME environment variable");
+                    eprintln!("  4. Use integrated authentication: squealmate -i true");
                 }
                 Err(ArgumentsError::MissingDBName) => {
-                    println!("ERROR: Missing DB name");
+                    eprintln!("❌ ERROR: Missing database name");
+                    eprintln!();
+                    eprintln!("To fix this, either:");
+                    eprintln!("  1. Run 'squealmate init' to configure your database");
+                    eprintln!("  2. Pass the database name via: squealmate -n <DATABASE>");
+                    eprintln!("  3. Set SQUEALMATE_DATABASE_NAME environment variable");
                 }
                 Err(ArgumentsError::PortNotNumber) => {
-                    println!("ERROR: Supplied port is not a valid number");
+                    eprintln!("❌ ERROR: Invalid port number");
+                    eprintln!();
+                    eprintln!("The port must be a number between 1 and 65535.");
+                    eprintln!("Example: squealmate --port 1433");
                 }
             };
         }

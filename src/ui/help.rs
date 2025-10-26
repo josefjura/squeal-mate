@@ -16,42 +16,74 @@ pub struct Help<'a> {
 
 impl<'a> Help<'a> {
     pub fn new() -> Self {
-        let lines = vec![
-            ("q".to_string(), "Quit".to_string()),
-            ("Tab".to_string(), "Switch screen".to_string()),
-            (
-                "\u{02191}\u{02193}".to_string(),
-                "Move up and down".to_string(),
-            ),
-            ("Home".to_string(), "Top of the list".to_string()),
-            ("End".to_string(), "Bottom of the list".to_string()),
-            ("Enter".to_string(), "Enter directory".to_string()),
-            ("Backspace".to_string(), "Up a level".to_string()),
-            ("Space".to_string(), "Toggle file selection".to_string()),
-            (
-                "s".to_string(),
-                "Select all after cursor in current directory".to_string(),
-            ),
-            ("S".to_string(), "Select all after cursor".to_string()),
-            (
-                "d".to_string(),
-                "Select all in current directory".to_string(),
-            ),
-            ("x".to_string(), "Unselect current file".to_string()),
-            ("X".to_string(), "Unselect all in directory".to_string()),
-            ("r".to_string(), "Run selected scripts".to_string()),
-            (
-                "R".to_string(),
-                "Run selected scripts, skipping errors".to_string(),
-            ),
+        let mut text_lines = Vec::new();
+
+        // Getting Started section
+        text_lines.push(Line::styled("── GETTING STARTED ──", Style::default().bold().yellow()));
+        text_lines.push(Line::raw(""));
+        text_lines.push(Line::raw("  1. Navigate files with ↑↓ keys"));
+        text_lines.push(Line::raw("  2. Select scripts with Space"));
+        text_lines.push(Line::raw("  3. Press 'r' to run selected scripts"));
+        text_lines.push(Line::raw("  4. Press Tab to view execution results"));
+        text_lines.push(Line::raw(""));
+
+        // Navigation section
+        text_lines.push(Line::styled("── NAVIGATION ──", Style::default().bold().yellow()));
+        text_lines.push(Line::raw(""));
+
+        let nav_keys = vec![
+            ("↑↓", "Move up and down"),
+            ("Home", "Jump to top of list"),
+            ("End", "Jump to bottom of list"),
+            ("Enter", "Enter directory"),
+            ("Backspace", "Go up one level"),
+            ("Tab", "Switch between file/execution screens"),
         ];
 
-        let max = lines.iter().map(|line| line.0.len()).max().unwrap_or(1);
+        for (key, desc) in nav_keys {
+            text_lines.push(Line::raw(format!("  {:>10}  {}", key, desc)));
+        }
+        text_lines.push(Line::raw(""));
 
-        let text: Text = lines
-            .iter()
-            .map(|line| Span::raw(format!(" {:>kwidth$} | {} ", line.0, line.1, kwidth = max)))
-            .collect();
+        // Selection section
+        text_lines.push(Line::styled("── SELECTION ──", Style::default().bold().yellow()));
+        text_lines.push(Line::raw(""));
+
+        let sel_keys = vec![
+            ("Space", "Toggle current file/directory"),
+            ("d", "Select all in current directory"),
+            ("s", "Select all after cursor (current dir)"),
+            ("S", "Select all after cursor (recursive)"),
+            ("x", "Unselect current file"),
+            ("X", "Unselect all"),
+        ];
+
+        for (key, desc) in sel_keys {
+            text_lines.push(Line::raw(format!("  {:>10}  {}", key, desc)));
+        }
+        text_lines.push(Line::raw(""));
+
+        // Execution section
+        text_lines.push(Line::styled("── EXECUTION ──", Style::default().bold().yellow()));
+        text_lines.push(Line::raw(""));
+
+        let exec_keys = vec![
+            ("r", "Run selected scripts (stop on error)"),
+            ("R", "Run selected scripts (skip errors)"),
+        ];
+
+        for (key, desc) in exec_keys {
+            text_lines.push(Line::raw(format!("  {:>10}  {}", key, desc)));
+        }
+        text_lines.push(Line::raw(""));
+
+        // General section
+        text_lines.push(Line::styled("── GENERAL ──", Style::default().bold().yellow()));
+        text_lines.push(Line::raw(""));
+        text_lines.push(Line::raw(format!("  {:>10}  {}", "?", "Toggle this help")));
+        text_lines.push(Line::raw(format!("  {:>10}  {}", "q", "Quit application")));
+
+        let text = Text::from(text_lines);
 
         Self {
             command_tx: None,
