@@ -20,8 +20,10 @@
 - [x] Assessment completed
 - [x] Architecture design completed
 - [x] Core implementation completed (Steps 1-5)
-- [ ] UX improvements (Step 6)
-- [ ] Testing & polish (Step 7)
+- [x] Async conversion (Step 6)
+- [ ] Architectural streamlining (Step 7) - NEW
+- [ ] UX improvements (Step 8)
+- [ ] Testing & polish (Step 9)
 - [ ] Beta release ready
 
 ---
@@ -358,9 +360,293 @@ The TUI components are synchronous (they implement `Component` trait with sync m
 
 ---
 
-### STEP 7: User Experience Improvements
+### STEP 7: Architectural Streamlining (NEW)
+**Time:** ~6 hours
+**Status:** ⏳ PENDING
+**Priority:** HIGH - Fixes pain points discovered during Step 6
+
+#### Background
+
+After implementing Steps 1-6, we discovered several architectural pain points:
+1. **Async/Sync boundary issues** - Components are sync but need async operations, causing verbose task spawning and action dispatching
+2. **State scattered across actions** - `pending_cursor_name`, progress tracking, manual render triggers
+3. **Repository abstraction overhead** - 3 layers (Repository → FilesystemRepository → Arc) to read files
+4. **Type conversions everywhere** - ScriptPath ↔ PathBuf ↔ String, ScriptStatus → EntryStatus
+
+#### Sub-Step 7.1: Simplify Repository Layer
+**Time:** ~1.5 hours
+**Status:** ⏳ PENDING
+
+**Problem:**
+- File browsing uses heavyweight domain abstractions designed for database operations
+- `Repository` (old) → `FilesystemRepository` (trait impl) → `Arc` wrapper
+- Type conversions: `ScriptPath` ↔ `PathBuf` ↔ `String`
+
+**Solution:**
+Create simple `FileExplorer` for UI file browsing:
+```rust
+pub struct FileExplorer {
+    root: PathBuf,
+}
+
+impl FileExplorer {
+    pub async fn list_directory(&self, dir: &Path) -> Result<Vec<Entry>> {
+        // Direct, simple implementation
+        // Returns plain Entry structs for UI
+    }
+
+    pub async fn list_sql_files(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+        tokio::task::spawn_blocking(move || {
+            std::fs::read_dir(dir)?
+                .filter_map(|e| e.ok())
+                .filter(|e| matches!(e.path().extension(), Some("sql")))
+                .map(|e| e.path())
+                .collect()
+        }).await?
+    }
+}
+```
+
+**Tasks:**
+- [ ] Create `src/ui/file_explorer.rs` with simple filesystem operations
+- [ ] Update List component to use `FileExplorer` instead of `FilesystemRepository`
+- [ ] Keep `MigrationRepository` trait only for `MigrationService` (execution path)
+- [ ] Remove unnecessary type conversions in UI layer
+- [ ] Update tests
+
+**Benefits:**
+- 50% less boilerplate in UI components
+- No more ScriptPath ↔ PathBuf conversions for browsing
+- Clearer separation: FileExplorer for UI, MigrationRepository for business logic
+
+---
+
+#### Sub-Step 7.2: State Management Pattern
+**Time:** ~1.5 hours
+**Status:** ⏳ PENDING
+
+**Problem:**
+- State updates scattered across action handlers
+- Hard to reason about state transitions
+- Repeated logic for cursor positioning, progress updates
+
+**Solution:**
+Consolidate state management with reducer pattern:
+```rust
+pub struct ListState {
+    entries: Vec<ListEntry>,
+    cursor: usize,
+    loading: bool,
+    crc_progress: Option<(usize, usize)>,
+    navigation_path: PathBuf,
+}
+
+impl ListState {
+    // Pure reducer functions - easy to test
+    fn on_entries_loaded(&mut self, entries: Vec<ListEntry>, position_on: Option<String>) {
+        self.entries = entries;
+        self.loading = false;
+
+        if let Some(name) = position_on {
+            self.cursor = self.find_entry_index(&name).unwrap_or(0);
+        }
+    }
+
+    fn on_navigation_up(&mut self) -> (PathBuf, Option<String>) {
+        let old_name = self.navigation_path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string());
+
+        self.navigation_path = self.navigation_path.parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.navigation_path.clone());
+
+        (self.navigation_path.clone(), old_name)
+    }
+
+    fn on_crc_progress(&mut self, current: usize, total: usize) {
+        self.crc_progress = if current >= total {
+            None
+        } else {
+            Some((current, total))
+        };
+    }
+}
+```
+
+**Tasks:**
+- [ ] Create `ListState` struct with all component state
+- [ ] Implement reducer methods for state transitions
+- [ ] Move state update logic from action handlers to reducers
+- [ ] Add unit tests for state transitions
+- [ ] Update List component to use ListState
+
+**Benefits:**
+- All state changes in one place
+- Easy to test state transitions
+- No more scattered `pending_cursor_name` fields
+
+---
+
+#### Sub-Step 7.3: Navigation State Machine
+**Time:** ~1 hour
+**Status:** ⏳ PENDING
+
+**Problem:**
+- Async navigation timing is implicit
+- Hard to know if we're loading, browsing, or in error state
+- Cursor positioning happens "eventually" after loading
+
+**Solution:**
+Explicit navigation state machine:
+```rust
+enum NavigationState {
+    Browsing {
+        path: PathBuf,
+        entries: Vec<Entry>,
+        cursor: usize,
+    },
+    Loading {
+        path: PathBuf,
+        position_cursor_on: Option<String>,
+    },
+    Error {
+        path: PathBuf,
+        error: String,
+    },
+}
+
+impl List {
+    fn navigate_to(&mut self, path: PathBuf, position_on: Option<String>) {
+        self.nav_state = NavigationState::Loading {
+            path: path.clone(),
+            position_cursor_on: position_on,
+        };
+
+        // Spawn load task
+        let explorer = self.explorer.clone();
+        tokio::spawn(async move {
+            match explorer.list_directory(&path).await {
+                Ok(entries) => NavigationState::Browsing { path, entries, cursor: 0 },
+                Err(e) => NavigationState::Error { path, error: e.to_string() },
+            }
+        });
+    }
+
+    fn draw(&mut self, f: &mut Frame) {
+        match &self.nav_state {
+            NavigationState::Loading { .. } => self.draw_loading(f),
+            NavigationState::Browsing { entries, cursor, .. } => self.draw_entries(f, entries, *cursor),
+            NavigationState::Error { error, .. } => self.draw_error(f, error),
+        }
+    }
+}
+```
+
+**Tasks:**
+- [ ] Define `NavigationState` enum
+- [ ] Update List to track navigation state
+- [ ] Implement state transitions (Browsing → Loading → Browsing/Error)
+- [ ] Update draw method to render based on state
+- [ ] Add timeout handling for stuck Loading state
+
+**Benefits:**
+- Async flow is explicit in the type system
+- Impossible to access entries during loading
+- Clear error states
+- Easier to debug navigation issues
+
+---
+
+#### Sub-Step 7.4: Async Component Trait
 **Time:** ~2 hours
-**Status:** ⏳ PENDING (Partially done)
+**Status:** ⏳ PENDING
+
+**Problem:**
+- Components are sync but most operations are async
+- Manual task spawning everywhere
+- Actions used as async callbacks (`EntriesLoaded`, `StatusCalculationProgress`)
+- Hard to know when to trigger renders
+
+**Solution:**
+Make Component trait async-aware:
+```rust
+#[async_trait]
+pub trait Component {
+    // Sync methods for immediate feedback
+    fn draw(&mut self, f: &mut Frame, area: Rect, state: &AppState) -> Result<()>;
+    fn handle_key_events(&mut self, key: KeyEvent) -> Result<Option<Action>>;
+
+    // Async lifecycle hooks
+    async fn on_mount(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn on_action(&mut self, action: Action) -> Result<Option<Action>> {
+        Ok(None)
+    }
+
+    // Request render after async operations
+    fn needs_render(&self) -> bool {
+        false
+    }
+}
+```
+
+**Example usage:**
+```rust
+impl List {
+    async fn refresh_entries(&mut self) -> Result<()> {
+        self.set_loading(true);
+
+        // Just await directly - no manual task spawning!
+        let entries = self.explorer.list_directory(&self.current_path).await?;
+
+        self.state.on_entries_loaded(entries, self.pending_cursor_name.take());
+        self.set_loading(false);
+
+        // Calculate statuses
+        self.calculate_statuses().await?;
+
+        Ok(())
+    }
+}
+```
+
+**Tasks:**
+- [ ] Add `async_trait` to Component trait
+- [ ] Add `on_mount()` and `on_action()` async hooks
+- [ ] Update App event loop to handle async component updates
+- [ ] Add render request mechanism (boolean flag or action)
+- [ ] Convert List component to use async methods
+- [ ] Remove manual `tokio::spawn` in components
+- [ ] Remove `EntriesLoaded`, `StatusCalculationProgress` actions
+
+**Benefits:**
+- No more manual task spawning
+- Direct async/await in component logic
+- Cursor positioning works naturally (no state passing)
+- 70% less action boilerplate
+- Clear when renders happen
+
+**Tradeoffs:**
+- App event loop becomes more complex
+- But component code becomes much simpler
+
+---
+
+**Overall Step 7 Result:**
+- 50-70% reduction in boilerplate
+- Clearer async flow
+- Easier to add new features
+- More testable state management
+- Better separation between UI browsing and business logic
+
+---
+
+### STEP 8: User Experience Improvements
+**Time:** ~2 hours
+**Status:** ⏳ PENDING
 
 #### Tasks:
 - [ ] Better error messages:
@@ -399,7 +685,7 @@ The TUI components are synchronous (they implement `Component` trait with sync m
 
 ---
 
-### STEP 7: Testing & Polish
+### STEP 9: Testing & Polish
 **Time:** ~3.5 hours
 **Status:** ⏳ PENDING
 
