@@ -46,6 +46,11 @@ impl ScriptPath {
         &self.0
     }
 
+    /// Get the path as a string slice (if valid UTF-8)
+    pub fn as_str(&self) -> Option<&str> {
+        self.0.to_str()
+    }
+
     /// Get the filename as a string
     pub fn filename(&self) -> Option<&str> {
         self.0.file_name().and_then(|n| n.to_str())

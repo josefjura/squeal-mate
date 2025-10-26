@@ -43,22 +43,28 @@ impl ExecutionTracker for SqliteTracker {
         path: &ScriptPath,
         current_checksum: Checksum,
     ) -> DomainResult<ScriptStatus> {
-        let status = self
+        // Use the business logic method to determine status
+        let has_been_executed = self.has_been_executed(path).await?;
+        let stored_checksum = self.get_last_checksum(path).await?;
+
+        // Get the old status to check if last execution succeeded
+        let old_status = self
             .db
             .get_file_status(&path.to_string(), &current_checksum.value())
-            .map_err(|e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
+            .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
-        // Convert old EntryStatus to new ScriptStatus
-        let domain_status = match status {
-            crate::entries::EntryStatus::NeverStarted => ScriptStatus::NeverRun,
-            crate::entries::EntryStatus::Finished(true) => ScriptStatus::UpToDate,
-            crate::entries::EntryStatus::Finished(false) => ScriptStatus::Failed {
-                error: "Previous execution failed".to_string(),
-            },
-            crate::entries::EntryStatus::Changed => ScriptStatus::Modified,
-            crate::entries::EntryStatus::Unknown => ScriptStatus::NeverRun,
-            crate::entries::EntryStatus::Directory => ScriptStatus::NeverRun, // Shouldn't happen
-        };
+        let last_execution_succeeded = matches!(
+            old_status,
+            crate::entries::EntryStatus::Finished(true)
+        );
+
+        // Use domain business logic to determine status
+        let domain_status = ScriptStatus::from_execution_history(
+            has_been_executed,
+            last_execution_succeeded,
+            current_checksum,
+            stored_checksum,
+        );
 
         Ok(domain_status)
     }

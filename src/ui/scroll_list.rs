@@ -17,10 +17,14 @@ use crate::{
     script_memory::ScriptDatabase,
     tui::Frame,
     utils::send_through_channel,
+    services::{ActionDispatcher, MigrationService},
 };
+use std::sync::Arc;
 
 pub struct ScrollList {
     command_tx: Option<UnboundedSender<Action>>,
+    dispatcher: Option<ActionDispatcher>,
+    migration_service: Option<Arc<MigrationService>>,
     config: Settings,
     state: ListState,
     db: Database,
@@ -32,12 +36,18 @@ impl ScrollList {
     pub fn new(db: Database, base: PathBuf, script_memory: ScriptDatabase) -> Self {
         Self {
             command_tx: None,
+            dispatcher: None,
+            migration_service: None,
             config: Settings::default(),
             state: ListState::default().with_selected(Some(0)),
             db,
             base,
             script_memory,
         }
+    }
+
+    pub fn set_migration_service(&mut self, service: Arc<MigrationService>) {
+        self.migration_service = Some(service);
     }
 
     fn update_selection(&mut self, state: &mut AppState) {
@@ -124,10 +134,90 @@ impl ScrollList {
     pub fn unselect_all(&mut self, state: &mut AppState) {
         state.selected.clear()
     }
+
+    /// Legacy script execution method (fallback when MigrationService not available)
+    fn execute_script_legacy(
+        &self,
+        entry: Script,
+        skip_errors: bool,
+        state: &mut AppState,
+    ) -> Result<Option<Action>> {
+        let full_path = self.base.join(&entry.relative_path);
+        let connection = self.db.clone();
+        let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
+        let cloned = entry.clone();
+
+        tokio::spawn(async move {
+            send_through_channel(
+                &channel,
+                Action::ScriptRunning(cloned.relative_path.clone()),
+            );
+
+            let now = Instant::now();
+            let content = tokio::fs::read_to_string(full_path).await;
+            match content {
+                Ok(content) => {
+                    let result = connection.execute_script(&content).await;
+                    let elapsed = now.elapsed().as_millis();
+                    let hasher = Crc::<u32>::new(&CRC_32_ISO_HDLC);
+                    let crc = hasher.checksum(content.as_bytes());
+                    match result {
+                        Ok(_) => {
+                            send_through_channel(
+                                &channel,
+                                Action::ScriptFinished(
+                                    cloned.relative_path.clone(),
+                                    elapsed,
+                                    crc,
+                                ),
+                            );
+                            send_through_channel(
+                                &channel,
+                                Action::EntryStatusChanged(
+                                    cloned.relative_path,
+                                    crate::entries::EntryStatus::Finished(true),
+                                ),
+                            );
+                            send_through_channel(&channel, Action::ScriptRun(skip_errors));
+                        }
+                        Err(err) => {
+                            send_through_channel(
+                                &channel,
+                                Action::ScriptError(
+                                    cloned.relative_path.clone(),
+                                    err.to_string(),
+                                    Some(crc),
+                                ),
+                            );
+                            send_through_channel(
+                                &channel,
+                                Action::EntryStatusChanged(
+                                    cloned.relative_path,
+                                    crate::entries::EntryStatus::Finished(false),
+                                ),
+                            );
+                            if skip_errors {
+                                send_through_channel(&channel, Action::ScriptRun(skip_errors));
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    send_through_channel(
+                        &channel,
+                        Action::ScriptError(cloned.relative_path, err.to_string(), None),
+                    );
+                }
+            }
+        });
+
+        self.get_update(state)
+    }
 }
 
 impl Component for ScrollList {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+        self.dispatcher = Some(ActionDispatcher::new(tx.clone()));
         self.command_tx = Some(tx);
         Ok(())
     }
@@ -251,80 +341,75 @@ impl Component for ScrollList {
                 }
                 let entry = first_not_run_entry.unwrap();
 
+                // Get the migration service and dispatcher
+                let migration_service = match &self.migration_service {
+                    Some(svc) => svc.clone(),
+                    None => {
+                        // Fall back to old implementation if service not available
+                        log::warn!("MigrationService not available, using legacy execution");
+                        return self.execute_script_legacy(entry, skip_errors, state);
+                    }
+                };
+
+                let dispatcher = match &self.dispatcher {
+                    Some(d) => d.clone(),
+                    None => {
+                        log::error!("ActionDispatcher not available");
+                        return Ok(None);
+                    }
+                };
+
                 let full_path = self.base.join(&entry.relative_path);
+                let script_path = entry.relative_path.clone();
 
-                let connection = self.db.clone();
-                let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
-                let cloned = entry.clone();
-
+                // Spawn async execution using service layer
                 tokio::spawn(async move {
-                    send_through_channel(
-                        &channel,
-                        Action::ScriptRunning(cloned.relative_path.clone()),
-                    );
+                    use crate::domain::{MigrationScript, ScriptPath};
 
-                    let now = Instant::now();
-                    let content = tokio::fs::read_to_string(full_path).await;
-                    match content {
-                        Ok(content) => {
-                            let result = connection.execute_script(&content).await;
-                            let elapsed = now.elapsed().as_millis();
-                            let hasher = Crc::<u32>::new(&CRC_32_ISO_HDLC);
-                            let crc = hasher.checksum(content.as_bytes());
-                            match result {
-                                Ok(_) => {
-                                    send_through_channel(
-                                        &channel,
-                                        Action::ScriptFinished(
-                                            cloned.relative_path.clone(),
-                                            elapsed,
-                                            crc,
-                                        ),
-                                    );
-                                    send_through_channel(
-                                        &channel,
-                                        Action::EntryStatusChanged(
-                                            cloned.relative_path,
-                                            crate::entries::EntryStatus::Finished(true),
-                                        ),
-                                    );
-                                    send_through_channel(&channel, Action::ScriptRun(skip_errors));
-                                }
-                                Err(err) => {
-                                    send_through_channel(
-                                        &channel,
-                                        Action::ScriptError(
-                                            cloned.relative_path.clone(),
-                                            err.to_string(),
-                                            Some(crc),
-                                        ),
-                                    );
-                                    send_through_channel(
-                                        &channel,
-                                        Action::EntryStatusChanged(
-                                            cloned.relative_path,
-                                            crate::entries::EntryStatus::Finished(false),
-                                        ),
-                                    );
-                                    if skip_errors {
-                                        send_through_channel(
-                                            &channel,
-                                            Action::ScriptRun(skip_errors),
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                    // Read the script file
+                    let content = match tokio::fs::read_to_string(&full_path).await {
+                        Ok(c) => c,
                         Err(err) => {
-                            send_through_channel(
-                                &channel,
-                                Action::ScriptError(cloned.relative_path, err.to_string(), None),
-                            );
+                            dispatcher.dispatch(Action::ScriptError(
+                                script_path,
+                                err.to_string(),
+                                None,
+                            ));
+                            return;
+                        }
+                    };
+
+                    // Create domain objects
+                    let path = match ScriptPath::new(script_path.clone()) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            dispatcher.dispatch(Action::ScriptError(
+                                script_path,
+                                format!("Invalid script path: {}", e),
+                                None,
+                            ));
+                            return;
+                        }
+                    };
+
+                    let script = MigrationScript::new(path, content);
+
+                    // Use the service to execute
+                    match migration_service.execute_script(&script, &dispatcher).await {
+                        Ok(_) => {
+                            // Service handles notifications, just trigger next script
+                            dispatcher.dispatch(Action::ScriptRun(skip_errors));
+                        }
+                        Err(e) => {
+                            log::error!("Script execution failed: {}", e);
+                            // Error notifications already sent by service
+                            if skip_errors {
+                                dispatcher.dispatch(Action::ScriptRun(skip_errors));
+                            }
                         }
                     }
                 });
 
-                //}
                 return self.get_update(state);
             }
             _ => {}

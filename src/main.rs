@@ -32,7 +32,6 @@ use crossterm::style::Stylize;
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
-use repository::{Repository, RepositoryError};
 use script_memory::ScriptDatabase;
 use std::env;
 use std::io::{self, stdout};
@@ -51,14 +50,63 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
         PathBuf::from_str("./").expect("Can't open current directory")
     };
 
-    let repository = Repository::new(path.clone());
     let script_memory = ScriptDatabase::new().await?;
 
-    match repository {
-        Ok(repository) => {
-            let list = List::new(repository, path.clone(), script_memory.clone())?;
+    // Validate that the path exists before proceeding
+    if !path.exists() {
+        log::error!("Repository path does not exist: {}", path.display());
+        return Ok(());
+    }
+
+    {  // Start scope for infrastructure setup
+            // Create infrastructure layer instances
+            use std::sync::Arc;
+            use infrastructure::{FilesystemRepository, MssqlExecutor, SqliteTracker};
+            use services::MigrationService;
+
+            let fs_repo = Arc::new(
+                FilesystemRepository::new(path.clone())
+                    .map_err(|e| eyre::eyre!("Failed to create filesystem repository: {}", e))?
+            );
+            let executor = Arc::new(MssqlExecutor::new(connection.clone()));
+            let tracker = Arc::new(
+                SqliteTracker::new().await
+                    .map_err(|e| eyre::eyre!("Failed to create tracker: {}", e))?
+            );
+
+            // Create service layer
+            let migration_service = Arc::new(MigrationService::new(
+                fs_repo.clone(),
+                executor.clone(),
+                tracker.clone(),
+            ));
+
+            // Test database connection before starting TUI
+            log::info!("Testing database connection...");
+            match migration_service.test_connection().await {
+                Ok(()) => {
+                    log::info!("Database connection successful");
+                }
+                Err(e) => {
+                    log::error!("Database connection failed: {}", e);
+                    eprintln!("ERROR: Failed to connect to database: {}", e);
+                    eprintln!("Please check your configuration with: squealmate config");
+                    return Err(eyre::eyre!("Database connection failed: {}", e));
+                }
+            }
+
+            // Create a separate FilesystemRepository instance for List (it needs mutable access)
+            let list_repo = FilesystemRepository::new(path.clone())
+                .map_err(|e| eyre::eyre!("Failed to create list repository: {}", e))?;
+
+            let mut list = List::new(list_repo, path.clone(), script_memory.clone())?;
+            list.set_migration_service(migration_service.clone());
+            list.refresh_entries()?;  // Initial load of entries
+
             let script_status = ScriptStatus::new();
-            let scroll_list = ScrollList::new(connection.clone(), path, script_memory);
+
+            let mut scroll_list = ScrollList::new(connection.clone(), path, script_memory);
+            scroll_list.set_migration_service(migration_service.clone());
 
             let mut app = App::new(
                 vec![
@@ -83,21 +131,9 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
                 stdout(),
                 Print("🦀 Thank you for using SquealMate 🦀\n".yellow())
             )?;
-            Ok(())
-        }
-        Err(RepositoryError::DoesNotExist) => {
-            log::error!("Repository does not exist");
-            Ok(())
-        }
-        Err(RepositoryError::NotUTF8) => {
-            log::error!("Repository configuration is not UTF8");
-            Ok(())
-        }
-        Err(RepositoryError::IOError(e)) => {
-            log::error!("Internal IO error: {}", e);
-            Ok(())
-        }
-    }
+    }  // End infrastructure setup scope
+
+    Ok(())
 }
 
 fn draw_config(stdout: &mut io::Stdout) -> eyre::Result<()> {

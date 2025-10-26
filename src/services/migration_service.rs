@@ -89,6 +89,14 @@ impl MigrationService {
                     Ok(script) => {
                         match tracker.get_status(&script_path, script.checksum).await {
                             Ok(status) => {
+                                // Use business logic methods for logging/diagnostics
+                                if status.needs_attention() {
+                                    log::debug!("Script {} needs attention", script_path);
+                                }
+                                if !status.can_execute() {
+                                    log::debug!("Script {} is up-to-date, skipping", script_path);
+                                }
+
                                 // Convert ScriptStatus to EntryStatus for backwards compatibility
                                 let entry_status = match status {
                                     ScriptStatus::NeverRun => {

@@ -12,12 +12,14 @@ use std::path::{Path, PathBuf};
 pub struct FilesystemRepository {
     inner: Repository,
     root_path: PathBuf,  // Store owned path for returning references
+    current_path: PathBuf,  // Cache current path for borrowing
 }
 
 impl FilesystemRepository {
     /// Create a new filesystem repository
     pub fn new(root: PathBuf) -> InfraResult<Self> {
         let root_path = root.clone();
+        let current_path = root.clone();
         let inner = Repository::new(root).map_err(|e| match e {
             crate::repository::RepositoryError::DoesNotExist => {
                 InfraError::RepositoryNotFound("Repository path does not exist".to_string())
@@ -28,17 +30,12 @@ impl FilesystemRepository {
             }
         })?;
 
-        Ok(Self { inner, root_path })
+        Ok(Self { inner, root_path, current_path })
     }
 
-    /// Get the underlying repository (for compatibility with existing code)
-    pub fn inner(&self) -> &Repository {
-        &self.inner
-    }
-
-    /// Get mutable access to the underlying repository
-    pub fn inner_mut(&mut self) -> &mut Repository {
-        &mut self.inner
+    /// Update the cached current path
+    fn update_current_path(&mut self) {
+        self.current_path = self.inner.current_as_path_buf();
     }
 }
 
@@ -102,18 +99,65 @@ impl MigrationRepository for FilesystemRepository {
         script_paths.map_err(Into::into)
     }
 
+    async fn get_scripts_after_in_current(
+        &self,
+        after_name: &str,
+    ) -> DomainResult<Vec<ScriptPath>> {
+        let paths = self
+            .inner
+            .read_files_after_in_directory(after_name)
+            .map_err(|e| InfraError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+        let script_paths: Result<Vec<_>, _> = paths
+            .into_iter()
+            .map(|p| ScriptPath::new(p))
+            .collect();
+
+        script_paths.map_err(Into::into)
+    }
+
+    async fn get_scripts_in_current(&self) -> DomainResult<Vec<ScriptPath>> {
+        let paths = self
+            .inner
+            .read_files_in_directory()
+            .map_err(|e| InfraError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+
+        let script_paths: Result<Vec<_>, _> = paths
+            .into_iter()
+            .map(|p| ScriptPath::new(p))
+            .collect();
+
+        script_paths.map_err(Into::into)
+    }
+
+    async fn get_scripts_after_global(
+        &self,
+        after_name: &str,
+    ) -> DomainResult<Vec<ScriptPath>> {
+        let paths = self.inner.read_files_after(after_name);
+
+        let script_paths: Result<Vec<_>, _> = paths
+            .into_iter()
+            .map(|p| ScriptPath::new(p))
+            .collect();
+
+        script_paths.map_err(Into::into)
+    }
+
     fn enter_directory(&mut self, name: &str) -> bool {
         self.inner.open_directory(name);
+        self.update_current_path();
         true // Existing implementation doesn't validate, always succeeds
     }
 
     fn leave_directory(&mut self) -> Option<String> {
-        self.inner.leave_directory()
+        let result = self.inner.leave_directory();
+        self.update_current_path();
+        result
     }
 
     fn current_directory(&self) -> &Path {
-        // Return the root path (we track navigation in the inner repository)
-        &self.root_path
+        &self.current_path
     }
 
     fn root_directory(&self) -> &Path {

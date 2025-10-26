@@ -1,6 +1,5 @@
 //! SQL Server executor implementation
 
-use crate::batch_parser::BatchParser;
 use crate::db::Database;
 use crate::domain::{DomainResult, ExecutionResult, MigrationScript, ScriptExecutor};
 use crate::infrastructure::error::InfraError;
