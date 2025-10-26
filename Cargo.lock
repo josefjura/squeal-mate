@@ -2122,6 +2122,7 @@ dependencies = [
  "serde",
  "signal-hook",
  "strip-ansi-escapes",
+ "tempfile",
  "thiserror 2.0.17",
  "throbber-widgets-tui",
  "tiberius",

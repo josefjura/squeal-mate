@@ -408,8 +408,12 @@ impl FileExplorer {
 ```
 
 **Tasks:**
-- [ ] Create `src/ui/file_explorer.rs` with simple filesystem operations
-- [ ] Update List component to use `FileExplorer` instead of `FilesystemRepository`
+- [x] Create `src/ui/file_explorer.rs` with simple filesystem operations
+- [x] Update List component to use `FileExplorer` instead of `FilesystemRepository`
+- [ ] **CLEANUP NEEDED:** Extract duplicated path stripping logic to helper function
+  - Current: `filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))`
+  - This pattern is duplicated in 5 selection methods (lines 219, 259, 309, 353, 381)
+  - Extract to: `fn strip_root_prefix(paths: Vec<PathBuf>, root: &Path) -> Vec<PathBuf>`
 - [ ] Keep `MigrationRepository` trait only for `MigrationService` (execution path)
 - [ ] Remove unnecessary type conversions in UI layer
 - [ ] Update tests

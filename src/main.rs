@@ -151,11 +151,8 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
 
             eprintln!("🎨 Loading UI components...");
 
-            // Create a separate FilesystemRepository instance for List (it needs mutable access)
-            let list_repo = FilesystemRepository::new(path.clone())
-                .map_err(|e| eyre::eyre!("Failed to create list repository: {}", e))?;
-
-            let mut list = List::new(list_repo, path.clone(), script_memory.clone())?;
+            // Create List component (uses simple FileExplorer for UI browsing)
+            let mut list = List::new(path.clone(), script_memory.clone())?;
             list.set_migration_service(migration_service.clone());
             // Note: refresh_entries() will be called in init() after dispatcher is set up
 

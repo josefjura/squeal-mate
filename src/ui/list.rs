@@ -14,8 +14,7 @@ use crate::{
     action::Action, infrastructure::Settings, entries::EntryStatus,
     script_memory::ScriptDatabase, tui::Frame, utils::send_through_channel,
     services::{ActionDispatcher, MigrationService},
-    infrastructure::FilesystemRepository,
-    domain::MigrationRepository,
+    infrastructure::FileExplorer,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
@@ -28,7 +27,7 @@ pub struct List {
     migration_service: Option<Arc<MigrationService>>,
     config: Settings,
     state: ListState,
-    repository: Arc<FilesystemRepository>,  // Now Arc - can be shared with async tasks
+    file_explorer: Arc<FileExplorer>,  // Simple file browsing (no domain abstractions)
     entries: Vec<ListEntry>,
     script_memory: ScriptDatabase,
     status_calculation_progress: Option<(usize, usize)>,  // (current, total) for CRC calculation
@@ -37,11 +36,11 @@ pub struct List {
 
 impl List {
     pub fn new(
-        repository: FilesystemRepository,
         base: PathBuf,
         script_memory: ScriptDatabase,
     ) -> Result<Self> {
         let current_directory = base.clone();
+        let file_explorer = Arc::new(FileExplorer::new(base.clone())?);
 
         Ok(Self {
             state: ListState::default().with_selected(Some(0)),
@@ -51,7 +50,7 @@ impl List {
             config: Settings::default(),
             entries: Vec::new(),  // Will be populated via refresh_entries()
             script_memory,
-            repository: Arc::new(repository),
+            file_explorer,
             base: base.clone(),
             current_directory,
             status_calculation_progress: None,
@@ -83,72 +82,39 @@ impl List {
         // Spawn async task to load entries
         let current_dir = self.current_directory.clone();
         let root_dir = self.base.clone();
-        let repository = self.repository.clone();
+        let file_explorer = self.file_explorer.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
-            let mut entries = Vec::new();
+            // Use FileExplorer to get all entries (files + directories)
+            let result = file_explorer.list_directory(&current_dir).await;
 
-            // Get SQL scripts from repository
-            match repository.list_scripts(&current_dir).await {
-                Ok(script_paths) => {
-                    for script_path in script_paths {
-                        if let (Some(name), Some(path_str)) = (
-                            script_path.as_path().file_name().and_then(|n| n.to_str()),
-                            script_path.as_str()
-                        ) {
-                            entries.push(ListEntry {
-                                name: name.to_string(),
-                                relative_path: path_str.to_string(),
-                                selected: false,
-                                is_directory: false,
-                                status: EntryStatus::Unknown,
-                            });
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to list scripts: {}", e);
-                }
-            }
+            let entries = match result {
+                Ok(explorer_entries) => {
+                    // Convert from FileExplorer entries to ListEntry
+                    explorer_entries
+                        .into_iter()
+                        .map(|entry| {
+                            let relative_path = entry.path
+                                .strip_prefix(&root_dir)
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|_| entry.name.clone());
 
-            // List directories (synchronous fs operations are OK in async task)
-            if let Ok(dir_entries) = std::fs::read_dir(&current_dir) {
-                for entry in dir_entries.flatten() {
-                    if let Ok(metadata) = entry.metadata() {
-                        if metadata.is_dir() {
-                            let file_name = entry.file_name().to_string_lossy().to_string();
-
-                            // Skip hidden directories
-                            if file_name.starts_with('.') || file_name.starts_with('_') {
-                                continue;
-                            }
-
-                            let relative_path = match entry.path().strip_prefix(&root_dir) {
-                                Ok(rel) => rel.to_string_lossy().to_string(),
-                                Err(_) => file_name.clone(),
-                            };
-
-                            entries.push(ListEntry {
-                                name: file_name,
+                            ListEntry {
+                                name: entry.name,
                                 relative_path,
                                 selected: false,
-                                is_directory: true,
+                                is_directory: entry.is_directory,
                                 status: EntryStatus::Unknown,
-                            });
-                        }
-                    }
+                            }
+                        })
+                        .collect()
                 }
-            }
-
-            // Sort entries: directories first, then by name
-            entries.sort_by(|a, b| {
-                match (a.is_directory, b.is_directory) {
-                    (true, false) => std::cmp::Ordering::Less,
-                    (false, true) => std::cmp::Ordering::Greater,
-                    _ => a.name.cmp(&b.name),
+                Err(e) => {
+                    log::error!("Failed to list directory: {}", e);
+                    Vec::new()
                 }
-            });
+            };
 
             // Send results back via action
             if let Some(dispatcher) = dispatcher {
@@ -245,10 +211,13 @@ impl List {
             // 2. It's triggered by explicit user action (selection)
             // 3. Alternative would add significant complexity for minimal UX benefit
             let handle = tokio::runtime::Handle::current();
+            let root_dir = self.base.clone();
+            let file_explorer = self.file_explorer.clone();
             let items = handle.block_on(async {
-                match self.repository.get_children(&rel_path).await {
-                    Ok(script_paths) => script_paths.into_iter()
-                        .filter_map(|sp| sp.as_str().map(|s| s.to_string()))
+                match file_explorer.list_sql_files(&rel_path).await {
+                    Ok(paths) => paths.into_iter()
+                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                        .map(|p| p.to_string_lossy().to_string())
                         .collect::<Vec<_>>(),
                     Err(e) => {
                         log::error!("Failed to get children for directory {}: {}", entry.relative_path, e);
@@ -282,10 +251,13 @@ impl List {
             // 2. It's triggered by explicit user action (selection)
             // 3. Alternative would add significant complexity for minimal UX benefit
             let handle = tokio::runtime::Handle::current();
+            let root_dir = self.base.clone();
+            let file_explorer = self.file_explorer.clone();
             let items = handle.block_on(async {
-                match self.repository.get_children(&rel_path).await {
-                    Ok(script_paths) => script_paths.into_iter()
-                        .filter_map(|sp| sp.as_str().map(|s| s.to_string()))
+                match file_explorer.list_sql_files(&rel_path).await {
+                    Ok(paths) => paths.into_iter()
+                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                        .map(|p| p.to_string_lossy().to_string())
                         .collect::<Vec<_>>(),
                     Err(e) => {
                         log::error!("Failed to get children for directory {}: {}", entry.relative_path, e);
@@ -318,13 +290,28 @@ impl List {
         // 2. It's triggered by explicit user action (selection)
         // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
+        let root_dir = self.base.clone();
+        let current_dir = self.current_directory.clone();
+        let file_explorer = self.file_explorer.clone();
+        let after_name = entry.name.clone();
+
         let entries = handle.block_on(async {
-            match self.repository.get_scripts_after_global(&entry.name).await {
-                Ok(script_paths) => script_paths.into_iter()
-                    .filter_map(|sp| sp.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<_>>(),
+            match file_explorer.list_sql_files(&current_dir).await {
+                Ok(paths) => {
+                    // Filter to only files after the selected one (alphabetically)
+                    paths.into_iter()
+                        .filter(|p| {
+                            p.file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|name| name > after_name.as_str())
+                                .unwrap_or(false)
+                        })
+                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect::<Vec<_>>()
+                }
                 Err(e) => {
-                    log::error!("Failed to get scripts after {}: {}", entry.name, e);
+                    log::error!("Failed to get scripts after {}: {}", after_name, e);
                     vec![]
                 }
             }
@@ -347,13 +334,28 @@ impl List {
         // 2. It's triggered by explicit user action (selection)
         // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
+        let root_dir = self.base.clone();
+        let current_dir = self.current_directory.clone();
+        let file_explorer = self.file_explorer.clone();
+        let after_name = entry.name.clone();
+
         let entries = handle.block_on(async {
-            match self.repository.get_scripts_after_in_current(&entry.name).await {
-                Ok(script_paths) => script_paths.into_iter()
-                    .filter_map(|sp| sp.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<_>>(),
+            match file_explorer.list_sql_files(&current_dir).await {
+                Ok(paths) => {
+                    // Filter to only files after the selected one (alphabetically)
+                    paths.into_iter()
+                        .filter(|p| {
+                            p.file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|name| name > after_name.as_str())
+                                .unwrap_or(false)
+                        })
+                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect::<Vec<_>>()
+                }
                 Err(e) => {
-                    log::error!("Failed to get scripts after {} in directory: {}", entry.name, e);
+                    log::error!("Failed to get scripts after {} in directory: {}", after_name, e);
                     vec![]
                 }
             }
@@ -368,11 +370,18 @@ impl List {
         // 2. It's triggered by explicit user action (selection)
         // 3. Alternative would add significant complexity for minimal UX benefit
         let handle = tokio::runtime::Handle::current();
+        let root_dir = self.base.clone();
+        let current_dir = self.current_directory.clone();
+        let file_explorer = self.file_explorer.clone();
+
         let entries = handle.block_on(async {
-            match self.repository.get_scripts_in_current().await {
-                Ok(script_paths) => script_paths.into_iter()
-                    .filter_map(|sp| sp.as_str().map(|s| s.to_string()))
-                    .collect::<Vec<_>>(),
+            match file_explorer.list_sql_files(&current_dir).await {
+                Ok(paths) => {
+                    paths.into_iter()
+                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect::<Vec<_>>()
+                }
                 Err(e) => {
                     log::error!("Failed to get scripts in directory: {}", e);
                     vec![]
