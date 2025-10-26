@@ -34,12 +34,25 @@ impl FilesystemRepository {
 
 #[async_trait]
 impl MigrationRepository for FilesystemRepository {
-    async fn list_scripts(&self, _directory: &Path) -> DomainResult<Vec<ScriptPath>> {
-        // Use current directory from inner repository
-        let paths = self
-            .inner
-            .read_files_in_directory()
-            .map_err(|e| InfraError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+    async fn list_scripts(&self, directory: &Path) -> DomainResult<Vec<ScriptPath>> {
+        // Read SQL files from the specified directory
+        let mut paths = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(directory) {
+            for entry in entries.flatten() {
+                if let Ok(path) = entry.path().canonicalize() {
+                    // Only include .sql files
+                    if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("sql") {
+                        // Skip hidden files
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            if !name.starts_with('.') && !name.starts_with('_') {
+                                paths.push(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()

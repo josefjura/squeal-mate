@@ -19,6 +19,10 @@ pub struct SquealMateArgs {
 
     #[command(flatten)]
     pub connection: ConnectionArgs,
+
+    /// Force start the application even if database connection fails
+    #[arg(long, short = 'f')]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

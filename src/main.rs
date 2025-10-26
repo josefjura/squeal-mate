@@ -39,10 +39,12 @@ use std::path::Path;
 use std::{io::Write, path::PathBuf, str::FromStr};
 use utils::{initialize_logging, initialize_panic_handler};
 
-async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
+async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre::Result<()> {
     initialize_logging()?;
 
     initialize_panic_handler()?;
+
+    eprintln!("🚀 Starting SquealMate...");
 
     let path: PathBuf = if let Some(ref content) = config.repository.path {
         PathBuf::from(content)
@@ -50,7 +52,10 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
         PathBuf::from_str("./").expect("Can't open current directory")
     };
 
+    eprintln!("📂 Repository: {}", path.display());
+
     let script_memory = ScriptDatabase::new().await?;
+    eprintln!("💾 Script database initialized");
 
     // Validate that the path exists before proceeding
     if !path.exists() {
@@ -72,6 +77,8 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
             use infrastructure::{FilesystemRepository, MssqlExecutor, SqliteTracker};
             use services::MigrationService;
 
+            eprintln!("🔧 Initializing infrastructure...");
+
             let fs_repo = Arc::new(
                 FilesystemRepository::new(path.clone())
                     .map_err(|e| eyre::eyre!("Failed to create filesystem repository: {}", e))?
@@ -89,19 +96,60 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
                 tracker.clone(),
             ));
 
-            // Test database connection before starting TUI
+            // Test database connection before starting TUI (with timeout)
+            eprintln!("🔌 Testing database connection...");
             log::info!("Testing database connection...");
-            match migration_service.test_connection().await {
-                Ok(()) => {
+            let test_result = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                migration_service.test_connection()
+            ).await;
+
+            match test_result {
+                Ok(Ok(())) => {
+                    eprintln!("✅ Database connection successful");
                     log::info!("Database connection successful");
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     log::error!("Database connection failed: {}", e);
-                    eprintln!("ERROR: Failed to connect to database: {}", e);
-                    eprintln!("Please check your configuration with: squealmate config");
-                    return Err(eyre::eyre!("Database connection failed: {}", e));
+                    eprintln!("❌ ERROR: Failed to connect to database: {}", e);
+                    eprintln!();
+                    eprintln!("To fix this:");
+                    eprintln!("  1. Check your configuration: squealmate config");
+                    eprintln!("  2. Or reconfigure: squealmate init");
+
+                    if force {
+                        eprintln!();
+                        eprintln!("⚠️  --force flag detected, starting anyway...");
+                        eprintln!("   (You won't be able to execute scripts)");
+                        eprintln!();
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    } else {
+                        eprintln!();
+                        eprintln!("Use --force (-f) to start anyway without database connection.");
+                        return Err(eyre::eyre!("Database connection failed"));
+                    }
+                }
+                Err(_) => {
+                    log::error!("Database connection timed out after 5 seconds");
+                    eprintln!("❌ ERROR: Database connection timed out");
+                    eprintln!();
+                    eprintln!("The database server may not be running or accessible.");
+
+                    if force {
+                        eprintln!();
+                        eprintln!("⚠️  --force flag detected, starting anyway...");
+                        eprintln!("   (You won't be able to execute scripts)");
+                        eprintln!();
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    } else {
+                        eprintln!();
+                        eprintln!("Use --force (-f) to start anyway without database connection.");
+                        return Err(eyre::eyre!("Database connection timed out"));
+                    }
                 }
             }
+
+            eprintln!("🎨 Loading UI components...");
 
             // Create a separate FilesystemRepository instance for List (it needs mutable access)
             let list_repo = FilesystemRepository::new(path.clone())
@@ -109,7 +157,7 @@ async fn start_tui(config: Settings, connection: Database) -> eyre::Result<()> {
 
             let mut list = List::new(list_repo, path.clone(), script_memory.clone())?;
             list.set_migration_service(migration_service.clone());
-            list.refresh_entries()?;  // Initial load of entries
+            // Note: refresh_entries() will be called in init() after dispatcher is set up
 
             let script_status = ScriptStatus::new();
 
@@ -331,7 +379,7 @@ async fn main() -> eyre::Result<()> {
         }
         Some(Command::Migrations) | None => {
             match args.connection.merge(&config) {
-                Ok(conn) => start_tui(config, conn).await?,
+                Ok(conn) => start_tui(config, conn, args.force).await?,
                 Err(ArgumentsError::MissingPassword) => {
                     eprintln!("❌ ERROR: Missing database password");
                     eprintln!();

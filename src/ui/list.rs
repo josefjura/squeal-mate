@@ -32,6 +32,7 @@ pub struct List {
     entries: Vec<ListEntry>,
     script_memory: ScriptDatabase,
     status_calculation_progress: Option<(usize, usize)>,  // (current, total) for CRC calculation
+    pending_cursor_name: Option<String>,  // Name to position cursor on after loading
 }
 
 impl List {
@@ -54,6 +55,7 @@ impl List {
             base: base.clone(),
             current_directory,
             status_calculation_progress: None,
+            pending_cursor_name: None,
         })
     }
 
@@ -201,16 +203,7 @@ impl List {
             // Navigate by updating current_directory state
             self.current_directory = self.current_directory.join(&name);
             self.refresh_entries()?;
-
-            if let Some(ref dispatcher) = self.dispatcher {
-                dispatcher.dispatch(Action::CalculateEntryStatus);
-            }
-
-            if !self.entries.is_empty() {
-                self.state.select(Some(0))
-            } else {
-                self.state.select(None)
-            }
+            // Note: CalculateEntryStatus will be dispatched when EntriesLoaded action is received
         }
 
         Ok(())
@@ -219,30 +212,15 @@ impl List {
     pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
         // Navigate up by updating current_directory state
         if let Some(parent) = self.current_directory.parent() {
-            let old_dir_name = self.current_directory
+            // Save the old directory name to position cursor on it after loading
+            self.pending_cursor_name = self.current_directory
                 .file_name()
                 .and_then(|n| n.to_str())
                 .map(|s| s.to_string());
 
             self.current_directory = parent.to_path_buf();
             self.refresh_entries()?;
-            self.state.select(Some(0));
-
-            if let Some(ref dispatcher) = self.dispatcher {
-                dispatcher.dispatch(Action::CalculateEntryStatus);
-            }
-
-            let old_index = old_dir_name.and_then(|name|
-                self.entries.iter().position(|r| r.name == name)
-            );
-
-            if let Some(old_index) = old_index {
-                self.state.select(Some(old_index));
-            } else if !self.entries.is_empty() {
-                self.state.select(Some(0))
-            } else {
-                self.state.select(None)
-            }
+            // Note: Cursor will be positioned when EntriesLoaded action is received
         }
 
         Ok(())
@@ -409,7 +387,6 @@ impl List {
 impl Component for List {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         let dispatcher = ActionDispatcher::new(tx.clone());
-        dispatcher.dispatch(Action::CalculateEntryStatus);
         self.dispatcher = Some(dispatcher);
         self.command_tx = Some(tx);
         Ok(())
@@ -417,6 +394,12 @@ impl Component for List {
 
     fn register_config_handler(&mut self, config: Settings) -> Result<()> {
         self.config = config;
+        Ok(())
+    }
+
+    fn init(&mut self, _area: ratatui::prelude::Size) -> Result<()> {
+        // Load entries now that dispatcher is set up
+        self.refresh_entries()?;
         Ok(())
     }
 
@@ -473,7 +456,13 @@ impl Component for List {
             Action::CalculateEntryStatus => {
                 // Reset progress tracking
                 let file_count = self.entries.iter().filter(|e| !e.is_directory).count();
-                self.status_calculation_progress = Some((0, file_count));
+
+                // Only show progress if there are files to process
+                if file_count > 0 {
+                    self.status_calculation_progress = Some((0, file_count));
+                } else {
+                    self.status_calculation_progress = None;
+                }
 
                 // Use MigrationService if available, otherwise fall back to legacy
                 if let (Some(migration_service), Some(dispatcher)) =
@@ -562,13 +551,31 @@ impl Component for List {
                 // Update entries from async task
                 self.entries = entries;
 
-                // Restore cursor position or set to first item
-                if !self.entries.is_empty() {
-                    if self.state.selected().is_none() {
+                // Position cursor based on pending_cursor_name if set
+                if let Some(name) = self.pending_cursor_name.take() {
+                    // Find the entry with the matching name
+                    let index = self.entries.iter().position(|e| e.name == name);
+                    if let Some(idx) = index {
+                        self.state.select(Some(idx));
+                    } else if !self.entries.is_empty() {
                         self.state.select(Some(0));
+                    } else {
+                        self.state.select(None);
                     }
                 } else {
-                    self.state.select(None);
+                    // No pending cursor, use default logic
+                    if !self.entries.is_empty() {
+                        if self.state.selected().is_none() {
+                            self.state.select(Some(0));
+                        }
+                    } else {
+                        self.state.select(None);
+                    }
+                }
+
+                // Now that entries are loaded, calculate their statuses
+                if let Some(ref dispatcher) = self.dispatcher {
+                    dispatcher.dispatch(Action::CalculateEntryStatus);
                 }
 
                 return Ok(None);
@@ -582,7 +589,8 @@ impl Component for List {
                     self.status_calculation_progress = None;
                 }
 
-                return Ok(None);
+                // Request a render to show the progress update
+                return Ok(Some(Action::Render));
             }
             _ => {}
         }
