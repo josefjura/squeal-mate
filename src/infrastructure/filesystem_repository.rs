@@ -24,7 +24,7 @@ impl FilesystemRepository {
             }
             crate::repository::RepositoryError::NotUTF8 => InfraError::InvalidUtf8Path,
             crate::repository::RepositoryError::IOError(e) => {
-                InfraError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
+                InfraError::IoError(std::io::Error::other(e))
             }
         })?;
 
@@ -56,18 +56,17 @@ impl MigrationRepository for FilesystemRepository {
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()
-            .map(|p| ScriptPath::new(p))
+            .map(ScriptPath::new)
             .collect();
 
-        script_paths.map_err(Into::into)
-    }
+        script_paths}
 
     async fn read_script(&self, path: &ScriptPath) -> DomainResult<MigrationScript> {
         let full_path = self.inner.base_as_path_buf().join(path.as_path());
 
         let content = tokio::fs::read_to_string(&full_path)
             .await
-            .map_err(|e| InfraError::IoError(e))?;
+            .map_err(InfraError::IoError)?;
 
         let script = MigrationScript::new(path.clone(), content);
         script.validate()?;
@@ -80,11 +79,10 @@ impl MigrationRepository for FilesystemRepository {
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()
-            .map(|p| ScriptPath::new(p))
+            .map(ScriptPath::new)
             .collect();
 
-        script_paths.map_err(Into::into)
-    }
+        script_paths}
 
     async fn get_scripts_after(
         &self,
@@ -99,11 +97,10 @@ impl MigrationRepository for FilesystemRepository {
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()
-            .map(|p| ScriptPath::new(p))
+            .map(ScriptPath::new)
             .collect();
 
-        script_paths.map_err(Into::into)
-    }
+        script_paths}
 
     async fn get_scripts_after_in_current(
         &self,
@@ -112,29 +109,27 @@ impl MigrationRepository for FilesystemRepository {
         let paths = self
             .inner
             .read_files_after_in_directory(after_name)
-            .map_err(|e| InfraError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|e| InfraError::IoError(std::io::Error::other(e.to_string())))?;
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()
-            .map(|p| ScriptPath::new(p))
+            .map(ScriptPath::new)
             .collect();
 
-        script_paths.map_err(Into::into)
-    }
+        script_paths}
 
     async fn get_scripts_in_current(&self) -> DomainResult<Vec<ScriptPath>> {
         let paths = self
             .inner
             .read_files_in_directory()
-            .map_err(|e| InfraError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|e| InfraError::IoError(std::io::Error::other(e.to_string())))?;
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()
-            .map(|p| ScriptPath::new(p))
+            .map(ScriptPath::new)
             .collect();
 
-        script_paths.map_err(Into::into)
-    }
+        script_paths}
 
     async fn get_scripts_after_global(
         &self,
@@ -144,10 +139,9 @@ impl MigrationRepository for FilesystemRepository {
 
         let script_paths: Result<Vec<_>, _> = paths
             .into_iter()
-            .map(|p| ScriptPath::new(p))
+            .map(ScriptPath::new)
             .collect();
 
-        script_paths.map_err(Into::into)
-    }
+        script_paths}
 
 }

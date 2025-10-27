@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ScriptPath(PathBuf);
 
+#[allow(dead_code)] // Some methods reserved for future features
 impl ScriptPath {
     /// Create a new ScriptPath, validating it's a .sql file
     pub fn new(path: impl Into<PathBuf>) -> DomainResult<Self> {
@@ -110,6 +111,7 @@ pub struct MigrationScript {
     pub checksum: Checksum,
 }
 
+#[allow(dead_code)] // Some methods reserved for future features
 impl MigrationScript {
     /// Create a new migration script
     pub fn new(path: ScriptPath, content: String) -> Self {

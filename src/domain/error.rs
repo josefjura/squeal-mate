@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)] // Some variants reserved for future features
 pub enum DomainError {
     #[error("Script not found: {0}")]
     ScriptNotFound(PathBuf),

@@ -10,6 +10,7 @@ use std::path::Path;
 
 /// Repository for accessing migration scripts from storage
 #[async_trait]
+#[allow(dead_code)] // Some methods reserved for future features
 pub trait MigrationRepository: Send + Sync {
     /// List all script paths in a directory
     async fn list_scripts(&self, directory: &Path) -> DomainResult<Vec<ScriptPath>>;

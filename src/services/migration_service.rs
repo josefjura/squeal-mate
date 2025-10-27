@@ -7,7 +7,6 @@ use crate::domain::{
 };
 use crate::services::ActionDispatcher;
 use std::sync::Arc;
-use tokio::time::Instant;
 
 /// Service for managing migration operations
 pub struct MigrationService {
@@ -88,9 +87,9 @@ impl MigrationService {
                 // Send progress update
                 disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
                 // Read the script to get its checksum
-                match repo.read_script(&script_path).await {
+                match repo.read_script(script_path).await {
                     Ok(script) => {
-                        match tracker.get_status(&script_path, script.checksum).await {
+                        match tracker.get_status(script_path, script.checksum).await {
                             Ok(status) => {
                                 // Use business logic methods for logging/diagnostics
                                 if status.needs_attention() {

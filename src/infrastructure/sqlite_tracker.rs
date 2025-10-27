@@ -12,9 +12,9 @@ pub struct SqliteTracker {
 
 impl SqliteTracker {
     pub async fn new() -> Result<Self, InfraError> {
-        let db = ScriptDatabase::new().await.map_err(|e| {
-            InfraError::SqliteError(rusqlite::Error::InvalidQuery) // TODO: Better error conversion
-        })?;
+        let db = ScriptDatabase::new()
+            .await
+            .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error conversion
 
         Ok(Self { db })
     }
@@ -33,7 +33,7 @@ impl ExecutionTracker for SqliteTracker {
                 result.checksum.value(),
                 result.success,
             )
-            .map_err(|e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error
+            .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error
 
         Ok(())
     }
@@ -81,7 +81,7 @@ impl ExecutionTracker for SqliteTracker {
         let dummy = Checksum::from_value(0);
         let status = self.db
             .get_file_status(&path.to_string(), &dummy.value())
-            .map_err(|e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
+            .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
         match status {
             crate::entries::EntryStatus::NeverStarted | crate::entries::EntryStatus::Unknown => {
