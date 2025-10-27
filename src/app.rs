@@ -117,6 +117,17 @@ impl AppState {
         self.selected.extend(new_items);
         self.selected.sort()
     }
+
+    /// Get the count of completed scripts (finished or error) and total scripts
+    pub fn execution_progress(&self) -> (usize, usize) {
+        let total = self.selected.len();
+        let completed = self
+            .selected
+            .iter()
+            .filter(|s| matches!(s.state, ScriptState::Finished | ScriptState::Error))
+            .count();
+        (completed, total)
+    }
 }
 
 pub struct App {

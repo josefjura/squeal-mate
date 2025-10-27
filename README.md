@@ -5,6 +5,17 @@
 ## Purpose
 Squeal Mate is designed to streamline the management of incremental SQL migration scripts. It allows developers to easily track available scripts, monitor execution history, and review execution outcomes. While it may not be universally essential, it is a powerful tool for developers managing databases with incremental migration scripts.
 
+## Features
+
+✨ **Interactive TUI**: Terminal-based interface for browsing and executing SQL scripts
+📊 **Progress Tracking**: Visual spinner and "X/Y completed" counter during execution
+🔍 **Smart Error Messages**: SQL errors show line numbers with code context
+📝 **Script History**: Tracks execution status with CRC32 checksums to detect changes
+⚡ **Async Operations**: Non-blocking file loading and checksum calculations
+❓ **Context-Sensitive Help**: Press `?` for mode-specific keyboard shortcuts
+🔒 **SQL Server 2022 Support**: Full encryption support with self-signed certificates
+🎯 **Dual Screen Mode**: Switch between file browser and execution view with Tab
+
 ## Installation
 
 To install **squealmate** on Windows, you can use the following one-liner in PowerShell. This command downloads and runs the installation script automatically, so there’s no need to manually download or unzip files.
@@ -39,9 +50,19 @@ If you prefer manual installation, you can download the latest release from the 
 
 `squealmate.exe` provides a set of commands and options for managing database configurations and migrations. Below is a detailed description of each command and option available.
 
-### First run
+### First Run & Configuration
 
-It's recommended to start with `squealmate init` which will help you with first setup.
+It's recommended to start with `squealmate init` which will guide you through the initial setup:
+
+```powershell
+squealmate init
+```
+
+This interactive wizard will help you configure:
+- **Repository path**: Location of your SQL migration scripts
+- **Database connection**: Server, port, database name
+- **Authentication**: SQL Server authentication or Windows integrated auth
+- **Encryption settings**: Required for SQL Server 2022+ (supports self-signed certificates)
 
 ### Commands
 

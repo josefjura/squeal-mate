@@ -6,7 +6,7 @@ use ratatui::{
 use std::vec;
 use tokio::sync::mpsc::UnboundedSender;
 
-use throbber_widgets_tui::ThrobberState;
+use throbber_widgets_tui::{Throbber, ThrobberState};
 
 use super::Component;
 use crate::{
@@ -22,6 +22,7 @@ pub struct ScriptStatus {
     message: String,
     path: String,
     spinner_state: ThrobberState,
+    is_running: bool,
 }
 
 impl ScriptStatus {
@@ -32,6 +33,7 @@ impl ScriptStatus {
             message: "".into(),
             spinner_state: ThrobberState::default(),
             path: "".into(),
+            is_running: false,
         }
     }
 }
@@ -53,22 +55,27 @@ impl Component for ScriptStatus {
                 self.spinner_state.calc_next();
             }
             Action::ScriptHighlighted(result_line) => {
-                let message = match &result_line {
+                let (message, running) = match &result_line {
+                    Some(Script {
+                        state: ScriptState::Running,
+                        ..
+                    }) => (String::from("Running..."), true),
                     Some(Script {
                         state: ScriptState::Error,
                         error: Some(err),
                         ..
-                    }) => err.clone(),
+                    }) => (err.clone(), false),
                     Some(Script {
                         state: ScriptState::Finished,
                         elapsed: Some(elapsed),
                         ..
-                    }) => format!("Finished in: {}ms", elapsed),
-                    None => String::from(""),
-                    _ => String::from(""),
+                    }) => (format!("Finished in: {}ms", elapsed), false),
+                    None => (String::from(""), false),
+                    _ => (String::from(""), false),
                 };
 
                 self.message = message;
+                self.is_running = running;
                 self.path = result_line.map_or(String::from(""), |f| f.relative_path)
             }
             _ => {}
@@ -76,7 +83,7 @@ impl Component for ScriptStatus {
         Ok(None)
     }
 
-    fn draw(&mut self, f: &mut Frame<'_>, area: Rect, _: &AppState) -> Result<()> {
+    fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()> {
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
@@ -85,34 +92,56 @@ impl Component for ScriptStatus {
             ])
             .split(area);
 
+        // Get execution progress
+        let (completed, total) = state.execution_progress();
+
+        // Build title with progress if there are selected scripts
+        let title = if total > 0 {
+            format!("Status - {}/{} completed", completed, total)
+        } else {
+            String::from("Status")
+        };
+
+        // Create content block
+        let block = Block::new()
+            .title(title)
+            .title_top("Press h for help")
+            .title_alignment(Alignment::Right)
+            .borders(Borders::ALL)
+            .border_type(BorderType::Plain)
+            .padding(Padding::horizontal(2));
+
+        let inner_area = block.inner(rects[1]);
+        f.render_widget(block, rects[1]);
+
+        // Split inner area for text and spinner
+        let inner_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Fill(1),
+                Constraint::Length(12), // space for spinner
+            ])
+            .split(inner_area);
+
         let text = vec![
             Line::from(Span::raw(&self.path)),
             Line::from(Span::raw(&self.message)),
         ];
 
-        let content = Paragraph::new(text)
-            .block(
-                Block::new()
-                    .title("Status")
-                    .title_top("Press h for help")
-                    .title_alignment(Alignment::Right)
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Plain)
-                    .padding(Padding::horizontal(2)),
-            )
-            .wrap(Wrap { trim: false });
+        let content = Paragraph::new(text).wrap(Wrap { trim: false });
 
-        f.render_widget(content, rects[1]);
+        f.render_widget(content, inner_layout[0]);
 
-        // if self.loading {
-        //     let spinner = Throbber::default()
-        //         .style(Style::default().fg(Color::Yellow))
-        //         .label("Working ")
-        //         .throbber_set(throbber_widgets_tui::BRAILLE_SIX)
-        //         .use_type(throbber_widgets_tui::WhichUse::Spin);
+        // Render spinner when running
+        if self.is_running {
+            let spinner = Throbber::default()
+                .style(Style::default().fg(Color::Yellow))
+                .label("Working ")
+                .throbber_set(throbber_widgets_tui::BRAILLE_SIX)
+                .use_type(throbber_widgets_tui::WhichUse::Spin);
 
-        //     f.render_stateful_widget(spinner, line[1], &mut self.spinner_state);
-        // }
+            f.render_stateful_widget(spinner, inner_layout[1], &mut self.spinner_state);
+        }
 
         Ok(())
     }

@@ -111,11 +111,10 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
                 }
                 Ok(Err(e)) => {
                     log::error!("Database connection failed: {}", e);
-                    eprintln!("❌ ERROR: Failed to connect to database: {}", e);
-                    eprintln!();
-                    eprintln!("To fix this:");
-                    eprintln!("  1. Check your configuration: squealmate config");
-                    eprintln!("  2. Or reconfigure: squealmate init");
+
+                    // Use detailed error formatting
+                    let detailed_error = db::format_connection_error(&e.to_string(), &connection);
+                    eprintln!("{}", detailed_error);
 
                     if force {
                         eprintln!();
@@ -131,9 +130,26 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
                 }
                 Err(_) => {
                     log::error!("Database connection timed out after 5 seconds");
-                    eprintln!("❌ ERROR: Database connection timed out");
+                    eprintln!("❌ Connection timed out after 5 seconds");
                     eprintln!();
-                    eprintln!("The database server may not be running or accessible.");
+                    eprintln!("Server: {}:{}", connection.server, connection.port);
+                    eprintln!("Database: {}", connection.name);
+                    eprintln!();
+                    eprintln!("This usually means:");
+                    eprintln!("  1. SQL Server is not running");
+                    eprintln!("  2. Firewall is blocking the connection");
+                    eprintln!("  3. Server address or port is incorrect");
+                    eprintln!("  4. Network issue preventing connection");
+                    eprintln!();
+                    eprintln!("To diagnose:");
+                    eprintln!("  - Verify SQL Server is running");
+                    eprintln!("  - Test connectivity: ping {}", connection.server);
+                    eprintln!("  - Test port: telnet {} {}", connection.server, connection.port);
+                    eprintln!("  - Check firewall rules");
+                    eprintln!();
+                    eprintln!("To fix:");
+                    eprintln!("  1. Check configuration: squealmate config");
+                    eprintln!("  2. Reconfigure: squealmate init");
 
                     if force {
                         eprintln!();
@@ -303,6 +319,24 @@ fn init_config() -> eyre::Result<()> {
         .interact()?;
     settings.database.name = Some(db_name);
 
+    // Encryption settings (SQL Server 2022 requires encryption by default)
+    cliclack::log::info("SQL Server 2022 and newer require encryption by default.")?;
+
+    let trust_cert: bool = confirm(
+        "Trust server certificate? (Required for self-signed certificates)"
+    )
+    .initial_value(true)
+    .interact()?;
+    settings.database.trust_server_certificate = Some(trust_cert);
+
+    let encryption_prompt = cliclack::select("Encryption level:")
+        .initial_value("required")
+        .item("required", "Required (SQL Server 2022 default)", "Encryption must be used")
+        .item("optional", "Optional", "Try encryption, fall back to unencrypted if needed")
+        .item("not_supported", "Not supported", "For older SQL Server versions without encryption")
+        .interact()?;
+    settings.database.encryption = Some(encryption_prompt.to_string());
+
     if let Some(ref path) = settings.repository.path {
         cliclack::log::info(format!("Repository path: {}", path))?;
     }
@@ -328,6 +362,12 @@ fn init_config() -> eyre::Result<()> {
     }
     if let Some(ref db_name) = settings.database.name {
         cliclack::log::info(format!("Database name: {}", db_name))?;
+    }
+    if let Some(ref encryption) = settings.database.encryption {
+        cliclack::log::info(format!("Encryption: {}", encryption))?;
+    }
+    if let Some(trust_cert) = settings.database.trust_server_certificate {
+        cliclack::log::info(format!("Trust server certificate: {}", trust_cert))?;
     }
 
     let can_save: bool = confirm(
