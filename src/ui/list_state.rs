@@ -345,6 +345,60 @@ mod tests {
     }
 
     #[test]
+    fn test_navigation_up_then_entries_loaded() {
+        // Simulate the full cycle: navigate down, then navigate up
+        let mut state = ComponentState::new(PathBuf::from("/test"));
+
+        // Start at /test, "navigate" into subdir1
+        state.on_navigation_down(PathBuf::from("/test/subdir1"));
+
+        // Load entries for subdir1
+        state.on_entries_loaded(vec![
+            ListEntry {
+                name: "file.sql".to_string(),
+                relative_path: "subdir1/file.sql".to_string(),
+                selected: false,
+                is_directory: false,
+                status: EntryStatus::Unknown,
+            },
+        ]);
+
+        assert_eq!(state.current_directory(), &PathBuf::from("/test/subdir1"));
+
+        // Now navigate UP - should remember "subdir1"
+        state.on_navigation_up();
+
+        // Load parent directory entries
+        state.on_entries_loaded(vec![
+            ListEntry {
+                name: "aaa_first".to_string(),
+                relative_path: "aaa_first".to_string(),
+                selected: false,
+                is_directory: true,
+                status: EntryStatus::Unknown,
+            },
+            ListEntry {
+                name: "subdir1".to_string(),
+                relative_path: "subdir1".to_string(),
+                selected: false,
+                is_directory: true,
+                status: EntryStatus::Unknown,
+            },
+            ListEntry {
+                name: "zzz_last".to_string(),
+                relative_path: "zzz_last".to_string(),
+                selected: false,
+                is_directory: true,
+                status: EntryStatus::Unknown,
+            },
+        ]);
+
+        // Cursor should be on position 1 (subdir1), not 0!
+        assert_eq!(state.cursor(), 1, "Cursor should be positioned on 'subdir1' after navigating up");
+        assert_eq!(state.entries()[1].name, "subdir1");
+    }
+
+    #[test]
     fn test_cursor_movement() {
         let mut state = ComponentState::new(PathBuf::from("/test"));
 

@@ -60,8 +60,9 @@ impl List {
     /// Refresh the entries list from the current directory
     /// This now spawns an async task and returns immediately
     pub fn refresh_entries(&mut self) -> eyre::Result<()> {
-        // Update state to loading
-        self.component_state.start_loading();
+        // NOTE: Don't call start_loading() here! Navigation methods (on_navigation_up, on_navigation_down)
+        // already transition to Loading state with cursor positioning info. Calling start_loading() here
+        // would overwrite position_cursor_on and break cursor restoration.
 
         // Dispatch loading action
         if let Some(ref dispatcher) = self.dispatcher {
@@ -155,10 +156,8 @@ impl List {
             let new_dir = self.component_state.current_directory().join(&name);
             self.component_state.on_navigation_down(new_dir);
 
-            // Sync widget state and trigger refresh
-            self.widget_state.select(Some(self.component_state.cursor()));
+            // Trigger refresh - cursor will be positioned when EntriesLoaded action is received
             self.refresh_entries()?;
-            // Note: CalculateEntryStatus will be dispatched when EntriesLoaded action is received
         }
 
         Ok(())
@@ -168,10 +167,8 @@ impl List {
         // Use reducer to navigate up
         self.component_state.on_navigation_up();
 
-        // Sync widget state and trigger refresh
-        self.widget_state.select(Some(self.component_state.cursor()));
+        // Trigger refresh - cursor will be positioned when EntriesLoaded action is received
         self.refresh_entries()?;
-        // Note: Cursor will be positioned when EntriesLoaded action is received
 
         Ok(())
     }
