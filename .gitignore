@@ -2,5 +2,7 @@
 /example_data
 .env
 
+# Database setup scripts with credentials
+setup-*.sql
 
 .idea
