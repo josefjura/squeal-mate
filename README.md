@@ -16,6 +16,16 @@ Squeal Mate is designed to streamline the management of incremental SQL migratio
 🔒 **SQL Server 2022 Support**: Full encryption support with self-signed certificates
 🎯 **Dual Screen Mode**: Switch between file browser and execution view with Tab
 
+### Status Icons
+
+Scripts are marked with visual indicators showing their execution status:
+
+- `✓` (Green) - Script ran successfully
+- `✗` (Red) - Script failed during execution
+- `⚠` (Yellow) - Script was modified since last run (re-run recommended)
+- `•` (Cyan) - New script, never run before
+- `?` (Gray) - Status unknown (checking...)
+
 ## Installation
 
 To install **squealmate** on Windows, you can use the following one-liner in PowerShell. This command downloads and runs the installation script automatically, so there’s no need to manually download or unzip files.

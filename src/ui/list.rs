@@ -183,31 +183,31 @@ impl List {
         let entry = entry.unwrap();
 
         if entry.is_directory {
-            // Get children via repository trait
+            // Spawn async task to get directory children
             let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
-
-            // NOTE: Using block_on here is acceptable because:
-            // 1. This operation is fast (just reading directory listing from memory)
-            // 2. It's triggered by explicit user action (selection)
-            // 3. Alternative would add significant complexity for minimal UX benefit
-            let handle = tokio::runtime::Handle::current();
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
-            let items = handle.block_on(async {
+            let dispatcher = self.dispatcher.clone();
+            let entry_path = entry.relative_path.clone();
+
+            tokio::spawn(async move {
                 match file_explorer.list_sql_files(&rel_path).await {
-                    Ok(paths) => paths.into_iter()
-                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect::<Vec<_>>(),
+                    Ok(paths) => {
+                        let items: Vec<String> = paths.into_iter()
+                            .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+
+                        if let Some(dispatcher) = dispatcher {
+                            dispatcher.dispatch(Action::ToggleSelection(items));
+                        }
+                    }
                     Err(e) => {
-                        log::error!("Failed to get children for directory {}: {}", entry.relative_path, e);
-                        vec![]
+                        log::error!("Failed to get children for directory {}: {}", entry_path, e);
                     }
                 }
             });
-
-            state.toggle_many(&items);
         } else {
             state.toggle(entry.relative_path);
         }
@@ -223,31 +223,31 @@ impl List {
         let entry = entry.unwrap();
 
         if entry.is_directory {
-            // Use async task to get children via trait method
+            // Spawn async task to get directory children
             let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
-
-            // NOTE: Using block_on here is acceptable because:
-            // 1. This operation is fast (just reading directory listing from memory)
-            // 2. It's triggered by explicit user action (selection)
-            // 3. Alternative would add significant complexity for minimal UX benefit
-            let handle = tokio::runtime::Handle::current();
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
-            let items = handle.block_on(async {
+            let dispatcher = self.dispatcher.clone();
+            let entry_path = entry.relative_path.clone();
+
+            tokio::spawn(async move {
                 match file_explorer.list_sql_files(&rel_path).await {
-                    Ok(paths) => paths.into_iter()
-                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect::<Vec<_>>(),
+                    Ok(paths) => {
+                        let items: Vec<String> = paths.into_iter()
+                            .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
+                            .map(|p| p.to_string_lossy().to_string())
+                            .collect();
+
+                        if let Some(dispatcher) = dispatcher {
+                            dispatcher.dispatch(Action::RemoveSelection(items));
+                        }
+                    }
                     Err(e) => {
-                        log::error!("Failed to get children for directory {}: {}", entry.relative_path, e);
-                        vec![]
+                        log::error!("Failed to get children for directory {}: {}", entry_path, e);
                     }
                 }
             });
-
-            state.remove_many(&items);
         } else {
             state.remove(entry.relative_path);
         }
@@ -257,7 +257,7 @@ impl List {
         state.selected.clear()
     }
 
-    pub fn select_all_after(&mut self, state: &mut AppState) {
+    pub fn select_all_after(&mut self, _state: &mut AppState) {
         let entry = self.get_selection().cloned();
 
         if entry.is_none() {
@@ -266,21 +266,18 @@ impl List {
 
         let entry = entry.unwrap();
 
-        // NOTE: Using block_on here is acceptable because:
-        // 1. This operation is fast (just reading directory listing from memory)
-        // 2. It's triggered by explicit user action (selection)
-        // 3. Alternative would add significant complexity for minimal UX benefit
-        let handle = tokio::runtime::Handle::current();
+        // Spawn async task to get files after selected one
         let root_dir = self.base.clone();
         let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let after_name = entry.name.clone();
+        let dispatcher = self.dispatcher.clone();
 
-        let entries = handle.block_on(async {
+        tokio::spawn(async move {
             match file_explorer.list_sql_files(&current_dir).await {
                 Ok(paths) => {
                     // Filter to only files after the selected one (alphabetically)
-                    paths.into_iter()
+                    let entries: Vec<String> = paths.into_iter()
                         .filter(|p| {
                             p.file_name()
                                 .and_then(|n| n.to_str())
@@ -289,19 +286,20 @@ impl List {
                         })
                         .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
                         .map(|p| p.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
+                        .collect();
+
+                    if let Some(dispatcher) = dispatcher {
+                        dispatcher.dispatch(Action::AddSelection(entries));
+                    }
                 }
                 Err(e) => {
                     log::error!("Failed to get scripts after {}: {}", after_name, e);
-                    vec![]
                 }
             }
         });
-
-        state.add_many(&entries);
     }
 
-    pub fn select_all_after_in_directory(&mut self, state: &mut AppState) {
+    pub fn select_all_after_in_directory(&mut self, _state: &mut AppState) {
         let entry = self.get_selection().cloned();
 
         if entry.is_none() {
@@ -310,21 +308,18 @@ impl List {
 
         let entry = entry.unwrap();
 
-        // NOTE: Using block_on here is acceptable because:
-        // 1. This operation is fast (just reading directory listing from memory)
-        // 2. It's triggered by explicit user action (selection)
-        // 3. Alternative would add significant complexity for minimal UX benefit
-        let handle = tokio::runtime::Handle::current();
+        // Spawn async task to get files after selected one in directory
         let root_dir = self.base.clone();
         let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let after_name = entry.name.clone();
+        let dispatcher = self.dispatcher.clone();
 
-        let entries = handle.block_on(async {
+        tokio::spawn(async move {
             match file_explorer.list_sql_files(&current_dir).await {
                 Ok(paths) => {
                     // Filter to only files after the selected one (alphabetically)
-                    paths.into_iter()
+                    let entries: Vec<String> = paths.into_iter()
                         .filter(|p| {
                             p.file_name()
                                 .and_then(|n| n.to_str())
@@ -333,44 +328,43 @@ impl List {
                         })
                         .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
                         .map(|p| p.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
+                        .collect();
+
+                    if let Some(dispatcher) = dispatcher {
+                        dispatcher.dispatch(Action::AddSelection(entries));
+                    }
                 }
                 Err(e) => {
                     log::error!("Failed to get scripts after {} in directory: {}", after_name, e);
-                    vec![]
                 }
             }
         });
-
-        state.add_many(&entries);
     }
 
-    pub fn select_all_in_directory(&mut self, state: &mut AppState) {
-        // NOTE: Using block_on here is acceptable because:
-        // 1. This operation is fast (just reading directory listing from memory)
-        // 2. It's triggered by explicit user action (selection)
-        // 3. Alternative would add significant complexity for minimal UX benefit
-        let handle = tokio::runtime::Handle::current();
+    pub fn select_all_in_directory(&mut self, _state: &mut AppState) {
+        // Spawn async task to avoid blocking the runtime
         let root_dir = self.base.clone();
         let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
+        let dispatcher = self.dispatcher.clone();
 
-        let entries = handle.block_on(async {
+        tokio::spawn(async move {
             match file_explorer.list_sql_files(&current_dir).await {
                 Ok(paths) => {
-                    paths.into_iter()
+                    let entries: Vec<String> = paths.into_iter()
                         .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
                         .map(|p| p.to_string_lossy().to_string())
-                        .collect::<Vec<_>>()
+                        .collect();
+
+                    if let Some(dispatcher) = dispatcher {
+                        dispatcher.dispatch(Action::AddSelection(entries));
+                    }
                 }
                 Err(e) => {
                     log::error!("Failed to get scripts in directory: {}", e);
-                    vec![]
                 }
             }
         });
-
-        state.add_many(&entries);
     }
 }
 
@@ -551,6 +545,18 @@ impl Component for List {
                 // Request a render to show the progress update
                 return Ok(Some(Action::Render));
             }
+            Action::AddSelection(paths) => {
+                state.add_many(&paths);
+                return Ok(None);
+            }
+            Action::RemoveSelection(paths) => {
+                state.remove_many(&paths);
+                return Ok(None);
+            }
+            Action::ToggleSelection(paths) => {
+                state.toggle_many(&paths);
+                return Ok(None);
+            }
             _ => {}
         }
         Ok(None)
@@ -583,15 +589,22 @@ impl Component for List {
             .map(|entry| {
                 let name = entry.name.clone();
                 let decoratation = match entry.status {
-                    EntryStatus::Finished(true) => ("\u{02705}", Style::new().fg(Color::Green)),
-                    EntryStatus::Finished(false) => ("\u{0274E}", Style::new().fg(Color::Red)),
-                    EntryStatus::Changed => ("\u{02755}", Style::new().fg(Color::Rgb(255, 165, 0))),
-                    EntryStatus::Unknown => ("\u{02754}", Style::default()),
+                    // ✓ Script ran successfully
+                    EntryStatus::Finished(true) => ("\u{2713}", Style::new().fg(Color::Green)),
+                    // ✗ Script failed
+                    EntryStatus::Finished(false) => ("\u{2717}", Style::new().fg(Color::Red)),
+                    // ⚠ Script was modified since last run (warning)
+                    EntryStatus::Changed => ("\u{26A0}", Style::new().fg(Color::Yellow)),
+                    // ? Unknown status (not yet checked)
+                    EntryStatus::Unknown => ("?", Style::new().fg(Color::Gray)),
+                    // • Never run before (bullet point - neutral)
                     EntryStatus::NeverStarted => {
-                        ("\u{1F195}", Style::new().fg(Color::Rgb(255, 165, 0)))
+                        ("\u{2022}", Style::new().fg(Color::Cyan))
                     }
-                    EntryStatus::Directory => ("", Style::default().bg(Color::LightBlue)),
-                    EntryStatus::Loading => ("\u{231B}", Style::new().fg(Color::Yellow)),  // ⌛ hourglass
+                    // (directory has blue background, no icon needed)
+                    EntryStatus::Directory => (" ", Style::default().bg(Color::LightBlue)),
+                    // ⧗ Loading/calculating status
+                    EntryStatus::Loading => ("\u{29D7}", Style::new().fg(Color::Yellow)),
                 };
                 let selected = state
                     .selected
