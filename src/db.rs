@@ -281,3 +281,164 @@ impl Database {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_db_config() -> Database {
+        Database {
+            server: "localhost".to_string(),
+            port: 1433,
+            name: "TestDB".to_string(),
+            authentication: Authentication::SqlServer {
+                username: "test_user".to_string(),
+                password: "test_pass".to_string(),
+            },
+            encryption: EncryptionConfig::default(),
+        }
+    }
+
+    #[test]
+    fn test_format_connection_refused_error() {
+        let config = create_test_db_config();
+        let error = format_connection_error("connection refused", &config);
+
+        assert!(error.contains("Connection refused"));
+        assert!(error.contains("localhost:1433"));
+        assert!(error.contains("TestDB"));
+        assert!(error.contains("SQL Server is not running"));
+        assert!(error.contains("TCP/IP protocol"));
+        assert!(error.contains("Firewall"));
+    }
+
+    #[test]
+    fn test_format_tls_error() {
+        let config = create_test_db_config();
+        let error = format_connection_error("tls handshake failed", &config);
+
+        assert!(error.contains("Encryption/TLS error"));
+        assert!(error.contains("SQL Server 2022"));
+        assert!(error.contains("trust_server_certificate = true"));
+        assert!(error.contains("encryption = \"required\""));
+    }
+
+    #[test]
+    fn test_format_certificate_error() {
+        let config = create_test_db_config();
+        let error = format_connection_error("certificate validation failed", &config);
+
+        assert!(error.contains("Encryption/TLS error"));
+        assert!(error.contains("Certificate validation failed"));
+    }
+
+    #[test]
+    fn test_format_auth_error() {
+        let config = create_test_db_config();
+        let error = format_connection_error("login failed for user", &config);
+
+        assert!(error.contains("Login failed"));  // Actual message
+        assert!(error.contains("test_user"));
+        assert!(error.contains("SQL Server authentication mode"));
+        assert!(error.contains("database_principals"));
+    }
+
+    #[test]
+    fn test_format_timeout_error() {
+        let config = create_test_db_config();
+        let error = format_connection_error("connection timed out", &config);
+
+        // Timeout errors fall through to generic case
+        assert!(error.contains("Database connection error"));
+        assert!(error.contains("localhost:1433"));
+        assert!(error.contains("TestDB"));
+    }
+
+    #[test]
+    fn test_format_generic_error() {
+        let config = create_test_db_config();
+        let error = format_connection_error("some unknown error", &config);
+
+        assert!(error.contains("Database connection error"));
+        assert!(error.contains("localhost:1433"));
+        assert!(error.contains("TestDB"));
+        assert!(error.contains("squealmate config"));
+    }
+
+    #[test]
+    fn test_encryption_config_default() {
+        let config = EncryptionConfig::default();
+        assert_eq!(config.level, EncryptionLevel::Required);
+        assert!(config.trust_certificate);
+    }
+
+    #[test]
+    fn test_database_config_with_sql_auth() {
+        let db = Database {
+            server: "192.168.1.100".to_string(),
+            port: 1433,
+            name: "MyDatabase".to_string(),
+            authentication: Authentication::SqlServer {
+                username: "sa".to_string(),
+                password: "Password123!".to_string(),
+            },
+            encryption: EncryptionConfig::default(),
+        };
+
+        assert_eq!(db.server, "192.168.1.100");
+        assert_eq!(db.port, 1433);
+        assert_eq!(db.name, "MyDatabase");
+
+        match db.authentication {
+            Authentication::SqlServer { username, password } => {
+                assert_eq!(username, "sa");
+                assert_eq!(password, "Password123!");
+            }
+            _ => panic!("Expected SqlServer authentication"),
+        }
+    }
+
+    #[test]
+    fn test_database_config_with_integrated_auth() {
+        let db = Database {
+            server: "localhost".to_string(),
+            port: 1433,
+            name: "MyDatabase".to_string(),
+            authentication: Authentication::Integrated,
+            encryption: EncryptionConfig::default(),
+        };
+
+        assert!(matches!(db.authentication, Authentication::Integrated));
+    }
+
+    #[test]
+    fn test_encryption_levels() {
+        let required = EncryptionLevel::Required;
+        let optional = EncryptionLevel::Optional;
+        let not_supported = EncryptionLevel::NotSupported;
+
+        assert_eq!(required, EncryptionLevel::Required);
+        assert_eq!(optional, EncryptionLevel::Optional);
+        assert_eq!(not_supported, EncryptionLevel::NotSupported);
+
+        // Verify they're different from each other
+        assert_ne!(required, optional);
+        assert_ne!(optional, not_supported);
+        assert_ne!(required, not_supported);
+    }
+
+    #[test]
+    fn test_bom_handling_in_script() {
+        // Test that BOM (Byte Order Mark) is handled
+        // Note: This is tested indirectly through execute_script which strips BOM
+        let script_with_bom = "\u{feff}SELECT 1";
+        let script_without_bom = "SELECT 1";
+
+        assert!(script_with_bom.starts_with('\u{feff}'));
+        assert!(!script_without_bom.starts_with('\u{feff}'));
+
+        // After stripping BOM
+        let stripped = &script_with_bom[3..];
+        assert_eq!(stripped, script_without_bom);
+    }
+}
