@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct ScriptDatabaseRecord {
-    crc: u32,
-    result: bool,
+    pub crc: u32,
+    pub result: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +106,26 @@ impl ScriptDatabase {
 
     //     Ok(results)
     // }
+
+    /// Get the stored checksum and result for a script
+    /// Returns None if the script has never been executed
+    pub fn get_script_record(&self, file_path: &str) -> eyre::Result<Option<ScriptDatabaseRecord>> {
+        let conn = Connection::open(self.db_name.clone())?;
+
+        let query = "SELECT crc, result FROM scripts WHERE name = ?";
+        let mut stmt = conn.prepare(query)?;
+        let mut rows = stmt.query_map([file_path], |row| {
+            Ok(ScriptDatabaseRecord {
+                crc: row.get::<_, u32>(0)?,
+                result: row.get::<_, bool>(1)?,
+            })
+        })?;
+
+        match rows.next() {
+            Some(record) => Ok(Some(record?)),
+            None => Ok(None),
+        }
+    }
 
     #[allow(dead_code)]
     pub fn get_file_status(&self, file_path: &str, crc: &u32) -> eyre::Result<EntryStatus> {

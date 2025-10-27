@@ -43,20 +43,16 @@ impl ExecutionTracker for SqliteTracker {
         path: &ScriptPath,
         current_checksum: Checksum,
     ) -> DomainResult<ScriptStatus> {
-        // Use the business logic method to determine status
-        let has_been_executed = self.has_been_executed(path).await?;
-        let stored_checksum = self.get_last_checksum(path).await?;
-
-        // Get the old status to check if last execution succeeded
-        let old_status = self
-            .db
-            .get_file_status(&path.to_string(), &current_checksum.value())
+        // Get the stored record (if exists)
+        let record = self.db
+            .get_script_record(&path.to_string())
             .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
-        let last_execution_succeeded = matches!(
-            old_status,
-            crate::entries::EntryStatus::Finished(true)
-        );
+        // Determine execution history from the stored record
+        let (has_been_executed, last_execution_succeeded, stored_checksum) = match record {
+            Some(rec) => (true, rec.result, Some(Checksum::from_value(rec.crc))),
+            None => (false, false, None),
+        };
 
         // Use domain business logic to determine status
         let domain_status = ScriptStatus::from_execution_history(
@@ -76,18 +72,12 @@ impl ExecutionTracker for SqliteTracker {
     }
 
     async fn get_last_checksum(&self, path: &ScriptPath) -> DomainResult<Option<Checksum>> {
-        // For now, we'll use a dummy checksum to query status
-        // The real implementation would query the database directly
-        let dummy = Checksum::from_value(0);
-        let status = self.db
-            .get_file_status(&path.to_string(), &dummy.value())
+        // Query the database for the stored record
+        let record = self.db
+            .get_script_record(&path.to_string())
             .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
-        match status {
-            crate::entries::EntryStatus::NeverStarted | crate::entries::EntryStatus::Unknown => {
-                Ok(None)
-            }
-            _ => Ok(Some(dummy)), // TODO: Get actual checksum from database
-        }
+        // Return the stored checksum if found
+        Ok(record.map(|r| Checksum::from_value(r.crc)))
     }
 }

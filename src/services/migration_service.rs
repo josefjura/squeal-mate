@@ -44,7 +44,25 @@ impl MigrationService {
         // Record the execution
         self.tracker.record_execution(&script.path, &result).await?;
 
-        // Notify completion
+        // Get the updated status after recording
+        let updated_status = self.tracker.get_status(&script.path, result.checksum).await?;
+
+        // Convert ScriptStatus to EntryStatus for UI updates
+        let entry_status = match updated_status {
+            ScriptStatus::NeverRun => crate::entries::EntryStatus::NeverStarted,
+            ScriptStatus::UpToDate => crate::entries::EntryStatus::Finished(true),
+            ScriptStatus::Modified => crate::entries::EntryStatus::Changed,
+            ScriptStatus::Failed { .. } => crate::entries::EntryStatus::Finished(false),
+            ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
+        };
+
+        // Update the entry status in the UI
+        dispatcher.dispatch(Action::EntryStatusChanged(
+            script.path.to_string(),
+            entry_status,
+        ));
+
+        // Notify completion (for execution log)
         if result.success {
             dispatcher.dispatch(Action::ScriptFinished(
                 script.path.to_string(),
