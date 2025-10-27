@@ -134,6 +134,9 @@ pub enum Command {
     /// Helps set up the config file
     #[command(name = "init")]
     Initialize,
+    /// Generates SQL script to set up database user and permissions
+    #[command(name = "setup-db")]
+    SetupDatabase,
 }
 
 #[test]
