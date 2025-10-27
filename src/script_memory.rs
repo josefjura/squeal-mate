@@ -3,6 +3,9 @@ use color_eyre::eyre::{self};
 use rusqlite::{named_params, Connection};
 use std::path::PathBuf;
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicU32, Ordering};
+
 pub struct ScriptDatabaseRecord {
     crc: u32,
     result: bool,
@@ -137,5 +140,166 @@ impl ScriptDatabase {
             },
             None => Ok(EntryStatus::NeverStarted),
         }
+    }
+
+    #[cfg(test)]
+    pub fn new_test() -> eyre::Result<Self> {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let temp_path = std::env::temp_dir().join(format!("squealmate_test_{}.db", id));
+
+        let conn = Connection::open(&temp_path)?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS scripts (
+							name  TEXT NOT NULL PRIMARY KEY,
+							result INTEGER NOT NULL,
+							crc	 	INTEGER NOT NULL
+					)",
+            (),
+        )?;
+        Ok(ScriptDatabase { db_name: temp_path })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_new_database_creates_table() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Verify table exists by querying it
+        let conn = Connection::open(&db.db_name).unwrap();
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scripts'").unwrap();
+        let exists: bool = stmt.exists([]).unwrap();
+        assert!(exists, "scripts table should exist");
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_insert_new_record() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert a record
+        let result = db.insert("test_script.sql".to_string(), 12345, true);
+        assert!(result.is_ok(), "Insert should succeed");
+
+        // Verify it was inserted
+        let conn = Connection::open(&db.db_name).unwrap();
+        let mut stmt = conn.prepare("SELECT name, crc, result FROM scripts WHERE name = ?").unwrap();
+        let mut rows = stmt.query(["test_script.sql"]).unwrap();
+
+        let row = rows.next().unwrap().unwrap();
+        assert_eq!(row.get::<_, String>(0).unwrap(), "test_script.sql");
+        assert_eq!(row.get::<_, u32>(1).unwrap(), 12345);
+        assert_eq!(row.get::<_, i32>(2).unwrap(), 1); // true = 1
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_insert_update_existing_record() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert initial record
+        db.insert("test_script.sql".to_string(), 12345, true).unwrap();
+
+        // Update with different CRC and result
+        db.insert("test_script.sql".to_string(), 67890, false).unwrap();
+
+        // Verify it was updated
+        let conn = Connection::open(&db.db_name).unwrap();
+        let mut stmt = conn.prepare("SELECT crc, result FROM scripts WHERE name = ?").unwrap();
+        let mut rows = stmt.query(["test_script.sql"]).unwrap();
+
+        let row = rows.next().unwrap().unwrap();
+        assert_eq!(row.get::<_, u32>(0).unwrap(), 67890);
+        assert_eq!(row.get::<_, i32>(1).unwrap(), 0); // false = 0
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_never_started() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Query for non-existent file
+        let status = db.get_file_status("nonexistent.sql", &12345).unwrap();
+        assert!(matches!(status, EntryStatus::NeverStarted));
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_finished_success() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert a successful script
+        db.insert("success.sql".to_string(), 12345, true).unwrap();
+
+        // Query with matching CRC
+        let status = db.get_file_status("success.sql", &12345).unwrap();
+        assert!(matches!(status, EntryStatus::Finished(true)));
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_finished_error() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert a failed script
+        db.insert("failed.sql".to_string(), 12345, false).unwrap();
+
+        // Query with matching CRC
+        let status = db.get_file_status("failed.sql", &12345).unwrap();
+        assert!(matches!(status, EntryStatus::Finished(false)));
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_changed() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert with original CRC
+        db.insert("changed.sql".to_string(), 12345, true).unwrap();
+
+        // Query with different CRC
+        let status = db.get_file_status("changed.sql", &67890).unwrap();
+        assert!(matches!(status, EntryStatus::Changed));
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
+    }
+
+    #[tokio::test]
+    async fn test_multiple_scripts() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert multiple scripts
+        db.insert("script1.sql".to_string(), 111, true).unwrap();
+        db.insert("script2.sql".to_string(), 222, false).unwrap();
+        db.insert("script3.sql".to_string(), 333, true).unwrap();
+
+        // Verify all are stored correctly
+        let status1 = db.get_file_status("script1.sql", &111).unwrap();
+        let status2 = db.get_file_status("script2.sql", &222).unwrap();
+        let status3 = db.get_file_status("script3.sql", &333).unwrap();
+
+        assert!(matches!(status1, EntryStatus::Finished(true)));
+        assert!(matches!(status2, EntryStatus::Finished(false)));
+        assert!(matches!(status3, EntryStatus::Finished(true)));
+
+        // Cleanup
+        std::fs::remove_file(&db.db_name).ok();
     }
 }
