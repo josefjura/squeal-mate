@@ -36,6 +36,7 @@ impl<'a> Help<'a> {
         let mode_name = match mode {
             Mode::FileChooser => "FILE BROWSER",
             Mode::ScriptRunner => "SCRIPT EXECUTION",
+            Mode::Unified => "UNIFIED VIEW",
         };
 
         text_lines.push(Line::styled(
@@ -62,6 +63,13 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw("  3. Running scripts show a spinner"));
                 text_lines.push(Line::raw("  4. Progress shown as 'X/Y completed'"));
             }
+            Mode::Unified => {
+                text_lines.push(Line::raw("  1. All panels visible at once (lazygit-style)"));
+                text_lines.push(Line::raw("  2. Files on left, details/log on right"));
+                text_lines.push(Line::raw("  3. Navigate with ↑↓, select with Space"));
+                text_lines.push(Line::raw("  4. Press 'r' to run, Tab to cycle panels"));
+                text_lines.push(Line::raw("  5. See real-time execution in log panel"));
+            }
         }
         text_lines.push(Line::raw(""));
 
@@ -85,6 +93,13 @@ impl<'a> Help<'a> {
                 ("Home", "Jump to first script"),
                 ("End", "Jump to last script"),
                 ("Tab", "Switch to file browser"),
+            ],
+            Mode::Unified => vec![
+                ("↑ / k", "Move cursor up"),
+                ("↓ / j", "Move cursor down"),
+                ("Enter", "Enter directory"),
+                ("Backspace", "Go up one level"),
+                ("Tab", "Cycle focused panel"),
             ],
         };
 
@@ -136,6 +151,48 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw("  ✓ = Finished successfully"));
                 text_lines.push(Line::raw("  ✗ = Error occurred"));
                 text_lines.push(Line::raw("  ⟳ = Currently running"));
+                text_lines.push(Line::raw(""));
+            }
+            Mode::Unified => {
+                // Selection section
+                text_lines.push(Line::styled("── SELECTION ──", Style::default().bold().yellow()));
+                text_lines.push(Line::raw(""));
+
+                let sel_keys = vec![
+                    ("Space", "Toggle current file/directory"),
+                    ("d", "Select all in current directory"),
+                    ("s", "Select all after cursor (current dir)"),
+                    ("S", "Select all after cursor (recursive)"),
+                    ("x", "Unselect current file"),
+                    ("X", "Unselect all"),
+                ];
+
+                for (key, desc) in sel_keys {
+                    text_lines.push(Line::raw(format!("  {:>12}  {}", key, desc)));
+                }
+                text_lines.push(Line::raw(""));
+
+                // Execution section
+                text_lines.push(Line::styled("── EXECUTION ──", Style::default().bold().yellow()));
+                text_lines.push(Line::raw(""));
+
+                let exec_keys = vec![
+                    ("r", "Run selected scripts (stop on error)"),
+                    ("R", "Run selected scripts (skip errors)"),
+                ];
+
+                for (key, desc) in exec_keys {
+                    text_lines.push(Line::raw(format!("  {:>12}  {}", key, desc)));
+                }
+                text_lines.push(Line::raw(""));
+
+                // Panel info
+                text_lines.push(Line::styled("── PANELS ──", Style::default().bold().yellow()));
+                text_lines.push(Line::raw(""));
+                text_lines.push(Line::raw("  Left: File browser with tree view"));
+                text_lines.push(Line::raw("  Right Top: Script details & preview"));
+                text_lines.push(Line::raw("  Right Bottom: Real-time execution log"));
+                text_lines.push(Line::raw("  Bottom: Persistent command bar"));
                 text_lines.push(Line::raw(""));
             }
         }

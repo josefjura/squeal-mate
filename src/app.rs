@@ -144,7 +144,7 @@ pub struct App {
 impl App {
     pub fn new(screens: Vec<Screen>, config: Settings) -> Self {
         Self {
-            current_screen: Mode::FileChooser,
+            current_screen: Mode::Unified,  // Start with unified view
             exit: false,
             suspend: false,
             frame_rate: 30.0,

@@ -54,4 +54,8 @@ pub enum Action {
     ToggleSelection(Vec<String>),
     SelectionChanged(Vec<String>),
     ScriptHighlighted(Option<Script>),
+
+    // Panel navigation (for unified view)
+    FocusNextPanel,
+    FocusPreviousPanel,
 }

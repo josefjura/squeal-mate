@@ -10,4 +10,11 @@ pub mod list_state;
 pub mod script_status;
 pub mod scroll_list;
 
+// New unified view components
+pub mod unified_view;
+pub mod command_bar;
+pub mod script_preview;
+pub mod execution_log;
+
 pub use component::Component;
+pub use unified_view::UnifiedView;

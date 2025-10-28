@@ -27,6 +27,7 @@ use color_eyre::eyre;
 use ui::help::Help;
 use ui::script_status::ScriptStatus;
 use ui::scroll_list::ScrollList;
+use ui::{UnifiedView, command_bar::CommandBar, script_preview::ScriptPreview, execution_log::ExecutionLog};
 use infrastructure::{get_config_dir, get_data_dir, Settings};
 use crossterm::style::Stylize;
 use crossterm::{execute, style::Print};
@@ -172,13 +173,31 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
             list.set_migration_service(migration_service.clone());
             // Note: refresh_entries() will be called in init() after dispatcher is set up
 
+            // Clone for unified view
+            let mut list_for_unified = List::new(path.clone(), script_memory.clone())?;
+            list_for_unified.set_migration_service(migration_service.clone());
+
             let script_status = ScriptStatus::new();
 
-            let mut scroll_list = ScrollList::new(connection.clone(), path, script_memory);
+            let mut scroll_list = ScrollList::new(connection.clone(), path.clone(), script_memory.clone());
             scroll_list.set_migration_service(migration_service.clone());
+
+            // Create unified view components
+            let unified_view = UnifiedView::new(
+                Box::new(list_for_unified),
+                Box::new(ScriptPreview::new()),
+                Box::new(ExecutionLog::new()),
+                Box::new(CommandBar::new()),
+            );
 
             let mut app = App::new(
                 vec![
+                    // New unified view (default)
+                    Screen::new(
+                        Mode::Unified,
+                        vec![Box::new(unified_view)],
+                    ),
+                    // Keep old screens for now (can switch with Tab)
                     Screen::new(
                         Mode::FileChooser,
                         vec![Box::new(list), Box::new(Help::new())],
