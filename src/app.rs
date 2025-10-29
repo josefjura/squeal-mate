@@ -221,6 +221,9 @@ impl App {
                         (Mode::ScriptRunner, KeyCode::Tab) => {
                             action_tx.send(Action::SwitchMode(Mode::FileChooser))?
                         }
+                        (Mode::Unified, KeyCode::Tab) => {
+                            action_tx.send(Action::FocusNextPanel)?
+                        }
                         _ => {}
                     },
                     _ => {}

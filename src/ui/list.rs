@@ -366,6 +366,38 @@ impl List {
             }
         });
     }
+
+    /// Get the currently highlighted script for the preview panel
+    fn get_highlighted_script(&self, state: &AppState) -> Option<Action> {
+        use crate::app::{Script, ScriptState};
+
+        // Get the currently selected entry
+        let entry = self.get_selection()?;
+
+        // Only highlight files, not directories
+        if entry.is_directory {
+            return Some(Action::ScriptHighlighted(None));
+        }
+
+        // Check if script is in the selected/executed list
+        let script = if let Some(existing) = state.selected
+            .iter()
+            .find(|s| s.relative_path == entry.relative_path)
+        {
+            // Use existing script with execution state
+            existing.clone()
+        } else {
+            // Create new script entry for preview
+            Script {
+                relative_path: entry.relative_path.clone(),
+                state: ScriptState::None,
+                error: None,
+                elapsed: None,
+            }
+        };
+
+        Some(Action::ScriptHighlighted(Some(script)))
+    }
 }
 
 impl Component for List {
@@ -392,19 +424,19 @@ impl Component for List {
             Action::Tick => {}
             Action::CursorUp => {
                 self.cursor_up();
-                return Ok(None);
+                return Ok(self.get_highlighted_script(state));
             }
             Action::CursorDown => {
                 self.cursor_down(self.component_state.entries().len());
-                return Ok(None);
+                return Ok(self.get_highlighted_script(state));
             }
             Action::CursorToTop => {
                 self.go_to_top();
-                return Ok(None);
+                return Ok(self.get_highlighted_script(state));
             }
             Action::CursorToBottom => {
                 self.go_to_bottom(self.component_state.entries().len());
-                return Ok(None);
+                return Ok(self.get_highlighted_script(state));
             }
             Action::DirectoryOpenSelected => {
                 self.open_selected_directory()?;
@@ -536,7 +568,8 @@ impl Component for List {
                     dispatcher.dispatch(Action::CalculateEntryStatus);
                 }
 
-                return Ok(None);
+                // Highlight the first entry for the preview panel
+                return Ok(self.get_highlighted_script(state));
             }
             Action::StatusCalculationProgress(current, total) => {
                 // Use reducer to update progress
