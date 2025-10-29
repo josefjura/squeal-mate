@@ -15,7 +15,7 @@ use crate::{
     script_memory::ScriptDatabase, tui::Frame, utils::send_through_channel,
     services::{ActionDispatcher, MigrationService},
     infrastructure::FileExplorer,
-    ui::list_state::ComponentState,
+    ui::tree_state::TreeState,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub struct List {
     migration_service: Option<Arc<MigrationService>>,
     config: Settings,
     widget_state: ListState,  // Ratatui widget state (for scrolling)
-    component_state: ComponentState,  // Our consolidated component state
+    tree_state: TreeState,  // Tree view state with hierarchy
     file_explorer: Arc<FileExplorer>,  // Simple file browsing (no domain abstractions)
     script_memory: ScriptDatabase,
 }
@@ -38,7 +38,7 @@ impl List {
         script_memory: ScriptDatabase,
     ) -> Result<Self> {
         let file_explorer = Arc::new(FileExplorer::new(base.clone())?);
-        let component_state = ComponentState::new(base.clone());
+        let tree_state = TreeState::new(base.clone());
 
         Ok(Self {
             widget_state: ListState::default().with_selected(Some(0)),
@@ -48,8 +48,8 @@ impl List {
             config: Settings::default(),
             script_memory,
             file_explorer,
-            base,
-            component_state,
+            base: base.clone(),
+            tree_state,
         })
     }
 
@@ -57,51 +57,27 @@ impl List {
         self.migration_service = Some(service);
     }
 
-    /// Refresh the entries list from the current directory
-    /// This now spawns an async task and returns immediately
+    /// Refresh the entire tree recursively
+    /// This loads all files and directories from the root
     pub fn refresh_entries(&mut self) -> eyre::Result<()> {
-        // NOTE: Don't call start_loading() here! Navigation methods (on_navigation_up, on_navigation_down)
-        // already transition to Loading state with cursor positioning info. Calling start_loading() here
-        // would overwrite position_cursor_on and break cursor restoration.
-
         // Dispatch loading action
         if let Some(ref dispatcher) = self.dispatcher {
             dispatcher.dispatch(Action::EntriesLoading);
         }
 
-        // Spawn async task to load entries
-        let current_dir = self.component_state.current_directory().clone();
+        // Spawn async task to load ALL entries recursively
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
-            // Use FileExplorer to get all entries (files + directories)
-            let result = file_explorer.list_directory(&current_dir).await;
+            // Recursively get all entries from root
+            let result = Self::load_tree_recursive(&file_explorer, &root_dir, &root_dir).await;
 
             let entries = match result {
-                Ok(explorer_entries) => {
-                    // Convert from FileExplorer entries to ListEntry
-                    explorer_entries
-                        .into_iter()
-                        .map(|entry| {
-                            let relative_path = entry.path
-                                .strip_prefix(&root_dir)
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|_| entry.name.clone());
-
-                            ListEntry {
-                                name: entry.name,
-                                relative_path,
-                                selected: false,
-                                is_directory: entry.is_directory,
-                                status: EntryStatus::Unknown,
-                            }
-                        })
-                        .collect()
-                }
+                Ok(entries) => entries,
                 Err(e) => {
-                    log::error!("Failed to list directory: {}", e);
+                    log::error!("Failed to load tree: {}", e);
                     Vec::new()
                 }
             };
@@ -115,66 +91,93 @@ impl List {
         Ok(())
     }
 
-    pub fn cursor_up(&mut self) {
-        self.component_state.cursor_up();
-        // Sync widget state with component state
-        self.widget_state.select(Some(self.component_state.cursor()));
+    /// Recursively load all entries for the tree
+    fn load_tree_recursive<'a>(
+        explorer: &'a FileExplorer,
+        current_dir: &'a PathBuf,
+        root_dir: &'a PathBuf,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = eyre::Result<Vec<ListEntry>>> + Send + 'a>> {
+        Box::pin(async move {
+        let mut all_entries = Vec::new();
+
+        // Get entries in current directory
+        let explorer_entries = explorer.list_directory(current_dir).await?;
+
+        for entry in explorer_entries {
+            let relative_path = entry.path
+                .strip_prefix(root_dir)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| entry.name.clone());
+
+            all_entries.push(ListEntry {
+                name: entry.name.clone(),
+                relative_path: relative_path.clone(),
+                selected: false,
+                is_directory: entry.is_directory,
+                status: EntryStatus::Unknown,
+            });
+
+            // Recursively load subdirectories
+            if entry.is_directory {
+                match Self::load_tree_recursive(explorer, &entry.path, root_dir).await {
+                    Ok(children) => all_entries.extend(children),
+                    Err(e) => log::warn!("Failed to load subdirectory {}: {}", entry.name, e),
+                }
+            }
+        }
+
+        Ok(all_entries)
+        })
     }
 
-    pub fn cursor_down(&mut self, _entries_len: usize) {
-        self.component_state.cursor_down();
-        // Sync widget state with component state
-        self.widget_state.select(Some(self.component_state.cursor()));
+    pub fn cursor_up(&mut self) {
+        self.tree_state.cursor_up();
+        // Sync widget state with tree state
+        self.widget_state.select(Some(self.tree_state.cursor()));
+    }
+
+    pub fn cursor_down(&mut self, entries_len: usize) {
+        self.tree_state.cursor_down(entries_len);
+        // Sync widget state with tree state
+        self.widget_state.select(Some(self.tree_state.cursor()));
     }
 
     pub fn go_to_top(&mut self) {
-        self.widget_state.select(Some(0));
+        self.tree_state.cursor_to_top();
+        self.widget_state.select(Some(self.tree_state.cursor()));
     }
 
     pub fn go_to_bottom(&mut self, entries_len: usize) {
-        self.widget_state.select(Some(entries_len - 1));
+        self.tree_state.cursor_to_bottom(entries_len);
+        self.widget_state.select(Some(self.tree_state.cursor()));
     }
 
-    pub fn get_selection(&self) -> Option<&ListEntry> {
-        if let Some(selected) = self.widget_state.selected() {
-            self.component_state.entries().get(selected)
-        } else {
-            None
-        }
+    pub fn get_selection(&mut self) -> Option<ListEntry> {
+        self.tree_state.selected_node().map(|n| n.entry.clone())
     }
 
+    /// Expand or collapse the selected folder (tree view)
     pub fn open_selected_directory(&mut self) -> eyre::Result<()> {
-        let entry = self.get_selection().cloned();
-
-        if let Some(ListEntry {
-            is_directory: true,
-            name,
-            ..
-        }) = entry
-        {
-            // Use reducer to navigate down
-            let new_dir = self.component_state.current_directory().join(&name);
-            self.component_state.on_navigation_down(new_dir);
-
-            // Trigger refresh - cursor will be positioned when EntriesLoaded action is received
-            self.refresh_entries()?;
+        // In tree view, "opening" a directory means expanding it
+        if self.tree_state.toggle_current_expansion() {
+            // Update widget state to reflect new visible rows
+            self.widget_state.select(Some(self.tree_state.cursor()));
         }
-
         Ok(())
     }
 
+    /// Collapse current folder or move to parent (tree view)
     pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
-        // Use reducer to navigate up
-        self.component_state.on_navigation_up();
-
-        // Trigger refresh - cursor will be positioned when EntriesLoaded action is received
-        self.refresh_entries()?;
-
+        // In tree view, we can collapse the current folder if it's expanded
+        // For now, just toggle (same as open)
+        if self.tree_state.toggle_current_expansion() {
+            self.widget_state.select(Some(self.tree_state.cursor()));
+        }
         Ok(())
     }
 
     pub fn select_current(&mut self, state: &mut AppState) {
-        let entry = self.get_selection().cloned();
+        let entry = self.get_selection();
 
         if entry.is_none() {
             return;
@@ -214,7 +217,7 @@ impl List {
     }
 
     pub fn unselect_current(&mut self, state: &mut AppState) {
-        let entry = self.get_selection().cloned();
+        let entry = self.get_selection();
 
         if entry.is_none() {
             return;
@@ -258,7 +261,7 @@ impl List {
     }
 
     pub fn select_all_after(&mut self, _state: &mut AppState) {
-        let entry = self.get_selection().cloned();
+        let entry = self.get_selection();
 
         if entry.is_none() {
             return;
@@ -266,15 +269,14 @@ impl List {
 
         let entry = entry.unwrap();
 
-        // Spawn async task to get files after selected one
+        // In tree view, select all files after current one (recursively)
         let root_dir = self.base.clone();
-        let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let after_name = entry.name.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
-            match file_explorer.list_sql_files(&current_dir).await {
+            match file_explorer.list_sql_files(&root_dir).await {
                 Ok(paths) => {
                     // Filter to only files after the selected one (alphabetically)
                     let entries: Vec<String> = paths.into_iter()
@@ -300,7 +302,7 @@ impl List {
     }
 
     pub fn select_all_after_in_directory(&mut self, _state: &mut AppState) {
-        let entry = self.get_selection().cloned();
+        let entry = self.get_selection();
 
         if entry.is_none() {
             return;
@@ -308,15 +310,14 @@ impl List {
 
         let entry = entry.unwrap();
 
-        // Spawn async task to get files after selected one in directory
+        // In tree view, same as select_all_after (no directory context)
         let root_dir = self.base.clone();
-        let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let after_name = entry.name.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
-            match file_explorer.list_sql_files(&current_dir).await {
+            match file_explorer.list_sql_files(&root_dir).await {
                 Ok(paths) => {
                     // Filter to only files after the selected one (alphabetically)
                     let entries: Vec<String> = paths.into_iter()
@@ -342,14 +343,13 @@ impl List {
     }
 
     pub fn select_all_in_directory(&mut self, _state: &mut AppState) {
-        // Spawn async task to avoid blocking the runtime
+        // In tree view, select all files in entire tree
         let root_dir = self.base.clone();
-        let current_dir = self.component_state.current_directory().clone();
         let file_explorer = self.file_explorer.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
-            match file_explorer.list_sql_files(&current_dir).await {
+            match file_explorer.list_sql_files(&root_dir).await {
                 Ok(paths) => {
                     let entries: Vec<String> = paths.into_iter()
                         .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
@@ -368,7 +368,7 @@ impl List {
     }
 
     /// Get the currently highlighted script for the preview panel
-    fn get_highlighted_script(&self, state: &AppState) -> Option<Action> {
+    fn get_highlighted_script(&mut self, state: &AppState) -> Option<Action> {
         use crate::app::{Script, ScriptState};
 
         // Get the currently selected entry
@@ -427,7 +427,8 @@ impl Component for List {
                 return Ok(self.get_highlighted_script(state));
             }
             Action::CursorDown => {
-                self.cursor_down(self.component_state.entries().len());
+                let len = self.tree_state.flattened().len();
+                self.cursor_down(len);
                 return Ok(self.get_highlighted_script(state));
             }
             Action::CursorToTop => {
@@ -435,7 +436,8 @@ impl Component for List {
                 return Ok(self.get_highlighted_script(state));
             }
             Action::CursorToBottom => {
-                self.go_to_bottom(self.component_state.entries().len());
+                let len = self.tree_state.flattened().len();
+                self.go_to_bottom(len);
                 return Ok(self.get_highlighted_script(state));
             }
             Action::DirectoryOpenSelected => {
@@ -470,15 +472,12 @@ impl Component for List {
                 return Ok(None);
             }
             Action::CalculateEntryStatus => {
-                // Reset progress tracking
-                let file_count = self.component_state.entries().iter().filter(|e| !e.is_directory).count();
+                // Get all entries from tree
+                let entries = self.tree_state.entries();
+                let _file_count = entries.iter().filter(|e| !e.is_directory).count();
 
-                // Only show progress if there are files to process
-                if file_count > 0 {
-                    self.component_state.crc_progress = Some((0, file_count));
-                } else {
-                    self.component_state.crc_progress = None;
-                }
+                // TODO: Add crc_progress field to List struct for progress display
+                // For now, we'll just skip progress tracking
 
                 // Use MigrationService if available, otherwise fall back to legacy
                 if let (Some(migration_service), Some(dispatcher)) =
@@ -487,7 +486,7 @@ impl Component for List {
                     use crate::domain::ScriptPath;
 
                     // Convert entries to ScriptPaths (only files, not directories)
-                    let script_paths: Vec<ScriptPath> = self.component_state.entries()
+                    let script_paths: Vec<ScriptPath> = entries
                         .iter()
                         .filter(|e| !e.is_directory)
                         .filter_map(|e| {
@@ -496,7 +495,7 @@ impl Component for List {
                         .collect();
 
                     // Dispatch directory statuses immediately
-                    for entry in self.component_state.entries() {
+                    for entry in &entries {
                         if entry.is_directory {
                             dispatcher.dispatch(Action::EntryStatusChanged(
                                 entry.relative_path.clone(),
@@ -513,7 +512,7 @@ impl Component for List {
                     let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
                     let memory = self.script_memory.clone();
                     let base = self.base.clone();
-                    let entries: Vec<_> = self.component_state.entries().to_vec();
+                    let entries: Vec<_> = entries.iter().map(|e| (*e).clone()).collect();
                     tokio::spawn(async move {
                         for entry in entries {
                             if entry.is_directory {
@@ -553,15 +552,15 @@ impl Component for List {
                 return Ok(None);
             }
             Action::EntryStatusChanged(path, status) => {
-                self.component_state.update_entry_status(&path, status.clone());
+                self.tree_state.update_entry_status(&path, status);
                 return Ok(None);
             }
             Action::EntriesLoaded(entries) => {
-                // Update entries from async task using reducer
-                self.component_state.on_entries_loaded(entries);
+                // Build tree from flat entries list
+                self.tree_state.build_from_entries(entries);
 
-                // Sync widget state cursor with component state cursor
-                self.widget_state.select(Some(self.component_state.cursor()));
+                // Sync widget state cursor with tree state cursor
+                self.widget_state.select(Some(self.tree_state.cursor()));
 
                 // Now that entries are loaded, calculate their statuses
                 if let Some(ref dispatcher) = self.dispatcher {
@@ -572,8 +571,10 @@ impl Component for List {
                 return Ok(self.get_highlighted_script(state));
             }
             Action::StatusCalculationProgress(current, total) => {
-                // Use reducer to update progress
-                self.component_state.on_crc_progress(current, total);
+                // Store progress for rendering (will add field to List struct)
+                // For now, just trigger render
+                // TODO: Add crc_progress field to List
+                let _ = (current, total); // Suppress unused warning
 
                 // Request a render to show the progress update
                 return Ok(Some(Action::Render));
@@ -723,30 +724,25 @@ impl Component for List {
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()> {
-        // Add constraint for progress bar if calculating statuses
-        let constraints = if self.component_state.crc_progress.is_some() {
-            vec![Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]
-        } else {
-            vec![Constraint::Length(1), Constraint::Fill(1)]
-        };
+        // Simpler layout for tree view (no progress bar for now)
+        let constraints = vec![Constraint::Length(1), Constraint::Fill(1)];
 
         let rects = Layout::default()
             .direction(Direction::Vertical)
             .constraints(constraints)
             .split(area);
 
-        let path_span = Span::raw(
-            self.component_state.current_directory()
-                .display()
-                .to_string(),
-        );
+        // Show root path
+        let path_span = Span::raw(format!("📂 {}", self.base.display()));
         let path_draw = Line::default().spans(vec![path_span]);
 
-        let items: Vec<ListItem> = self
-            .component_state
-            .entries()
+        // Get flattened tree view
+        let flattened = self.tree_state.flattened();
+
+        let items: Vec<ListItem> = flattened
             .iter()
-            .map(|entry| {
+            .map(|node| {
+                let entry = &node.entry;
                 let name = entry.name.clone();
                 let decoratation = match entry.status {
                     // ✓ Script ran successfully
@@ -777,12 +773,48 @@ impl Component for List {
                     (false, false) => Style::new().white(),
                 };
 
+                // Build indentation and tree structure
+                let indent = "  ".repeat(node.depth);
+
+                // Expand/collapse icon for directories
+                let tree_icon = if entry.is_directory {
+                    if node.expanded {
+                        if node.has_children {
+                            "▼ " // Expanded folder with children
+                        } else {
+                            "▶ " // Expanded empty folder
+                        }
+                    } else {
+                        if node.has_children {
+                            "▶ " // Collapsed folder with children
+                        } else {
+                            "▷ " // Empty folder
+                        }
+                    }
+                } else {
+                    "  " // File (no icon, just spacing)
+                };
+
+                // Show selection count for directories
+                let folder_badge = if let Some(count) = node.selected_count {
+                    if count > 0 {
+                        format!(" [{}]", count)
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
                 let symbol = Span::styled(decoratation.0, decoratation.1);
 
                 let line = Line::default().spans(vec![
+                    Span::raw(indent),
+                    Span::styled(tree_icon, Style::default().fg(Color::DarkGray)),
                     symbol,
                     Span::styled(" ", style),
                     Span::styled(name, style),
+                    Span::styled(folder_badge, Style::default().fg(Color::Yellow)),
                 ]);
 
                 let list_item = ListItem::new(line).style(style);
@@ -805,23 +837,6 @@ impl Component for List {
 
         f.render_widget(path_draw, rects[0]);
         f.render_stateful_widget(list_draw, rects[1], &mut self.widget_state);
-
-        // Render progress indicator if status calculation is in progress
-        if let Some((current, total)) = self.component_state.crc_progress {
-            let percentage = if total > 0 {
-                (current as f64 / total as f64 * 100.0) as u16
-            } else {
-                0
-            };
-
-            let progress_text = format!(" Calculating checksums: {}/{} ({}%) ", current, total, percentage);
-            let progress_line = Line::from(vec![
-                Span::styled("⏳ ", Style::default().fg(Color::Yellow)),
-                Span::styled(progress_text, Style::default().fg(Color::Cyan)),
-            ]);
-
-            f.render_widget(progress_line, rects[2]);
-        }
 
         Ok(())
     }
