@@ -590,6 +590,133 @@ impl Component for List {
                 state.toggle_many(&paths);
                 return Ok(None);
             }
+            Action::ScriptRun(skip_errors) => {
+                use crate::app::ScriptState;
+
+                // Find first script that hasn't been run yet
+                let first_not_run_entry = state
+                    .selected
+                    .iter()
+                    .find(|f| f.state == ScriptState::None)
+                    .cloned();
+
+                if first_not_run_entry.is_none() {
+                    return Ok(None);
+                }
+                let entry = first_not_run_entry.unwrap();
+
+                // Get the migration service and dispatcher
+                let migration_service = match &self.migration_service {
+                    Some(svc) => svc.clone(),
+                    None => {
+                        log::error!("MigrationService not available in List component");
+                        return Ok(None);
+                    }
+                };
+
+                let dispatcher = match &self.dispatcher {
+                    Some(d) => d.clone(),
+                    None => {
+                        log::error!("ActionDispatcher not available in List component");
+                        return Ok(None);
+                    }
+                };
+
+                let full_path = self.base.join(&entry.relative_path);
+                let script_path = entry.relative_path.clone();
+
+                // Spawn async execution using service layer
+                tokio::spawn(async move {
+                    use crate::domain::{MigrationScript, ScriptPath};
+
+                    // Read the script file
+                    let content = match tokio::fs::read_to_string(&full_path).await {
+                        Ok(c) => c,
+                        Err(err) => {
+                            dispatcher.dispatch(Action::ScriptError(
+                                script_path,
+                                err.to_string(),
+                                None,
+                            ));
+                            return;
+                        }
+                    };
+
+                    // Create domain objects
+                    let path = match ScriptPath::new(script_path.clone()) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            dispatcher.dispatch(Action::ScriptError(
+                                script_path,
+                                format!("Invalid script path: {}", e),
+                                None,
+                            ));
+                            return;
+                        }
+                    };
+
+                    let script = MigrationScript::new(path, content);
+
+                    // Use the service to execute
+                    match migration_service.execute_script(&script, &dispatcher).await {
+                        Ok(_) => {
+                            // Service handles notifications, just trigger next script
+                            dispatcher.dispatch(Action::ScriptRun(skip_errors));
+                        }
+                        Err(e) => {
+                            log::error!("Script execution failed: {}", e);
+                            // Error notifications already sent by service
+                            if skip_errors {
+                                dispatcher.dispatch(Action::ScriptRun(skip_errors));
+                            }
+                        }
+                    }
+                });
+
+                return Ok(None);
+            }
+            Action::ScriptRunning(ref path) => {
+                use crate::app::ScriptState;
+
+                // Update script state to Running
+                state
+                    .selected
+                    .iter_mut()
+                    .filter(|s| s.relative_path == *path)
+                    .for_each(|s| s.state = ScriptState::Running);
+
+                return Ok(Some(Action::Render));
+            }
+            Action::ScriptFinished(ref path, elapsed, _) => {
+                use crate::app::ScriptState;
+
+                // Update script state to Finished
+                state
+                    .selected
+                    .iter_mut()
+                    .filter(|s| s.relative_path == *path)
+                    .for_each(|s| {
+                        s.state = ScriptState::Finished;
+                        s.elapsed = Some(elapsed);
+                    });
+
+                return Ok(Some(Action::Render));
+            }
+            Action::ScriptError(ref path, ref error, _) => {
+                use crate::app::ScriptState;
+
+                // Update script state to Error
+                state
+                    .selected
+                    .iter_mut()
+                    .filter(|s| s.relative_path == *path)
+                    .for_each(|s| {
+                        s.state = ScriptState::Error;
+                        s.error = Some(error.clone());
+                    });
+
+                return Ok(Some(Action::Render));
+            }
             _ => {}
         }
         Ok(None)
