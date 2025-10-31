@@ -185,7 +185,7 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
             // Create unified view components
             let unified_view = UnifiedView::new(
                 Box::new(list_for_unified),
-                Box::new(ScriptPreview::new()),
+                Box::new(ScriptPreview::new(path.clone())),
                 Box::new(ExecutionLog::new()),
                 Box::new(CommandBar::new()),
             );

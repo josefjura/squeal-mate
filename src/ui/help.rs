@@ -51,8 +51,8 @@ impl<'a> Help<'a> {
 
         match mode {
             Mode::FileChooser => {
-                text_lines.push(Line::raw("  1. Navigate files/folders with ↑↓ keys"));
-                text_lines.push(Line::raw("  2. Enter folders with Enter"));
+                text_lines.push(Line::raw("  1. Navigate tree with ↑↓ arrow keys"));
+                text_lines.push(Line::raw("  2. Expand/collapse folders with Enter"));
                 text_lines.push(Line::raw("  3. Select scripts with Space"));
                 text_lines.push(Line::raw("  4. Press 'r' to run selected scripts"));
                 text_lines.push(Line::raw("  5. Press Tab to view execution results"));
@@ -65,8 +65,8 @@ impl<'a> Help<'a> {
             }
             Mode::Unified => {
                 text_lines.push(Line::raw("  1. All panels visible at once (lazygit-style)"));
-                text_lines.push(Line::raw("  2. Files on left, details/log on right"));
-                text_lines.push(Line::raw("  3. Navigate with ↑↓, select with Space"));
+                text_lines.push(Line::raw("  2. Tree view on left, details/log on right"));
+                text_lines.push(Line::raw("  3. Navigate with ↑↓, expand folders with Enter"));
                 text_lines.push(Line::raw("  4. Press 'r' to run, Tab to cycle panels"));
                 text_lines.push(Line::raw("  5. See real-time execution in log panel"));
             }
@@ -83,8 +83,8 @@ impl<'a> Help<'a> {
                 ("↓ / j", "Move cursor down"),
                 ("Home", "Jump to top of list"),
                 ("End", "Jump to bottom of list"),
-                ("Enter", "Enter directory"),
-                ("Backspace", "Go up one level"),
+                ("Enter", "Expand/collapse directory"),
+                ("Backspace", "Collapse directory"),
                 ("Tab", "Switch to execution view"),
             ],
             Mode::ScriptRunner => vec![
@@ -97,8 +97,8 @@ impl<'a> Help<'a> {
             Mode::Unified => vec![
                 ("↑ / k", "Move cursor up"),
                 ("↓ / j", "Move cursor down"),
-                ("Enter", "Enter directory"),
-                ("Backspace", "Go up one level"),
+                ("Enter", "Expand/collapse directory"),
+                ("Backspace", "Collapse directory"),
                 ("Tab", "Cycle focused panel"),
             ],
         };
@@ -189,7 +189,7 @@ impl<'a> Help<'a> {
                 // Panel info
                 text_lines.push(Line::styled("── PANELS ──", Style::default().bold().yellow()));
                 text_lines.push(Line::raw(""));
-                text_lines.push(Line::raw("  Left: File browser with tree view"));
+                text_lines.push(Line::raw("  Left: Tree view (expand folders on-demand)"));
                 text_lines.push(Line::raw("  Right Top: Script details & preview"));
                 text_lines.push(Line::raw("  Right Bottom: Real-time execution log"));
                 text_lines.push(Line::raw("  Bottom: Persistent command bar"));

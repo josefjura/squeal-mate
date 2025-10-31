@@ -57,27 +57,46 @@ impl List {
         self.migration_service = Some(service);
     }
 
-    /// Refresh the entire tree recursively
-    /// This loads all files and directories from the root
+    /// Refresh the tree - only load immediate children of root
+    /// Subdirectories are loaded on-demand when expanded
     pub fn refresh_entries(&mut self) -> eyre::Result<()> {
         // Dispatch loading action
         if let Some(ref dispatcher) = self.dispatcher {
             dispatcher.dispatch(Action::EntriesLoading);
         }
 
-        // Spawn async task to load ALL entries recursively
+        // Spawn async task to load ONLY root directory entries (non-recursive)
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
-            // Recursively get all entries from root
-            let result = Self::load_tree_recursive(&file_explorer, &root_dir, &root_dir).await;
+            // Only load immediate children, not recursive
+            let result = file_explorer.list_directory(&root_dir).await;
 
             let entries = match result {
-                Ok(entries) => entries,
+                Ok(explorer_entries) => {
+                    // Convert to ListEntry format
+                    explorer_entries
+                        .into_iter()
+                        .map(|entry| {
+                            let relative_path = entry.path
+                                .strip_prefix(&root_dir)
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|_| entry.name.clone());
+
+                            ListEntry {
+                                name: entry.name.clone(),
+                                relative_path,
+                                selected: false,
+                                is_directory: entry.is_directory,
+                                status: EntryStatus::Unknown,
+                            }
+                        })
+                        .collect()
+                }
                 Err(e) => {
-                    log::error!("Failed to load tree: {}", e);
+                    log::error!("Failed to load root directory: {}", e);
                     Vec::new()
                 }
             };
@@ -91,43 +110,51 @@ impl List {
         Ok(())
     }
 
-    /// Recursively load all entries for the tree
-    fn load_tree_recursive<'a>(
-        explorer: &'a FileExplorer,
-        current_dir: &'a PathBuf,
-        root_dir: &'a PathBuf,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = eyre::Result<Vec<ListEntry>>> + Send + 'a>> {
-        Box::pin(async move {
-        let mut all_entries = Vec::new();
+    /// Load children of a specific directory (on-demand when expanded)
+    fn load_directory_children(&mut self, dir_path: &str) -> eyre::Result<()> {
+        let full_path = self.base.join(dir_path);
+        let root_dir = self.base.clone();
+        let file_explorer = self.file_explorer.clone();
+        let dispatcher = self.dispatcher.clone();
+        let dir_path_owned = dir_path.to_string();
 
-        // Get entries in current directory
-        let explorer_entries = explorer.list_directory(current_dir).await?;
+        tokio::spawn(async move {
+            let result = file_explorer.list_directory(&full_path).await;
 
-        for entry in explorer_entries {
-            let relative_path = entry.path
-                .strip_prefix(root_dir)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| entry.name.clone());
+            let entries = match result {
+                Ok(explorer_entries) => {
+                    // Convert to ListEntry format
+                    explorer_entries
+                        .into_iter()
+                        .map(|entry| {
+                            let relative_path = entry.path
+                                .strip_prefix(&root_dir)
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_else(|_| entry.name.clone());
 
-            all_entries.push(ListEntry {
-                name: entry.name.clone(),
-                relative_path: relative_path.clone(),
-                selected: false,
-                is_directory: entry.is_directory,
-                status: EntryStatus::Unknown,
-            });
-
-            // Recursively load subdirectories
-            if entry.is_directory {
-                match Self::load_tree_recursive(explorer, &entry.path, root_dir).await {
-                    Ok(children) => all_entries.extend(children),
-                    Err(e) => log::warn!("Failed to load subdirectory {}: {}", entry.name, e),
+                            ListEntry {
+                                name: entry.name.clone(),
+                                relative_path,
+                                selected: false,
+                                is_directory: entry.is_directory,
+                                status: EntryStatus::Unknown,
+                            }
+                        })
+                        .collect()
                 }
-            }
-        }
+                Err(e) => {
+                    log::error!("Failed to load directory {}: {}", dir_path_owned, e);
+                    Vec::new()
+                }
+            };
 
-        Ok(all_entries)
-        })
+            // Send results back via action with parent path
+            if let Some(dispatcher) = dispatcher {
+                dispatcher.dispatch(Action::DirectoryChildrenLoaded(dir_path_owned, entries));
+            }
+        });
+
+        Ok(())
     }
 
     pub fn cursor_up(&mut self) {
@@ -158,10 +185,27 @@ impl List {
 
     /// Expand or collapse the selected folder (tree view)
     pub fn open_selected_directory(&mut self) -> eyre::Result<()> {
-        // In tree view, "opening" a directory means expanding it
-        if self.tree_state.toggle_current_expansion() {
-            // Update widget state to reflect new visible rows
-            self.widget_state.select(Some(self.tree_state.cursor()));
+        // Get the selected node before toggling
+        let selected_node = self.tree_state.selected_node();
+
+        if let Some(node) = selected_node {
+            if node.entry.is_directory {
+                let dir_path = node.entry.relative_path.clone();
+                let was_expanded = node.expanded;
+                let has_children = node.has_children;
+
+                // Toggle expansion state
+                if self.tree_state.toggle_current_expansion() {
+                    // Update widget state to reflect new visible rows
+                    self.widget_state.select(Some(self.tree_state.cursor()));
+
+                    // Load children if directory was just expanded and has no children yet
+                    // (only load when expanding, not when collapsing)
+                    if !was_expanded && !has_children {
+                        self.load_directory_children(&dir_path)?;
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -569,6 +613,20 @@ impl Component for List {
 
                 // Highlight the first entry for the preview panel
                 return Ok(self.get_highlighted_script(state));
+            }
+            Action::DirectoryChildrenLoaded(parent_path, children) => {
+                // Add children to the tree under the parent directory
+                self.tree_state.add_children_to_directory(&parent_path, children);
+
+                // Sync widget state
+                self.widget_state.select(Some(self.tree_state.cursor()));
+
+                // Calculate statuses for new children
+                if let Some(ref dispatcher) = self.dispatcher {
+                    dispatcher.dispatch(Action::CalculateEntryStatus);
+                }
+
+                return Ok(None);
             }
             Action::StatusCalculationProgress(current, total) => {
                 // Store progress for rendering (will add field to List struct)

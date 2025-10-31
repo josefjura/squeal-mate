@@ -5,6 +5,7 @@ use ratatui::{
     layout::Size,
 };
 use tokio::sync::mpsc::UnboundedSender;
+use std::path::PathBuf;
 
 use super::Component;
 use crate::{
@@ -14,20 +15,68 @@ use crate::{
     tui::Frame,
 };
 
+/// File content cache entry
+#[derive(Clone)]
+struct FileCache {
+    content_preview: Vec<String>,
+    line_count: usize,
+    file_size: u64,
+}
+
 /// Script preview panel that shows details and preview of the selected script
 pub struct ScriptPreview {
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
     highlighted_script: Option<Script>,
+    file_cache: Option<FileCache>,
+    repository_base: PathBuf,
 }
 
 impl ScriptPreview {
-    pub fn new() -> Self {
+    pub fn new(repository_base: PathBuf) -> Self {
         Self {
             command_tx: None,
             config: Settings::default(),
             highlighted_script: None,
+            file_cache: None,
+            repository_base,
         }
+    }
+
+    /// Load file content asynchronously
+    fn load_file_content(&mut self, script_path: &str) {
+        let full_path = self.repository_base.join(script_path);
+        let script_path_owned = script_path.to_string();
+        let command_tx = self.command_tx.clone();
+
+        tokio::spawn(async move {
+            match tokio::fs::read_to_string(&full_path).await {
+                Ok(content) => {
+                    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+                    let line_count = lines.len();
+                    let content_preview: Vec<String> = lines.iter().take(20).cloned().collect();
+
+                    // Get file size
+                    let file_size = match tokio::fs::metadata(&full_path).await {
+                        Ok(metadata) => metadata.len(),
+                        Err(_) => 0,
+                    };
+
+                    let cache = FileCache {
+                        content_preview,
+                        line_count,
+                        file_size,
+                    };
+
+                    if let Some(tx) = command_tx {
+                        let _ = tx.send(Action::FileContentLoaded(script_path_owned, cache.content_preview.clone(), cache.line_count, cache.file_size));
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to load file {}: {}", script_path_owned, e);
+                }
+            }
+        });
     }
 
     fn render_placeholder(&self, f: &mut Frame<'_>, area: Rect) {
@@ -56,14 +105,11 @@ impl ScriptPreview {
     }
 
     fn render_script_details(&self, f: &mut Frame<'_>, area: Rect, script: &Script) {
-        // TODO: Load actual file content and metadata
-        // For now, show basic info
-
         let status_text = match script.state {
             crate::app::ScriptState::Finished => ("✓ Success", Color::Green),
             crate::app::ScriptState::Error => ("✗ Error", Color::Red),
             crate::app::ScriptState::Running => ("⟳ Running", Color::Yellow),
-            crate::app::ScriptState::None => ("• New", Color::Cyan),
+            crate::app::ScriptState::None => ("• Not Run", Color::Cyan),
         };
 
         let mut lines = vec![
@@ -77,6 +123,24 @@ impl ScriptPreview {
                 Span::styled(status_text.0, Style::default().fg(status_text.1).bold()),
             ]),
         ];
+
+        // Show file metadata if available
+        if let Some(ref cache) = self.file_cache {
+            lines.push(Line::from(vec![
+                Span::styled("Size: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    Self::format_file_size(cache.file_size),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Lines: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    cache.line_count.to_string(),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+        }
 
         if let Some(elapsed) = script.elapsed {
             lines.push(Line::from(vec![
@@ -109,25 +173,44 @@ impl ScriptPreview {
                     Style::default().fg(Color::Red),
                 )));
             }
+        } else if let Some(ref cache) = self.file_cache {
+            // Show file preview
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "─".repeat(30),
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(Span::styled(
+                "File preview (first 20 lines)",
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(Span::styled(
+                "─".repeat(30),
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(""));
+
+            for (i, line) in cache.content_preview.iter().enumerate() {
+                let line_num = format!("{:>4} │ ", i + 1);
+                lines.push(Line::from(vec![
+                    Span::styled(line_num, Style::default().fg(Color::DarkGray)),
+                    Span::styled(line, Style::default().fg(Color::White)),
+                ]));
+            }
+
+            if cache.line_count > 20 {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("... ({} more lines)", cache.line_count - 20),
+                    Style::default().fg(Color::DarkGray).italic(),
+                )));
+            }
         } else {
-            // Show placeholder for file preview
+            // Loading state
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "─".repeat(30),
-                Style::default().fg(Color::DarkGray),
-            )));
-            lines.push(Line::from(Span::styled(
-                "File preview",
-                Style::default().fg(Color::DarkGray),
-            )));
-            lines.push(Line::from(Span::styled(
-                "─".repeat(30),
-                Style::default().fg(Color::DarkGray),
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "TODO: Load and display first 20 lines of SQL file",
-                Style::default().fg(Color::DarkGray).italic(),
+                "Loading file preview...",
+                Style::default().fg(Color::Yellow),
             )));
         }
 
@@ -136,6 +219,19 @@ impl ScriptPreview {
             .scroll((0, 0));
 
         f.render_widget(paragraph, area);
+    }
+
+    fn format_file_size(bytes: u64) -> String {
+        const KB: u64 = 1024;
+        const MB: u64 = KB * 1024;
+
+        if bytes < KB {
+            format!("{} bytes", bytes)
+        } else if bytes < MB {
+            format!("{:.1} KB", bytes as f64 / KB as f64)
+        } else {
+            format!("{:.2} MB", bytes as f64 / MB as f64)
+        }
     }
 }
 
@@ -163,8 +259,54 @@ impl Component for ScriptPreview {
         // Listen for highlighted script changes
         match action {
             Action::ScriptHighlighted(script) => {
-                self.highlighted_script = script;
+                if let Some(ref new_script) = script {
+                    // Check if this is a new script (different from current)
+                    let should_load = self.highlighted_script.as_ref()
+                        .map(|s| s.relative_path != new_script.relative_path)
+                        .unwrap_or(true);
+
+                    let script_path = new_script.relative_path.clone();
+
+                    self.highlighted_script = script;
+
+                    if should_load {
+                        // Clear old cache
+                        self.file_cache = None;
+                        // Load new file content
+                        self.load_file_content(&script_path);
+                    }
+                } else {
+                    self.highlighted_script = None;
+                    self.file_cache = None;
+                }
                 Ok(Some(Action::Render))
+            }
+            Action::FileContentLoaded(ref path, ref preview_lines, line_count, file_size) => {
+                // Check if this content is for the currently highlighted script
+                if let Some(ref script) = self.highlighted_script {
+                    if script.relative_path == *path {
+                        self.file_cache = Some(FileCache {
+                            content_preview: preview_lines.clone(),
+                            line_count,
+                            file_size,
+                        });
+                        return Ok(Some(Action::Render));
+                    }
+                }
+                Ok(None)
+            }
+            Action::ScriptRunning(ref path) |
+            Action::ScriptFinished(ref path, ..) |
+            Action::ScriptError(ref path, ..) => {
+                // Update the highlighted script's state if it matches
+                if let Some(ref mut script) = self.highlighted_script {
+                    if script.relative_path == *path {
+                        // The script state will be updated in the main app state
+                        // Just trigger a re-render
+                        return Ok(Some(Action::Render));
+                    }
+                }
+                Ok(None)
             }
             _ => Ok(None),
         }
@@ -183,6 +325,6 @@ impl Component for ScriptPreview {
 
 impl Default for ScriptPreview {
     fn default() -> Self {
-        Self::new()
+        Self::new(PathBuf::from("."))
     }
 }

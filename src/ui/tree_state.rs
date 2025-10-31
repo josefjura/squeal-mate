@@ -104,7 +104,10 @@ impl TreeNode {
             },
         });
 
-        if self.expanded || !self.entry.is_directory {
+        // Show children only if:
+        // - This is a directory AND it's expanded
+        // - OR if this is the root (depth 0) which should always show its children
+        if (self.entry.is_directory && self.expanded) || self.depth == 0 {
             for child in &self.children {
                 child.flatten(result);
             }
@@ -270,7 +273,9 @@ impl TreeState {
     pub fn toggle_current_expansion(&mut self) -> bool {
         let flattened = self.flattened().to_vec();
         if let Some(node) = flattened.get(self.cursor) {
-            if node.has_children {
+            // Allow expansion for any directory, even if it has no children yet
+            // (children will be loaded on-demand)
+            if node.entry.is_directory {
                 // Find and toggle the actual node
                 self.toggle_node_by_path(&node.entry.relative_path);
                 self.cache_dirty = true;
@@ -316,5 +321,43 @@ impl TreeState {
     /// Get all entries (for compatibility)
     pub fn entries(&mut self) -> Vec<&ListEntry> {
         self.flattened().iter().map(|n| &n.entry).collect()
+    }
+
+    /// Add children to a specific directory node
+    pub fn add_children_to_directory(&mut self, parent_path: &str, children: Vec<ListEntry>) {
+        if Self::add_children_recursive(&mut self.root, parent_path, children) {
+            self.cache_dirty = true;
+        }
+    }
+
+    fn add_children_recursive(node: &mut TreeNode, parent_path: &str, children: Vec<ListEntry>) -> bool {
+        if node.entry.relative_path == parent_path {
+            // Found the parent - add children
+            for child_entry in children {
+                let child_depth = node.depth + 1;
+                let child = TreeNode::new(child_entry, child_depth);
+                node.children.push(child);
+            }
+
+            // Sort children: directories first, then files, alphabetically
+            node.children.sort_by(|a, b| {
+                match (a.entry.is_directory, b.entry.is_directory) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.entry.name.cmp(&b.entry.name),
+                }
+            });
+
+            return true;
+        }
+
+        // Search children
+        for child in &mut node.children {
+            if Self::add_children_recursive(child, parent_path, children.clone()) {
+                return true;
+            }
+        }
+
+        false
     }
 }

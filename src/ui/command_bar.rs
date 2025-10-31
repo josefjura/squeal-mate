@@ -32,8 +32,7 @@ impl CommandBar {
     fn get_commands(&self) -> Vec<(&str, &str)> {
         vec![
             ("↑↓", "navigate"),
-            ("→", "expand"),
-            ("←", "collapse"),
+            ("enter", "expand/collapse"),
             ("space", "select"),
             ("r", "run"),
             ("R", "run all"),
