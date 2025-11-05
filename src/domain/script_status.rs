@@ -20,6 +20,9 @@ pub enum ScriptStatus {
 
     /// Script execution failed
     Failed { error: String },
+
+    /// Script is marked to be skipped (user-defined)
+    Skipped,
 }
 
 impl ScriptStatus {
@@ -47,11 +50,13 @@ impl ScriptStatus {
             self,
             Self::NeverRun | Self::Modified | Self::Failed { .. }
         )
+        // Note: Skipped scripts should NOT be executable
     }
 
     /// Check if the script needs attention
     pub fn needs_attention(&self) -> bool {
         matches!(self, Self::NeverRun | Self::Modified | Self::Failed { .. })
+        // Note: Skipped scripts don't need attention (user explicitly marked them)
     }
 }
 
@@ -63,6 +68,7 @@ impl fmt::Display for ScriptStatus {
             Self::Modified => write!(f, "Modified"),
             Self::Running => write!(f, "Running"),
             Self::Failed { error } => write!(f, "Failed: {}", error),
+            Self::Skipped => write!(f, "Skipped"),
         }
     }
 }

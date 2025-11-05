@@ -57,9 +57,8 @@ impl ExecutionTracker for SqliteTracker {
         // Check if the script is marked as skipped
         if let Some(ref rec) = record {
             if rec.result == ScriptResult::Skipped {
-                // Script is marked as skipped, return NeverRun
-                // The UI layer will convert this to EntryStatus::Skipped based on the database record
-                return Ok(ScriptStatus::NeverRun);
+                // Script is marked as skipped
+                return Ok(ScriptStatus::Skipped);
             }
         }
 

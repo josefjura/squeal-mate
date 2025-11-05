@@ -54,6 +54,7 @@ impl MigrationService {
             ScriptStatus::Modified => crate::entries::EntryStatus::Changed,
             ScriptStatus::Failed { .. } => crate::entries::EntryStatus::Finished(false),
             ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
+            ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
         };
 
         // Update the entry status in the UI
@@ -130,6 +131,7 @@ impl MigrationService {
                                         crate::entries::EntryStatus::Finished(false)
                                     }
                                     ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
+                                    ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
                                 };
 
                                 disp.dispatch(Action::EntryStatusChanged(

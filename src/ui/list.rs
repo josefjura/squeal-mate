@@ -351,17 +351,39 @@ impl List {
 
         if entry.is_directory {
             // Toggle skip for all files in directory (recursively)
+            // For directories, we need to check if any file inside is currently skipped
+            // to determine whether to skip or unskip the whole directory
             let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
+            let script_memory_check = self.script_memory.clone();
             let script_memory = self.script_memory.clone();
             let entry_path = entry.relative_path.clone();
-            let is_currently_skipped = entry.status == EntryStatus::Skipped;
 
             tokio::spawn(async move {
                 match file_explorer.list_sql_files_recursive(&rel_path).await {
                     Ok(paths) => {
+                        if paths.is_empty() {
+                            return;
+                        }
+
+                        // Check the first file to determine if directory is currently skipped
+                        let first_file_path = paths[0].strip_prefix(&root_dir)
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string());
+
+                        let is_currently_skipped = if let Some(ref first_path) = first_file_path {
+                            script_memory_check.get_script_record(first_path)
+                                .ok()
+                                .flatten()
+                                .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        };
+
+                        // Now toggle all files in the directory
                         for path in paths {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
                                 let path_str = relative_path.to_string_lossy().to_string();
