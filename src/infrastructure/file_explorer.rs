@@ -84,7 +84,7 @@ impl FileExplorer {
         .await?
     }
 
-    /// List only SQL files in a directory (no directories)
+    /// List only SQL files in a directory (no directories, non-recursive)
     pub async fn list_sql_files(&self, dir: &Path) -> Result<Vec<PathBuf>> {
         let dir = dir.to_path_buf();
 
@@ -122,6 +122,56 @@ impl FileExplorer {
             Ok(files)
         })
         .await?
+    }
+
+    /// List all SQL files recursively in a directory tree
+    pub async fn list_sql_files_recursive(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+        let dir = dir.to_path_buf();
+
+        tokio::task::spawn_blocking(move || {
+            let mut files = Vec::new();
+            Self::collect_sql_files(&dir, &mut files)?;
+
+            // Sort by full path
+            files.sort();
+
+            Ok(files)
+        })
+        .await?
+    }
+
+    /// Helper function to recursively collect SQL files
+    fn collect_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+        let read_dir = std::fs::read_dir(dir)
+            .map_err(|e| {
+                color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e)
+            })?;
+
+        for entry_result in read_dir {
+            let entry = entry_result?;
+            let path = entry.path();
+            let name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+
+            // Skip hidden files/directories
+            if name.starts_with('.') || name.starts_with('_') {
+                continue;
+            }
+
+            if path.is_dir() {
+                // Recurse into subdirectory
+                Self::collect_sql_files(&path, files)?;
+            } else if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "sql" {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Read the contents of a SQL file

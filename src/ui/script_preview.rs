@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use ratatui::{
     prelude::*,
-    widgets::{Paragraph, Wrap},
+    widgets::{Block, Clear, Paragraph, Wrap},
     layout::Size,
 };
 use tokio::sync::mpsc::UnboundedSender;
@@ -99,12 +99,24 @@ impl ScriptPreview {
 
         let paragraph = Paragraph::new(text)
             .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: false });
 
         f.render_widget(paragraph, area);
     }
 
+    /// Truncate a string to fit within the given width
+    fn truncate_str(s: &str, max_width: usize) -> String {
+        if s.len() > max_width && max_width > 1 {
+            format!("{}…", &s[..max_width.saturating_sub(1)])
+        } else {
+            s.to_string()
+        }
+    }
+
     fn render_script_details(&self, f: &mut Frame<'_>, area: Rect, script: &Script) {
+        // Conservative width calculation: subtract 4 for safety (borders, padding)
+        let max_width = area.width.saturating_sub(4) as usize;
+
         let status_text = match script.state {
             crate::app::ScriptState::Finished => ("✓ Success", Color::Green),
             crate::app::ScriptState::Error => ("✗ Error", Color::Red),
@@ -115,7 +127,10 @@ impl ScriptPreview {
         let mut lines = vec![
             Line::from(vec![
                 Span::styled("Path: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&script.relative_path, Style::default().fg(Color::White)),
+                Span::styled(
+                    Self::truncate_str(&script.relative_path, max_width.saturating_sub(6)),
+                    Style::default().fg(Color::White)
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
@@ -159,7 +174,7 @@ impl ScriptPreview {
             ]));
             lines.push(Line::from(""));
 
-            // Show first few lines of error
+            // Show first few lines of error (truncated to fit)
             for (i, line) in error.lines().take(10).enumerate() {
                 if i >= 10 {
                     lines.push(Line::from(Span::styled(
@@ -169,7 +184,7 @@ impl ScriptPreview {
                     break;
                 }
                 lines.push(Line::from(Span::styled(
-                    line,
+                    Self::truncate_str(line, max_width),
                     Style::default().fg(Color::Red),
                 )));
             }
@@ -192,9 +207,18 @@ impl ScriptPreview {
 
             for (i, line) in cache.content_preview.iter().enumerate() {
                 let line_num = format!("{:>4} │ ", i + 1);
+
+                // Replace tabs with spaces (tabs expand to multiple columns when rendered)
+                let line_with_spaces = line.replace('\t', "    ");
+
+                // Truncate long lines to prevent overflow
+                // Line number takes 7 chars (e.g. " 123 │ "), subtract a bit more for safety
+                let content_width = max_width.saturating_sub(10);
+                let truncated_line = Self::truncate_str(&line_with_spaces, content_width);
+
                 lines.push(Line::from(vec![
                     Span::styled(line_num, Style::default().fg(Color::DarkGray)),
-                    Span::styled(line, Style::default().fg(Color::White)),
+                    Span::styled(truncated_line, Style::default().fg(Color::White)),
                 ]));
             }
 
@@ -215,8 +239,9 @@ impl ScriptPreview {
         }
 
         let paragraph = Paragraph::new(lines)
-            .wrap(Wrap { trim: true })
-            .scroll((0, 0));
+            .wrap(Wrap { trim: false })  // Disable wrap since we manually truncate
+            .scroll((0, 0))
+            .block(Block::default());  // Add block to ensure clipping
 
         f.render_widget(paragraph, area);
     }
@@ -313,6 +338,9 @@ impl Component for ScriptPreview {
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect, _state: &AppState) -> Result<()> {
+        // Clear the area first to prevent ghosting/bleeding from previous renders
+        f.render_widget(Clear, area);
+
         if let Some(ref script) = self.highlighted_script {
             self.render_script_details(f, area, script);
         } else {

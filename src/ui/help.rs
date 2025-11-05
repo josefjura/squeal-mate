@@ -79,26 +79,21 @@ impl<'a> Help<'a> {
 
         let nav_keys = match mode {
             Mode::FileChooser => vec![
-                ("↑ / k", "Move cursor up"),
-                ("↓ / j", "Move cursor down"),
+                ("↑/k ↓/j", "Move cursor up/down"),
                 ("Home", "Jump to top of list"),
                 ("End", "Jump to bottom of list"),
                 ("Enter", "Expand/collapse directory"),
-                ("Backspace", "Collapse directory"),
                 ("Tab", "Switch to execution view"),
             ],
             Mode::ScriptRunner => vec![
-                ("↑ / k", "Scroll output up"),
-                ("↓ / j", "Scroll output down"),
+                ("↑/k ↓/j", "Scroll output up/down"),
                 ("Home", "Jump to first script"),
                 ("End", "Jump to last script"),
                 ("Tab", "Switch to file browser"),
             ],
             Mode::Unified => vec![
-                ("↑ / k", "Move cursor up"),
-                ("↓ / j", "Move cursor down"),
+                ("↑/k ↓/j", "Move cursor up/down"),
                 ("Enter", "Expand/collapse directory"),
-                ("Backspace", "Collapse directory"),
                 ("Tab", "Cycle focused panel"),
             ],
         };
@@ -116,12 +111,8 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw(""));
 
                 let sel_keys = vec![
-                    ("Space", "Toggle current file/directory"),
-                    ("d", "Select all in current directory"),
-                    ("s", "Select all after cursor (current dir)"),
-                    ("S", "Select all after cursor (recursive)"),
-                    ("x", "Unselect current file"),
-                    ("X", "Unselect all"),
+                    ("Space", "Toggle file/folder (recursive)"),
+                    ("A", "Unselect all (clear)"),
                 ];
 
                 for (key, desc) in sel_keys {
@@ -135,7 +126,8 @@ impl<'a> Help<'a> {
 
                 let exec_keys = vec![
                     ("r", "Run selected scripts (stop on error)"),
-                    ("R", "Run selected scripts (skip errors)"),
+                    ("R", "Run all scripts (continue on errors)"),
+                    ("c", "Clear execution output"),
                 ];
 
                 for (key, desc) in exec_keys {
@@ -159,12 +151,8 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw(""));
 
                 let sel_keys = vec![
-                    ("Space", "Toggle current file/directory"),
-                    ("d", "Select all in current directory"),
-                    ("s", "Select all after cursor (current dir)"),
-                    ("S", "Select all after cursor (recursive)"),
-                    ("x", "Unselect current file"),
-                    ("X", "Unselect all"),
+                    ("Space", "Toggle file/folder (recursive)"),
+                    ("A", "Unselect all (clear)"),
                 ];
 
                 for (key, desc) in sel_keys {
@@ -178,7 +166,8 @@ impl<'a> Help<'a> {
 
                 let exec_keys = vec![
                     ("r", "Run selected scripts (stop on error)"),
-                    ("R", "Run selected scripts (skip errors)"),
+                    ("R", "Run all scripts (continue on errors)"),
+                    ("c", "Clear execution output"),
                 ];
 
                 for (key, desc) in exec_keys {
@@ -197,10 +186,10 @@ impl<'a> Help<'a> {
             }
         }
 
-        // General section (same for both modes)
+        // General section (same for all modes)
         text_lines.push(Line::styled("── GENERAL ──", Style::default().bold().yellow()));
         text_lines.push(Line::raw(""));
-        text_lines.push(Line::raw(format!("  {:>12}  {}", "? / h", "Toggle this help")));
+        text_lines.push(Line::raw(format!("  {:>12}  {}", "?", "Toggle this help")));
         text_lines.push(Line::raw(format!("  {:>12}  {}", "q", "Quit application")));
 
         Text::from(text_lines)

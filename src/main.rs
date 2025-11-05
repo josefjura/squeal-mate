@@ -26,7 +26,6 @@ use cliclack::{confirm, input, intro, note, outro};
 use color_eyre::eyre;
 use ui::help::Help;
 use ui::script_status::ScriptStatus;
-use ui::scroll_list::ScrollList;
 use ui::{UnifiedView, command_bar::CommandBar, script_preview::ScriptPreview, execution_log::ExecutionLog};
 use infrastructure::{get_config_dir, get_data_dir, Settings};
 use crossterm::style::Stylize;
@@ -178,9 +177,7 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
             list_for_unified.set_migration_service(migration_service.clone());
 
             let script_status = ScriptStatus::new();
-
-            let mut scroll_list = ScrollList::new(connection.clone(), path.clone(), script_memory.clone());
-            scroll_list.set_migration_service(migration_service.clone());
+            let execution_log_for_runner = ExecutionLog::new();
 
             // Create unified view components
             let unified_view = UnifiedView::new(
@@ -205,7 +202,7 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
                     Screen::new(
                         Mode::ScriptRunner,
                         vec![
-                            Box::new(scroll_list),
+                            Box::new(execution_log_for_runner),
                             Box::new(script_status),
                             Box::new(Help::new()),
                         ],

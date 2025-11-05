@@ -230,7 +230,7 @@ impl List {
         let entry = entry.unwrap();
 
         if entry.is_directory {
-            // Spawn async task to get directory children
+            // Spawn async task to get directory children (recursively)
             let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
@@ -239,7 +239,7 @@ impl List {
             let entry_path = entry.relative_path.clone();
 
             tokio::spawn(async move {
-                match file_explorer.list_sql_files(&rel_path).await {
+                match file_explorer.list_sql_files_recursive(&rel_path).await {
                     Ok(paths) => {
                         let items: Vec<String> = paths.into_iter()
                             .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
@@ -251,7 +251,7 @@ impl List {
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to get children for directory {}: {}", entry_path, e);
+                        log::error!("Failed to get children recursively for directory {}: {}", entry_path, e);
                     }
                 }
             });
@@ -386,31 +386,6 @@ impl List {
         });
     }
 
-    pub fn select_all_in_directory(&mut self, _state: &mut AppState) {
-        // In tree view, select all files in entire tree
-        let root_dir = self.base.clone();
-        let file_explorer = self.file_explorer.clone();
-        let dispatcher = self.dispatcher.clone();
-
-        tokio::spawn(async move {
-            match file_explorer.list_sql_files(&root_dir).await {
-                Ok(paths) => {
-                    let entries: Vec<String> = paths.into_iter()
-                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect();
-
-                    if let Some(dispatcher) = dispatcher {
-                        dispatcher.dispatch(Action::AddSelection(entries));
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to get scripts in directory: {}", e);
-                }
-            }
-        });
-    }
-
     /// Get the currently highlighted script for the preview panel
     fn get_highlighted_script(&mut self, state: &AppState) -> Option<Action> {
         use crate::app::{Script, ScriptState};
@@ -488,31 +463,12 @@ impl Component for List {
                 self.open_selected_directory()?;
                 return Ok(None);
             }
-            Action::DirectoryLeave => {
-                self.leave_current_directory()?;
-                return Ok(None);
-            }
             Action::SelectCurrent => {
                 self.select_current(state);
                 return Ok(None);
             }
-            Action::UnselectCurrent => {
-                self.unselect_current(state);
-                return Ok(None);
-            }
             Action::UnselectAll => {
                 self.unselect_all(state);
-                return Ok(None);
-            }
-            Action::SelectAllAfter => {
-                self.select_all_after(state);
-                return Ok(None);
-            }
-            Action::SelectAllAfterInDirectory => {
-                self.select_all_after_in_directory(state);
-            }
-            Action::SelectAllInDirectory => {
-                self.select_all_in_directory(state);
                 return Ok(None);
             }
             Action::CalculateEntryStatus => {
@@ -639,15 +595,15 @@ impl Component for List {
             }
             Action::AddSelection(paths) => {
                 state.add_many(&paths);
-                return Ok(None);
+                return Ok(Some(Action::Render));
             }
             Action::RemoveSelection(paths) => {
                 state.remove_many(&paths);
-                return Ok(None);
+                return Ok(Some(Action::Render));
             }
             Action::ToggleSelection(paths) => {
                 state.toggle_many(&paths);
-                return Ok(None);
+                return Ok(Some(Action::Render));
             }
             Action::ScriptRun(skip_errors) => {
                 use crate::app::ScriptState;

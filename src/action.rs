@@ -23,7 +23,6 @@ pub enum Action {
 
     // Directory actions
     DirectoryOpenSelected,
-    DirectoryLeave,
 
     // Help
     ToggleHelp,
@@ -34,6 +33,7 @@ pub enum Action {
     ScriptRunning(String),
     ScriptFinished(String, u128, u32),
     ScriptError(String, String, Option<u32>),
+    ClearOutput,  // Clear execution output
     CalculateEntryStatus,
     EntryStatusChanged(String, EntryStatus),
 
@@ -45,11 +45,7 @@ pub enum Action {
 
     // Selection actions
     SelectCurrent,
-    SelectAllAfter,
-    SelectAllAfterInDirectory,
-    SelectAllInDirectory,
     UnselectAll,
-    UnselectCurrent,
     AddSelection(Vec<String>),
     RemoveSelection(Vec<String>),
     ToggleSelection(Vec<String>),

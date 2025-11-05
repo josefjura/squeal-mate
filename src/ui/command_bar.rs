@@ -1,18 +1,13 @@
 use color_eyre::eyre::Result;
 use ratatui::{
+    layout::Size,
     prelude::*,
     widgets::{Block, Borders, Paragraph},
-    layout::Size,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{
-    action::Action,
-    app::AppState,
-    infrastructure::Settings,
-    tui::Frame,
-};
+use crate::{action::Action, app::AppState, infrastructure::Settings, tui::Frame};
 
 /// Persistent command bar shown at the bottom of the screen
 /// Displays context-sensitive keyboard shortcuts
@@ -31,13 +26,13 @@ impl CommandBar {
 
     fn get_commands(&self) -> Vec<(&str, &str)> {
         vec![
-            ("↑↓", "navigate"),
+            ("↑↓/jk", "navigate"),
             ("enter", "expand/collapse"),
             ("space", "select"),
+            ("A", "clear all"),
             ("r", "run"),
-            ("R", "run all"),
-            ("x", "clear"),
-            ("tab", "next panel"),
+            ("c", "clear output"),
+            ("tab", "switch view"),
             ("?", "help"),
             ("q", "quit"),
         ]
@@ -81,18 +76,12 @@ impl Component for CommandBar {
             }
 
             // Key in cyan
-            spans.push(Span::styled(
-                *key,
-                Style::default().fg(Color::Cyan).bold(),
-            ));
+            spans.push(Span::styled(*key, Style::default().fg(Color::Cyan).bold()));
 
             spans.push(Span::raw(":"));
 
             // Description in normal text
-            spans.push(Span::styled(
-                *desc,
-                Style::default().fg(Color::Gray),
-            ));
+            spans.push(Span::styled(*desc, Style::default().fg(Color::Gray)));
         }
 
         let text = Line::from(spans);
@@ -100,7 +89,7 @@ impl Component for CommandBar {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray))
+                    .border_style(Style::default().fg(Color::DarkGray)),
             )
             .alignment(Alignment::Left);
 

@@ -9,9 +9,8 @@ pub mod list;
 pub mod list_state;
 pub mod tree_state;
 pub mod script_status;
-pub mod scroll_list;
 
-// New unified view components
+// Unified view components
 pub mod unified_view;
 pub mod command_bar;
 pub mod script_preview;

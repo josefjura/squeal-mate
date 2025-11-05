@@ -197,24 +197,25 @@ impl App {
                         (_, KeyCode::Char('c')) if key.modifiers == KeyModifiers::CONTROL => {
                             action_tx.send(Action::Quit)?
                         }
+                        // General
                         (_, KeyCode::Char('q')) => action_tx.send(Action::Quit)?,
-                        (_, KeyCode::Char('r')) => action_tx.send(Action::ScriptRun(false))?,
-                        (_, KeyCode::Char('R')) => action_tx.send(Action::ScriptRun(true))?,
-                        (_, KeyCode::Char(' ')) => action_tx.send(Action::SelectCurrent)?,
-                        (_, KeyCode::Char('s')) => {
-                            action_tx.send(Action::SelectAllAfterInDirectory)?
-                        }
-                        (_, KeyCode::Char('S')) => action_tx.send(Action::SelectAllAfter)?,
-                        (_, KeyCode::Char('d')) => action_tx.send(Action::SelectAllInDirectory)?,
-                        (_, KeyCode::Char('x')) => action_tx.send(Action::UnselectCurrent)?,
-                        (_, KeyCode::Char('X')) => action_tx.send(Action::UnselectAll)?,
-                        (_, KeyCode::Char('h')) => action_tx.send(Action::ToggleHelp)?,
-                        (_, KeyCode::Up) => action_tx.send(Action::CursorUp)?,
-                        (_, KeyCode::Down) => action_tx.send(Action::CursorDown)?,
+                        (_, KeyCode::Char('?')) => action_tx.send(Action::ToggleHelp)?,
+
+                        // Navigation
+                        (_, KeyCode::Up | KeyCode::Char('k')) => action_tx.send(Action::CursorUp)?,
+                        (_, KeyCode::Down | KeyCode::Char('j')) => action_tx.send(Action::CursorDown)?,
                         (_, KeyCode::Home) => action_tx.send(Action::CursorToTop)?,
                         (_, KeyCode::End) => action_tx.send(Action::CursorToBottom)?,
                         (_, KeyCode::Enter) => action_tx.send(Action::DirectoryOpenSelected)?,
-                        (_, KeyCode::Backspace) => action_tx.send(Action::DirectoryLeave)?,
+
+                        // Selection
+                        (_, KeyCode::Char(' ')) => action_tx.send(Action::SelectCurrent)?,
+                        (_, KeyCode::Char('A')) => action_tx.send(Action::UnselectAll)?,
+
+                        // Execution
+                        (_, KeyCode::Char('r')) => action_tx.send(Action::ScriptRun(false))?,
+                        (_, KeyCode::Char('R')) => action_tx.send(Action::ScriptRun(true))?,
+                        (_, KeyCode::Char('c')) => action_tx.send(Action::ClearOutput)?,
                         (Mode::FileChooser, KeyCode::Tab) => {
                             action_tx.send(Action::SwitchMode(Mode::ScriptRunner))?
                         }
