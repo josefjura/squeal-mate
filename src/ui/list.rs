@@ -270,16 +270,31 @@ impl List {
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
+            let script_memory = self.script_memory.clone();
             let dispatcher = self.dispatcher.clone();
             let entry_path = entry.relative_path.clone();
 
             tokio::spawn(async move {
                 match file_explorer.list_sql_files_recursive(&rel_path).await {
                     Ok(paths) => {
-                        let items: Vec<String> = paths.into_iter()
-                            .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                            .map(|p| p.to_string_lossy().to_string())
-                            .collect();
+                        // Filter out skipped scripts
+                        let mut items: Vec<String> = Vec::new();
+                        for path in paths {
+                            if let Ok(relative_path) = path.strip_prefix(&root_dir) {
+                                let path_str = relative_path.to_string_lossy().to_string();
+
+                                // Check if script is skipped
+                                let is_skipped = script_memory.get_script_record(&path_str)
+                                    .ok()
+                                    .flatten()
+                                    .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                    .unwrap_or(false);
+
+                                if !is_skipped {
+                                    items.push(path_str);
+                                }
+                            }
+                        }
 
                         if let Some(dispatcher) = dispatcher {
                             dispatcher.dispatch(Action::ToggleSelection(items));
@@ -291,7 +306,10 @@ impl List {
                 }
             });
         } else {
-            state.toggle(entry.relative_path);
+            // For single files, only toggle if not skipped
+            if entry.status != EntryStatus::Skipped {
+                state.toggle(entry.relative_path);
+            }
         }
     }
 
