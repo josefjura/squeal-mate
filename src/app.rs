@@ -231,6 +231,9 @@ impl App {
                         (Mode::Unified, KeyCode::Char('A')) if self.focused_panel == PanelFocus::FileTree => {
                             action_tx.send(Action::UnselectAll)?
                         }
+                        (Mode::Unified, KeyCode::Char('x')) if self.focused_panel == PanelFocus::FileTree => {
+                            action_tx.send(Action::ToggleSkip)?
+                        }
                         (Mode::Unified, KeyCode::Char('r')) if self.focused_panel == PanelFocus::FileTree => {
                             action_tx.send(Action::ScriptRun(false))?
                         }
@@ -265,6 +268,9 @@ impl App {
                         }
                         (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('A')) => {
                             action_tx.send(Action::UnselectAll)?
+                        }
+                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('x')) => {
+                            action_tx.send(Action::ToggleSkip)?
                         }
                         (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('r')) => {
                             action_tx.send(Action::ScriptRun(false))?

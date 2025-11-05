@@ -48,6 +48,7 @@ pub enum Action {
     // Selection actions
     SelectCurrent,
     UnselectAll,
+    ToggleSkip,  // Toggle skip status on current script/folder
     AddSelection(Vec<String>),
     RemoveSelection(Vec<String>),
     ToggleSelection(Vec<String>),

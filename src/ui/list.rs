@@ -339,6 +339,75 @@ impl List {
         state.selected.clear()
     }
 
+    pub fn toggle_skip(&mut self) {
+        let entry = self.get_selection();
+
+        if entry.is_none() {
+            return;
+        }
+
+        let entry = entry.unwrap();
+
+        if entry.is_directory {
+            // Toggle skip for all files in directory (recursively)
+            let repo_base = self.base.clone();
+            let rel_path = repo_base.join(&entry.relative_path);
+            let root_dir = self.base.clone();
+            let file_explorer = self.file_explorer.clone();
+            let script_memory = self.script_memory.clone();
+            let entry_path = entry.relative_path.clone();
+            let is_currently_skipped = entry.status == EntryStatus::Skipped;
+
+            tokio::spawn(async move {
+                match file_explorer.list_sql_files_recursive(&rel_path).await {
+                    Ok(paths) => {
+                        for path in paths {
+                            if let Ok(relative_path) = path.strip_prefix(&root_dir) {
+                                let path_str = relative_path.to_string_lossy().to_string();
+
+                                // Toggle: if currently skipped, unmark; otherwise mark as skipped
+                                let result = if is_currently_skipped {
+                                    script_memory.unmark_skipped(path_str)
+                                } else {
+                                    script_memory.mark_skipped(path_str)
+                                };
+
+                                if let Err(e) = result {
+                                    log::error!("Failed to toggle skip status: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to get children recursively for directory {}: {}", entry_path, e);
+                    }
+                }
+            });
+        } else {
+            // Toggle skip for single file
+            let path = entry.relative_path.clone();
+            let script_memory = self.script_memory.clone();
+            let is_currently_skipped = entry.status == EntryStatus::Skipped;
+
+            tokio::spawn(async move {
+                let result = if is_currently_skipped {
+                    script_memory.unmark_skipped(path)
+                } else {
+                    script_memory.mark_skipped(path)
+                };
+
+                if let Err(e) = result {
+                    log::error!("Failed to toggle skip status: {}", e);
+                }
+            });
+        }
+
+        // Trigger status recalculation to update UI
+        if let Some(ref tx) = self.command_tx {
+            let _ = tx.send(Action::CalculateEntryStatus);
+        }
+    }
+
     pub fn select_all_after(&mut self, _state: &mut AppState) {
         let entry = self.get_selection();
 
@@ -520,6 +589,10 @@ impl Component for List {
             }
             Action::UnselectAll => {
                 self.unselect_all(state);
+                return Ok(None);
+            }
+            Action::ToggleSkip => {
+                self.toggle_skip();
                 return Ok(None);
             }
             Action::CalculateEntryStatus => {

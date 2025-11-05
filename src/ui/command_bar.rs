@@ -35,6 +35,7 @@ impl CommandBar {
                     ("←→", "collapse/expand"),
                     ("enter", "toggle"),
                     ("space", "select"),
+                    ("x", "skip"),
                     ("A", "clear all"),
                     ("r", "run"),
                     ("c", "clear output"),
