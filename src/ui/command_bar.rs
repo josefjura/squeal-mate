@@ -32,9 +32,11 @@ impl CommandBar {
                 // File tree commands (or default when no panel focus)
                 vec![
                     ("↑↓/jk", "navigate"),
+                    ("n", "next not run"),
                     ("←→", "collapse/expand"),
                     ("enter", "toggle"),
                     ("space", "select"),
+                    ("S", "select to end"),
                     ("x", "skip"),
                     ("A", "clear all"),
                     ("r", "run"),

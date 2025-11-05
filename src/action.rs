@@ -20,6 +20,8 @@ pub enum Action {
     CursorDown,
     CursorToTop,
     CursorToBottom,
+    JumpToNextNotRun,  // Jump to next Not Run script (skipping Success/Error/Skipped)
+    SelectFromCursorToEnd,  // Select all scripts from cursor to end
 
     // Directory actions
     DirectoryOpenSelected,

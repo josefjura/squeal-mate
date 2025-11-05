@@ -357,6 +357,70 @@ impl List {
         state.selected.clear()
     }
 
+    pub fn jump_to_next_not_run(&mut self) {
+        // Find the next Not Run script after current cursor position
+        let flattened = self.tree_state.flattened().to_vec();
+        let current_cursor = self.tree_state.cursor();
+
+        for (index, node) in flattened.iter().enumerate().skip(current_cursor + 1) {
+            // Only consider files, not directories
+            if !node.entry.is_directory {
+                // Check if it's Not Run (and not Skipped)
+                if node.entry.status == EntryStatus::NeverStarted {
+                    self.tree_state.set_cursor(index);
+                    self.widget_state.select(Some(index));
+                    return;
+                }
+            }
+        }
+
+        // If we didn't find any, wrap around to the beginning
+        for (index, node) in flattened.iter().enumerate().take(current_cursor) {
+            if !node.entry.is_directory {
+                if node.entry.status == EntryStatus::NeverStarted {
+                    self.tree_state.set_cursor(index);
+                    self.widget_state.select(Some(index));
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn select_from_cursor_to_end(&mut self, state: &mut AppState) {
+        // Get all entries from cursor to end, filter out directories and skipped scripts
+        let flattened = self.tree_state.flattened().to_vec();
+        let current_cursor = self.tree_state.cursor();
+
+        let root_dir = self.base.clone();
+        let script_memory = self.script_memory.clone();
+        let dispatcher = self.dispatcher.clone();
+
+        tokio::spawn(async move {
+            let mut items: Vec<String> = Vec::new();
+
+            for node in flattened.iter().skip(current_cursor) {
+                if !node.entry.is_directory {
+                    let path_str = node.entry.relative_path.clone();
+
+                    // Check if script is skipped
+                    let is_skipped = script_memory.get_script_record(&path_str)
+                        .ok()
+                        .flatten()
+                        .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                        .unwrap_or(false);
+
+                    if !is_skipped {
+                        items.push(path_str);
+                    }
+                }
+            }
+
+            if let Some(dispatcher) = dispatcher {
+                dispatcher.dispatch(Action::ToggleSelection(items));
+            }
+        });
+    }
+
     pub fn toggle_skip(&mut self) {
         let entry = self.get_selection();
 
@@ -649,6 +713,14 @@ impl Component for List {
             }
             Action::ToggleSkip => {
                 self.toggle_skip();
+                return Ok(None);
+            }
+            Action::JumpToNextNotRun => {
+                self.jump_to_next_not_run();
+                return Ok(None);
+            }
+            Action::SelectFromCursorToEnd => {
+                self.select_from_cursor_to_end(state);
                 return Ok(None);
             }
             Action::CalculateEntryStatus => {
