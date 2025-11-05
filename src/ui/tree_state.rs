@@ -90,6 +90,44 @@ impl TreeNode {
         }
     }
 
+    /// Recursively collect all files (not directories) with their paths and statuses
+    pub fn collect_all_files(&self) -> Vec<(String, EntryStatus)> {
+        let mut files = Vec::new();
+
+        if !self.entry.is_directory {
+            files.push((self.entry.relative_path.clone(), self.entry.status.clone()));
+        }
+
+        for child in &self.children {
+            files.extend(child.collect_all_files());
+        }
+
+        files
+    }
+
+    /// Expand this node and all parents to a specific path
+    pub fn expand_path_to(&mut self, target_path: &str) -> bool {
+        // If this is the target, we're done
+        if self.entry.relative_path == target_path {
+            return true;
+        }
+
+        // If the target path starts with this node's path, search children
+        if target_path.starts_with(&self.entry.relative_path) || self.entry.relative_path == "." {
+            for child in &mut self.children {
+                if child.expand_path_to(target_path) {
+                    // Found it in a child, so expand this node
+                    if self.entry.is_directory {
+                        self.expanded = true;
+                    }
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     /// Flatten tree to visible rows (respecting expanded state)
     pub fn flatten(&self, result: &mut Vec<FlattenedNode>) {
         result.push(FlattenedNode {
@@ -445,5 +483,26 @@ impl TreeState {
         }
 
         false
+    }
+
+    /// Collect all files from the tree (recursively, regardless of expansion state)
+    pub fn collect_all_files(&self) -> Vec<(String, EntryStatus)> {
+        self.root.collect_all_files()
+    }
+
+    /// Expand all parent directories to make a path visible, then find its index in flattened view
+    pub fn expand_and_find_path(&mut self, target_path: &str) -> Option<usize> {
+        // Expand the path
+        if self.root.expand_path_to(target_path) {
+            self.cache_dirty = true;
+            // Rebuild flattened cache
+            let flattened = self.flattened();
+            // Find the index
+            flattened
+                .iter()
+                .position(|node| node.entry.relative_path == target_path)
+        } else {
+            None
+        }
     }
 }

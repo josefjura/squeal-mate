@@ -358,15 +358,32 @@ impl List {
     }
 
     pub fn jump_to_next_not_run(&mut self) {
-        // Find the next Not Run script after current cursor position
-        let flattened = self.tree_state.flattened().to_vec();
-        let current_cursor = self.tree_state.cursor();
+        // Get ALL files from the tree (including those in collapsed directories)
+        let all_files = self.tree_state.collect_all_files();
 
-        for (index, node) in flattened.iter().enumerate().skip(current_cursor + 1) {
-            // Only consider files, not directories
-            if !node.entry.is_directory {
-                // Check if it's Not Run (and not Skipped)
-                if node.entry.status == EntryStatus::NeverStarted {
+        if all_files.is_empty() {
+            return;
+        }
+
+        // Get current selection to know where we are
+        let current_path = self.tree_state.selected_node()
+            .map(|n| n.entry.relative_path);
+
+        // Find current position in the all_files list
+        let current_index = if let Some(ref path) = current_path {
+            all_files.iter().position(|(p, _)| p == path)
+        } else {
+            None
+        };
+
+        let start_index = current_index.map(|i| i + 1).unwrap_or(0);
+
+        // Search forward from current position
+        for i in start_index..all_files.len() {
+            let (path, status) = &all_files[i];
+            if *status == EntryStatus::NeverStarted {
+                // Found a Not Run file - expand path and jump to it
+                if let Some(index) = self.tree_state.expand_and_find_path(path) {
                     self.tree_state.set_cursor(index);
                     self.widget_state.select(Some(index));
                     return;
@@ -374,10 +391,12 @@ impl List {
             }
         }
 
-        // If we didn't find any, wrap around to the beginning
-        for (index, node) in flattened.iter().enumerate().take(current_cursor) {
-            if !node.entry.is_directory {
-                if node.entry.status == EntryStatus::NeverStarted {
+        // Wrap around to the beginning
+        for i in 0..start_index {
+            let (path, status) = &all_files[i];
+            if *status == EntryStatus::NeverStarted {
+                // Found a Not Run file - expand path and jump to it
+                if let Some(index) = self.tree_state.expand_and_find_path(path) {
                     self.tree_state.set_cursor(index);
                     self.widget_state.select(Some(index));
                     return;
@@ -387,19 +406,47 @@ impl List {
     }
 
     pub fn select_from_cursor_to_end(&mut self, state: &mut AppState) {
-        // Get all entries from cursor to end, filter out directories and skipped scripts
+        // Get all entries from cursor to end, recursively process directories
         let flattened = self.tree_state.flattened().to_vec();
         let current_cursor = self.tree_state.cursor();
 
         let root_dir = self.base.clone();
         let script_memory = self.script_memory.clone();
         let dispatcher = self.dispatcher.clone();
+        let file_explorer = self.file_explorer.clone();
 
         tokio::spawn(async move {
             let mut items: Vec<String> = Vec::new();
 
             for node in flattened.iter().skip(current_cursor) {
-                if !node.entry.is_directory {
+                if node.entry.is_directory {
+                    // Recursively get all files in this directory
+                    let dir_path = root_dir.join(&node.entry.relative_path);
+                    match file_explorer.list_sql_files_recursive(&dir_path).await {
+                        Ok(paths) => {
+                            for path in paths {
+                                if let Ok(relative_path) = path.strip_prefix(&root_dir) {
+                                    let path_str = relative_path.to_string_lossy().to_string();
+
+                                    // Check if script is skipped
+                                    let is_skipped = script_memory.get_script_record(&path_str)
+                                        .ok()
+                                        .flatten()
+                                        .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                        .unwrap_or(false);
+
+                                    if !is_skipped {
+                                        items.push(path_str);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to get children for directory {}: {}", node.entry.relative_path, e);
+                        }
+                    }
+                } else {
+                    // It's a file
                     let path_str = node.entry.relative_path.clone();
 
                     // Check if script is skipped
