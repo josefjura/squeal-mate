@@ -41,6 +41,7 @@ impl CommandBar {
                     ("A", "clear all"),
                     ("r", "run"),
                     ("c", "clear output"),
+                    ("C", "check changes"),
                     ("tab", "switch panel"),
                     ("?", "help"),
                     ("q", "quit"),

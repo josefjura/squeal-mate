@@ -298,6 +298,13 @@ impl App {
                         (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('c')) => {
                             action_tx.send(Action::ClearOutput)?
                         }
+                        // Check for changes (CRC check) - available in FileTree
+                        (Mode::Unified, KeyCode::Char('C')) if self.focused_panel == PanelFocus::FileTree => {
+                            action_tx.send(Action::CheckForChanges)?
+                        }
+                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('C')) => {
+                            action_tx.send(Action::CheckForChanges)?
+                        }
                         (Mode::FileChooser, KeyCode::Tab) => {
                             action_tx.send(Action::SwitchMode(Mode::ScriptRunner))?
                         }

@@ -40,6 +40,7 @@ pub enum Action {
     ScriptError(String, String, Option<u32>),
     ClearOutput,  // Clear execution output
     CalculateEntryStatus,
+    CheckForChanges,  // Check for file modifications (CRC check)
     EntryStatusChanged(String, EntryStatus),
 
     // Async loading actions

@@ -90,8 +90,52 @@ impl MigrationService {
         self.tracker.get_status(path, checksum).await
     }
 
-    /// Calculate checksums for all scripts and dispatch status updates
+    /// Get database status for all scripts and dispatch status updates
+    /// Does NOT check for file modifications - use check_for_changes() for that
     pub fn calculate_statuses(
+        &self,
+        scripts: Vec<ScriptPath>,
+        dispatcher: &ActionDispatcher,
+    ) {
+        let tracker = self.tracker.clone();
+        let disp = dispatcher.clone();
+        let total = scripts.len();
+
+        tokio::spawn(async move {
+            for (index, script_path) in scripts.iter().enumerate() {
+                // Send progress update
+                disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
+
+                // Get status from database only (no CRC checking)
+                match tracker.get_status(script_path, Checksum::from_value(0)).await {
+                    Ok(status) => {
+                        // Convert ScriptStatus to EntryStatus
+                        // Note: We'll never get Modified status here since we don't check CRC
+                        let entry_status = match status {
+                            ScriptStatus::NeverRun => crate::entries::EntryStatus::NeverStarted,
+                            ScriptStatus::UpToDate => crate::entries::EntryStatus::Finished(true),
+                            ScriptStatus::Modified => crate::entries::EntryStatus::Changed, // Won't happen without CRC check
+                            ScriptStatus::Failed { .. } => crate::entries::EntryStatus::Finished(false),
+                            ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
+                            ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
+                        };
+
+                        disp.dispatch(Action::EntryStatusChanged(
+                            script_path.to_string(),
+                            entry_status,
+                        ));
+                    }
+                    Err(e) => {
+                        log::error!("Failed to get status for {}: {}", script_path, e);
+                    }
+                }
+            }
+        });
+    }
+
+    /// Check for file modifications by comparing CRC checksums
+    /// Only checks scripts that have been executed before (not NeverRun or Skipped)
+    pub fn check_for_changes(
         &self,
         scripts: Vec<ScriptPath>,
         dispatcher: &ActionDispatcher,
@@ -105,42 +149,22 @@ impl MigrationService {
             for (index, script_path) in scripts.iter().enumerate() {
                 // Send progress update
                 disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
-                // Read the script to get its checksum
+
+                // Read the script to get its current checksum
                 match repo.read_script(script_path).await {
                     Ok(script) => {
                         match tracker.get_status(script_path, script.checksum).await {
                             Ok(status) => {
-                                // Use business logic methods for logging/diagnostics
-                                if status.needs_attention() {
-                                    log::debug!("Script {} needs attention", script_path);
+                                // Only update if status is Modified
+                                if status == ScriptStatus::Modified {
+                                    disp.dispatch(Action::EntryStatusChanged(
+                                        script_path.to_string(),
+                                        crate::entries::EntryStatus::Changed,
+                                    ));
                                 }
-                                if !status.can_execute() {
-                                    log::debug!("Script {} is up-to-date, skipping", script_path);
-                                }
-
-                                // Convert ScriptStatus to EntryStatus for backwards compatibility
-                                let entry_status = match status {
-                                    ScriptStatus::NeverRun => {
-                                        crate::entries::EntryStatus::NeverStarted
-                                    }
-                                    ScriptStatus::UpToDate => {
-                                        crate::entries::EntryStatus::Finished(true)
-                                    }
-                                    ScriptStatus::Modified => crate::entries::EntryStatus::Changed,
-                                    ScriptStatus::Failed { .. } => {
-                                        crate::entries::EntryStatus::Finished(false)
-                                    }
-                                    ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
-                                    ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
-                                };
-
-                                disp.dispatch(Action::EntryStatusChanged(
-                                    script_path.to_string(),
-                                    entry_status,
-                                ));
                             }
                             Err(e) => {
-                                log::error!("Failed to get status for {}: {}", script_path, e);
+                                log::error!("Failed to check CRC for {}: {}", script_path, e);
                             }
                         }
                     }

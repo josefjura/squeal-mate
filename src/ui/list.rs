@@ -910,6 +910,31 @@ impl Component for List {
 
                 return Ok(None);
             }
+            Action::CheckForChanges => {
+                // Check for file modifications (CRC check)
+                // Get all entries from tree
+                let entries = self.tree_state.entries();
+
+                // Use MigrationService if available
+                if let (Some(migration_service), Some(dispatcher)) =
+                    (&self.migration_service, &self.dispatcher) {
+                    use crate::domain::ScriptPath;
+
+                    // Convert entries to ScriptPaths (only files, not directories)
+                    let script_paths: Vec<ScriptPath> = entries
+                        .iter()
+                        .filter(|e| !e.is_directory)
+                        .filter_map(|e| {
+                            ScriptPath::new(e.relative_path.clone()).ok()
+                        })
+                        .collect();
+
+                    // Use service to check for changes asynchronously
+                    migration_service.check_for_changes(script_paths, dispatcher);
+                }
+
+                return Ok(None);
+            }
             Action::EntryStatusChanged(path, status) => {
                 self.tree_state.update_entry_status(&path, status);
                 return Ok(None);
