@@ -8,7 +8,14 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct ScriptDatabaseRecord {
     pub crc: u32,
-    pub result: bool,
+    pub result: ScriptResult,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptResult {
+    Success,
+    Error,
+    Skipped,
 }
 
 #[derive(Clone, Debug)]
@@ -31,19 +38,36 @@ impl ScriptDatabase {
         Ok(ScriptDatabase { db_name: filename })
     }
 
-    pub fn insert(&self, file: String, crc: u32, result: bool) -> eyre::Result<()> {
+    pub fn insert(&self, file: String, crc: u32, result: ScriptResult) -> eyre::Result<()> {
         let conn = Connection::open(self.db_name.clone())?;
         // Prepare the statement and insert the records
         let mut stmt = conn.prepare(
             "
-						INSERT INTO scripts (name, crc, result) 
-						VALUES (:name, :crc, :result) ON CONFLICT(name) 
+						INSERT INTO scripts (name, crc, result)
+						VALUES (:name, :crc, :result) ON CONFLICT(name)
          		DO UPDATE SET crc = excluded.crc, result = excluded.result
 						",
         )?;
-        let res_text = if result { 1 } else { 0 };
-        stmt.execute(named_params! { ":name": file, ":crc": crc, ":result": res_text })?;
+        let res_value = match result {
+            ScriptResult::Success => 1,
+            ScriptResult::Error => 0,
+            ScriptResult::Skipped => -1,
+        };
+        stmt.execute(named_params! { ":name": file, ":crc": crc, ":result": res_value })?;
 
+        Ok(())
+    }
+
+    /// Mark a script as skipped (we don't care about CRC for skipped scripts, use 0)
+    pub fn mark_skipped(&self, file: String) -> eyre::Result<()> {
+        self.insert(file, 0, ScriptResult::Skipped)
+    }
+
+    /// Remove skip status (delete the record so script appears as Not Run)
+    pub fn unmark_skipped(&self, file: String) -> eyre::Result<()> {
+        let conn = Connection::open(self.db_name.clone())?;
+        let mut stmt = conn.prepare("DELETE FROM scripts WHERE name = ?")?;
+        stmt.execute([file])?;
         Ok(())
     }
 
@@ -115,9 +139,16 @@ impl ScriptDatabase {
         let query = "SELECT crc, result FROM scripts WHERE name = ?";
         let mut stmt = conn.prepare(query)?;
         let mut rows = stmt.query_map([file_path], |row| {
+            let result_value = row.get::<_, i32>(1)?;
+            let result = match result_value {
+                1 => ScriptResult::Success,
+                0 => ScriptResult::Error,
+                -1 => ScriptResult::Skipped,
+                _ => ScriptResult::Error, // Default to error for unknown values
+            };
             Ok(ScriptDatabaseRecord {
                 crc: row.get::<_, u32>(0)?,
-                result: row.get::<_, bool>(1)?,
+                result,
             })
         })?;
 
@@ -137,9 +168,16 @@ impl ScriptDatabase {
         // Prepare the statement and query the database for the matching record
         let mut stmt = conn.prepare(query)?;
         let mut rows = stmt.query_map([file_path], |row| {
+            let result_value = row.get::<_, i32>(2)?;
+            let result = match result_value {
+                1 => ScriptResult::Success,
+                0 => ScriptResult::Error,
+                -1 => ScriptResult::Skipped,
+                _ => ScriptResult::Error,
+            };
             Ok(ScriptDatabaseRecord {
-                crc: row.get::<_, u32>(1)?,     // Using String for CRC
-                result: row.get::<_, bool>(2)?, // Using bool for result
+                crc: row.get::<_, u32>(1)?,
+                result,
             })
         })?;
 
@@ -147,8 +185,11 @@ impl ScriptDatabase {
         match rows.next() {
             Some(record) => match record {
                 Ok(record) => {
-                    if record.crc == *crc {
-                        Ok(EntryStatus::Finished(record.result))
+                    if record.result == ScriptResult::Skipped {
+                        Ok(EntryStatus::Skipped)
+                    } else if record.crc == *crc {
+                        let success = record.result == ScriptResult::Success;
+                        Ok(EntryStatus::Finished(success))
                     } else {
                         Ok(EntryStatus::Changed)
                     }

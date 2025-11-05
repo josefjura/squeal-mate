@@ -18,6 +18,7 @@ pub enum EntryStatus {
     Unknown,
     Directory,
     Loading,  // New: file/directory is being processed
+    Skipped,  // Marked to be skipped (user-defined, persisted in DB)
 }
 
 impl Display for ListEntry {

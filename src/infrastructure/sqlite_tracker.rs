@@ -2,7 +2,7 @@
 
 use crate::domain::{Checksum, DomainResult, ExecutionResult, ExecutionTracker, ScriptPath, ScriptStatus};
 use crate::infrastructure::error::InfraError;
-use crate::script_memory::ScriptDatabase;
+use crate::script_memory::{ScriptDatabase, ScriptResult};
 use async_trait::async_trait;
 
 /// SQLite implementation of execution tracker
@@ -27,11 +27,17 @@ impl ExecutionTracker for SqliteTracker {
         path: &ScriptPath,
         result: &ExecutionResult,
     ) -> DomainResult<()> {
+        let script_result = if result.success {
+            ScriptResult::Success
+        } else {
+            ScriptResult::Error
+        };
+
         self.db
             .insert(
                 path.to_string(),
                 result.checksum.value(),
-                result.success,
+                script_result,
             )
             .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error
 
@@ -48,9 +54,21 @@ impl ExecutionTracker for SqliteTracker {
             .get_script_record(&path.to_string())
             .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
+        // Check if the script is marked as skipped
+        if let Some(ref rec) = record {
+            if rec.result == ScriptResult::Skipped {
+                // Script is marked as skipped, return NeverRun
+                // The UI layer will convert this to EntryStatus::Skipped based on the database record
+                return Ok(ScriptStatus::NeverRun);
+            }
+        }
+
         // Determine execution history from the stored record
         let (has_been_executed, last_execution_succeeded, stored_checksum) = match record {
-            Some(rec) => (true, rec.result, Some(Checksum::from_value(rec.crc))),
+            Some(rec) => {
+                let success = rec.result == ScriptResult::Success;
+                (true, success, Some(Checksum::from_value(rec.crc)))
+            }
             None => (false, false, None),
         };
 

@@ -822,6 +822,8 @@ impl Component for List {
                     EntryStatus::NeverStarted => {
                         ("\u{2022}", Style::new().fg(Color::Cyan))
                     }
+                    // ⊗ Skipped (marked to never run)
+                    EntryStatus::Skipped => ("\u{2297}", Style::new().fg(Color::DarkGray)),
                     // (directory has blue background, no icon needed)
                     EntryStatus::Directory => (" ", Style::default().bg(Color::LightBlue)),
                     // ⧗ Loading/calculating status
