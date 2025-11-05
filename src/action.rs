@@ -21,6 +21,7 @@ pub enum Action {
     CursorToTop,
     CursorToBottom,
     JumpToNextNotRun,  // Jump to next Not Run script (skipping Success/Error/Skipped)
+    JumpToPath(String),  // Jump to a specific path (expands parents and navigates)
     SelectFromCursorToEnd,  // Select all scripts from cursor to end
 
     // Directory actions

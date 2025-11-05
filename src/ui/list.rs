@@ -358,51 +358,83 @@ impl List {
     }
 
     pub fn jump_to_next_not_run(&mut self) {
-        // Get ALL files from the tree (including those in collapsed directories)
-        let all_files = self.tree_state.collect_all_files();
+        // Search through filesystem (not just loaded tree) to handle lazy-loaded directories
+        let root_dir = self.base.clone();
+        let file_explorer = self.file_explorer.clone();
+        let script_memory = self.script_memory.clone();
+        let dispatcher = self.dispatcher.clone();
 
-        if all_files.is_empty() {
-            return;
-        }
-
-        // Get current selection to know where we are
         let current_path = self.tree_state.selected_node()
             .map(|n| n.entry.relative_path);
 
-        // Find current position in the all_files list
-        let current_index = if let Some(ref path) = current_path {
-            all_files.iter().position(|(p, _)| p == path)
-        } else {
-            None
-        };
+        // Spawn async search
+        tokio::spawn(async move {
+            // Get all SQL files from filesystem
+            match file_explorer.list_sql_files_recursive(&root_dir).await {
+                Ok(paths) => {
+                    let mut all_files: Vec<(String, EntryStatus)> = Vec::new();
 
-        let start_index = current_index.map(|i| i + 1).unwrap_or(0);
+                    for path in paths {
+                        if let Ok(relative_path) = path.strip_prefix(&root_dir) {
+                            let path_str = relative_path.to_string_lossy().to_string();
 
-        // Search forward from current position
-        for i in start_index..all_files.len() {
-            let (path, status) = &all_files[i];
-            if *status == EntryStatus::NeverStarted {
-                // Found a Not Run file - expand path and jump to it
-                if let Some(index) = self.tree_state.expand_and_find_path(path) {
-                    self.tree_state.set_cursor(index);
-                    self.widget_state.select(Some(index));
-                    return;
+                            // Get status from script memory
+                            // For navigation purposes, we just need to know if it's never been run
+                            // We don't need to check for modifications (that would require reading file content)
+                            let status = match script_memory.get_script_record(&path_str) {
+                                Ok(Some(record)) => {
+                                    match record.result {
+                                        crate::script_memory::ScriptResult::Success => EntryStatus::Finished(true),
+                                        crate::script_memory::ScriptResult::Error => EntryStatus::Finished(false),
+                                        crate::script_memory::ScriptResult::Skipped => EntryStatus::Skipped,
+                                    }
+                                }
+                                Ok(None) => EntryStatus::NeverStarted,
+                                Err(_) => EntryStatus::Unknown,
+                            };
+
+                            all_files.push((path_str, status));
+                        }
+                    }
+
+                    // Find current position
+                    let current_index = if let Some(ref path) = current_path {
+                        all_files.iter().position(|(p, _)| p == path)
+                    } else {
+                        None
+                    };
+
+                    let start_index = current_index.map(|i| i + 1).unwrap_or(0);
+
+                    // Search forward from current position
+                    for i in start_index..all_files.len() {
+                        let (path, status) = &all_files[i];
+                        if *status == EntryStatus::NeverStarted {
+                            // Found a Not Run file - dispatch action to navigate to it
+                            if let Some(ref disp) = dispatcher {
+                                disp.dispatch(Action::JumpToPath(path.clone()));
+                            }
+                            return;
+                        }
+                    }
+
+                    // Wrap around to the beginning
+                    for i in 0..start_index {
+                        let (path, status) = &all_files[i];
+                        if *status == EntryStatus::NeverStarted {
+                            // Found a Not Run file - dispatch action to navigate to it
+                            if let Some(ref disp) = dispatcher {
+                                disp.dispatch(Action::JumpToPath(path.clone()));
+                            }
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to list files for jump_to_next_not_run: {}", e);
                 }
             }
-        }
-
-        // Wrap around to the beginning
-        for i in 0..start_index {
-            let (path, status) = &all_files[i];
-            if *status == EntryStatus::NeverStarted {
-                // Found a Not Run file - expand path and jump to it
-                if let Some(index) = self.tree_state.expand_and_find_path(path) {
-                    self.tree_state.set_cursor(index);
-                    self.widget_state.select(Some(index));
-                    return;
-                }
-            }
-        }
+        });
     }
 
     pub fn select_from_cursor_to_end(&mut self, state: &mut AppState) {
@@ -764,6 +796,34 @@ impl Component for List {
             }
             Action::JumpToNextNotRun => {
                 self.jump_to_next_not_run();
+                return Ok(None);
+            }
+            Action::JumpToPath(path) => {
+                // Try to expand and find the path
+                if let Some(index) = self.tree_state.expand_and_find_path(&path) {
+                    self.tree_state.set_cursor(index);
+                    self.widget_state.select(Some(index));
+                    return Ok(Some(Action::Render));
+                } else {
+                    // Path not in tree yet - need to load parent directory first
+                    // Extract parent path
+                    if let Some(parent_idx) = path.rfind('/') {
+                        let parent_path = &path[..parent_idx];
+                        // Try to load the parent directory
+                        if let Err(e) = self.load_directory_children(parent_path) {
+                            log::error!("Failed to load parent directory {}: {}", parent_path, e);
+                        }
+                        // Re-dispatch JumpToPath after a delay to try again
+                        if let Some(ref disp) = self.dispatcher {
+                            let path_clone = path.clone();
+                            let disp_clone = disp.clone();
+                            tokio::spawn(async move {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                                disp_clone.dispatch(Action::JumpToPath(path_clone));
+                            });
+                        }
+                    }
+                }
                 return Ok(None);
             }
             Action::SelectFromCursorToEnd => {
