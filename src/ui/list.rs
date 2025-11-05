@@ -347,6 +347,7 @@ impl List {
         }
 
         let entry = entry.unwrap();
+        let command_tx = self.command_tx.clone();
 
         if entry.is_directory {
             // Toggle skip for all files in directory (recursively)
@@ -367,13 +368,23 @@ impl List {
 
                                 // Toggle: if currently skipped, unmark; otherwise mark as skipped
                                 let result = if is_currently_skipped {
-                                    script_memory.unmark_skipped(path_str)
+                                    script_memory.unmark_skipped(path_str.clone())
                                 } else {
-                                    script_memory.mark_skipped(path_str)
+                                    script_memory.mark_skipped(path_str.clone())
                                 };
 
                                 if let Err(e) = result {
                                     log::error!("Failed to toggle skip status: {}", e);
+                                } else {
+                                    // Dispatch status change for immediate UI update
+                                    let new_status = if is_currently_skipped {
+                                        EntryStatus::NeverStarted
+                                    } else {
+                                        EntryStatus::Skipped
+                                    };
+                                    if let Some(ref tx) = command_tx {
+                                        let _ = tx.send(Action::EntryStatusChanged(path_str, new_status));
+                                    }
                                 }
                             }
                         }
@@ -391,20 +402,25 @@ impl List {
 
             tokio::spawn(async move {
                 let result = if is_currently_skipped {
-                    script_memory.unmark_skipped(path)
+                    script_memory.unmark_skipped(path.clone())
                 } else {
-                    script_memory.mark_skipped(path)
+                    script_memory.mark_skipped(path.clone())
                 };
 
                 if let Err(e) = result {
                     log::error!("Failed to toggle skip status: {}", e);
+                } else {
+                    // Dispatch status change for immediate UI update
+                    let new_status = if is_currently_skipped {
+                        EntryStatus::NeverStarted
+                    } else {
+                        EntryStatus::Skipped
+                    };
+                    if let Some(ref tx) = command_tx {
+                        let _ = tx.send(Action::EntryStatusChanged(path, new_status));
+                    }
                 }
             });
-        }
-
-        // Trigger status recalculation to update UI
-        if let Some(ref tx) = self.command_tx {
-            let _ = tx.send(Action::CalculateEntryStatus);
         }
     }
 
