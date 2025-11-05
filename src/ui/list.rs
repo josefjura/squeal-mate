@@ -210,6 +210,41 @@ impl List {
         Ok(())
     }
 
+    /// Expand current directory (right arrow) - only expands, doesn't toggle
+    pub fn expand_current_directory(&mut self) -> eyre::Result<()> {
+        let (success, needs_load) = self.tree_state.expand_current();
+
+        if success {
+            self.widget_state.select(Some(self.tree_state.cursor()));
+
+            // Load children if needed
+            if needs_load {
+                if let Some(node) = self.tree_state.selected_node() {
+                    let dir_path = node.entry.relative_path.clone();
+                    self.load_directory_children(&dir_path)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Collapse current folder or move to parent (left arrow)
+    pub fn collapse_current_or_goto_parent(&mut self) -> eyre::Result<()> {
+        let (collapsed, parent_index) = self.tree_state.collapse_current_or_goto_parent();
+
+        if collapsed {
+            // Successfully collapsed the current directory
+            self.widget_state.select(Some(self.tree_state.cursor()));
+        } else if let Some(parent_idx) = parent_index {
+            // Move to parent
+            self.tree_state.set_cursor(parent_idx);
+            self.widget_state.select(Some(parent_idx));
+        }
+
+        Ok(())
+    }
+
     /// Collapse current folder or move to parent (tree view)
     pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
         // In tree view, we can collapse the current folder if it's expanded
@@ -389,6 +424,7 @@ impl List {
     /// Get the currently highlighted script for the preview panel
     fn get_highlighted_script(&mut self, state: &AppState) -> Option<Action> {
         use crate::app::{Script, ScriptState};
+        use crate::entries::EntryStatus;
 
         // Get the currently selected entry
         let entry = self.get_selection()?;
@@ -398,18 +434,25 @@ impl List {
             return Some(Action::ScriptHighlighted(None));
         }
 
-        // Check if script is in the selected/executed list
+        // Check if script is in the selected/executed list (current session)
         let script = if let Some(existing) = state.selected
             .iter()
             .find(|s| s.relative_path == entry.relative_path)
         {
-            // Use existing script with execution state
+            // Use existing script with execution state from current session
             existing.clone()
         } else {
-            // Create new script entry for preview
+            // Map the entry status (from database/checksum) to script state
+            let script_state = match entry.status {
+                EntryStatus::Finished(true) => ScriptState::Finished,
+                EntryStatus::Finished(false) => ScriptState::Error,
+                _ => ScriptState::None,
+            };
+
+            // Create new script entry for preview with persisted state
             Script {
                 relative_path: entry.relative_path.clone(),
-                state: ScriptState::None,
+                state: script_state,
                 error: None,
                 elapsed: None,
             }
@@ -461,6 +504,14 @@ impl Component for List {
             }
             Action::DirectoryOpenSelected => {
                 self.open_selected_directory()?;
+                return Ok(None);
+            }
+            Action::DirectoryExpand => {
+                self.expand_current_directory()?;
+                return Ok(None);
+            }
+            Action::DirectoryCollapse => {
+                self.collapse_current_or_goto_parent()?;
                 return Ok(None);
             }
             Action::SelectCurrent => {

@@ -23,6 +23,8 @@ pub enum Action {
 
     // Directory actions
     DirectoryOpenSelected,
+    DirectoryExpand,   // Right arrow: expand directory (open only, don't toggle)
+    DirectoryCollapse, // Left arrow: collapse directory or go to parent
 
     // Help
     ToggleHelp,
@@ -56,4 +58,12 @@ pub enum Action {
     // Panel navigation (for unified view)
     FocusNextPanel,
     FocusPreviousPanel,
+    PanelFocusChanged(PanelFocus),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelFocus {
+    FileTree,
+    ScriptPreview,
+    ExecutionLog,
 }

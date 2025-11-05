@@ -269,6 +269,11 @@ impl TreeState {
         }
     }
 
+    /// Set cursor to specific position
+    pub fn set_cursor(&mut self, position: usize) {
+        self.cursor = position;
+    }
+
     /// Toggle expanded state of current node
     pub fn toggle_current_expansion(&mut self) -> bool {
         let flattened = self.flattened().to_vec();
@@ -279,6 +284,87 @@ impl TreeState {
                 // Find and toggle the actual node
                 self.toggle_node_by_path(&node.entry.relative_path);
                 self.cache_dirty = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Expand current node (right arrow) - only expands, doesn't toggle
+    /// Returns (success, needs_children_load)
+    pub fn expand_current(&mut self) -> (bool, bool) {
+        let flattened = self.flattened().to_vec();
+        if let Some(node) = flattened.get(self.cursor) {
+            if node.entry.is_directory {
+                let was_expanded = node.expanded;
+                let has_children = node.has_children;
+
+                if !was_expanded {
+                    // Expand the node
+                    self.expand_node_by_path(&node.entry.relative_path);
+                    self.cache_dirty = true;
+                    return (true, !has_children);
+                }
+            }
+        }
+        (false, false)
+    }
+
+    /// Collapse current node or move to parent (left arrow)
+    /// Returns (collapsed_current, parent_index)
+    pub fn collapse_current_or_goto_parent(&mut self) -> (bool, Option<usize>) {
+        let flattened = self.flattened().to_vec();
+        if let Some(node) = flattened.get(self.cursor) {
+            if node.entry.is_directory && node.expanded {
+                // Directory is expanded - collapse it
+                self.collapse_node_by_path(&node.entry.relative_path);
+                self.cache_dirty = true;
+                return (true, None);
+            } else {
+                // File or collapsed directory - find parent
+                let parent_depth = if node.depth > 0 { node.depth - 1 } else { 0 };
+
+                // Look backwards to find the parent (first node with depth = parent_depth)
+                for (i, ancestor) in flattened[..self.cursor].iter().enumerate().rev() {
+                    if ancestor.depth == parent_depth && ancestor.entry.is_directory {
+                        return (false, Some(i));
+                    }
+                }
+            }
+        }
+        (false, None)
+    }
+
+    fn expand_node_by_path(&mut self, path: &str) -> bool {
+        Self::expand_node_recursive_static(&mut self.root, path)
+    }
+
+    fn expand_node_recursive_static(node: &mut TreeNode, path: &str) -> bool {
+        if node.entry.relative_path == path {
+            node.expanded = true;
+            return true;
+        }
+
+        for child in &mut node.children {
+            if Self::expand_node_recursive_static(child, path) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn collapse_node_by_path(&mut self, path: &str) -> bool {
+        Self::collapse_node_recursive_static(&mut self.root, path)
+    }
+
+    fn collapse_node_recursive_static(node: &mut TreeNode, path: &str) -> bool {
+        if node.entry.relative_path == path {
+            node.expanded = false;
+            return true;
+        }
+
+        for child in &mut node.children {
+            if Self::collapse_node_recursive_static(child, path) {
                 return true;
             }
         }

@@ -7,13 +7,14 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::Action, app::AppState, infrastructure::Settings, tui::Frame};
+use crate::{action::{Action, PanelFocus}, app::AppState, infrastructure::Settings, tui::Frame};
 
 /// Persistent command bar shown at the bottom of the screen
 /// Displays context-sensitive keyboard shortcuts
 pub struct CommandBar {
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
+    focused_panel: Option<PanelFocus>,  // Track focused panel in unified view
 }
 
 impl CommandBar {
@@ -21,21 +22,45 @@ impl CommandBar {
         Self {
             command_tx: None,
             config: Settings::default(),
+            focused_panel: None,
         }
     }
 
     fn get_commands(&self) -> Vec<(&str, &str)> {
-        vec![
-            ("↑↓/jk", "navigate"),
-            ("enter", "expand/collapse"),
-            ("space", "select"),
-            ("A", "clear all"),
-            ("r", "run"),
-            ("c", "clear output"),
-            ("tab", "switch view"),
-            ("?", "help"),
-            ("q", "quit"),
-        ]
+        match self.focused_panel {
+            Some(PanelFocus::FileTree) | None => {
+                // File tree commands (or default when no panel focus)
+                vec![
+                    ("↑↓/jk", "navigate"),
+                    ("←→", "collapse/expand"),
+                    ("enter", "toggle"),
+                    ("space", "select"),
+                    ("A", "clear all"),
+                    ("r", "run"),
+                    ("c", "clear output"),
+                    ("tab", "switch panel"),
+                    ("?", "help"),
+                    ("q", "quit"),
+                ]
+            }
+            Some(PanelFocus::ScriptPreview) => {
+                // Script preview commands (read-only)
+                vec![
+                    ("tab", "switch panel"),
+                    ("?", "help"),
+                    ("q", "quit"),
+                ]
+            }
+            Some(PanelFocus::ExecutionLog) => {
+                // Execution log commands (could add scrolling later)
+                vec![
+                    ("c", "clear output"),
+                    ("tab", "switch panel"),
+                    ("?", "help"),
+                    ("q", "quit"),
+                ]
+            }
+        }
     }
 }
 
@@ -59,8 +84,15 @@ impl Component for CommandBar {
         Ok(None)
     }
 
-    fn update(&mut self, _state: &mut AppState, _action: Action) -> Result<Option<Action>> {
-        // Command bar doesn't need to update
+    fn update(&mut self, _state: &mut AppState, action: Action) -> Result<Option<Action>> {
+        // Listen for panel focus changes
+        match action {
+            Action::PanelFocusChanged(focus) => {
+                self.focused_panel = Some(focus);
+                return Ok(Some(Action::Render));
+            }
+            _ => {}
+        }
         Ok(None)
     }
 

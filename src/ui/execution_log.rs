@@ -165,6 +165,10 @@ impl Component for ExecutionLog {
                 );
                 Ok(Some(Action::Render))
             }
+            Action::ClearOutput => {
+                self.log_entries.clear();
+                Ok(Some(Action::Render))
+            }
             _ => Ok(None),
         }
     }

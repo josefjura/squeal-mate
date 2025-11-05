@@ -8,7 +8,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
 use crate::{
-    action::Action,
+    action::{Action, PanelFocus},
     app::AppState,
     infrastructure::Settings,
     tui::Frame,
@@ -32,13 +32,6 @@ pub struct UnifiedView {
 
     // Panel focus state
     focused_panel: PanelFocus,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PanelFocus {
-    FileTree,
-    ScriptPreview,
-    ExecutionLog,
 }
 
 impl UnifiedView {
@@ -157,6 +150,10 @@ impl Component for UnifiedView {
                     PanelFocus::ScriptPreview => PanelFocus::ExecutionLog,
                     PanelFocus::ExecutionLog => PanelFocus::FileTree,
                 };
+                // Notify other components of focus change
+                if let Some(ref tx) = self.command_tx {
+                    let _ = tx.send(Action::PanelFocusChanged(self.focused_panel));
+                }
                 return Ok(Some(Action::Render));
             }
             Action::FocusPreviousPanel => {
@@ -165,6 +162,10 @@ impl Component for UnifiedView {
                     PanelFocus::ExecutionLog => PanelFocus::ScriptPreview,
                     PanelFocus::ScriptPreview => PanelFocus::FileTree,
                 };
+                // Notify other components of focus change
+                if let Some(ref tx) = self.command_tx {
+                    let _ = tx.send(Action::PanelFocusChanged(self.focused_panel));
+                }
                 return Ok(Some(Action::Render));
             }
             _ => {}
