@@ -2,6 +2,8 @@ use crate::{infrastructure::get_script_database, entries::EntryStatus};
 use color_eyre::eyre::{self};
 use rusqlite::{named_params, Connection};
 use std::path::PathBuf;
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -20,26 +22,37 @@ pub enum ScriptResult {
 
 #[derive(Clone, Debug)]
 pub struct ScriptDatabase {
-    db_name: PathBuf,
+    pool: Pool<SqliteConnectionManager>,
 }
 
 impl ScriptDatabase {
     pub async fn new() -> eyre::Result<Self> {
         let filename = get_script_database();
-        let conn = Connection::open(filename.clone())?;
+
+        // Create connection manager
+        let manager = SqliteConnectionManager::file(&filename);
+
+        // Build connection pool with sensible defaults
+        let pool = Pool::builder()
+            .max_size(5) // Max 5 connections (SQLite limitation on concurrent writers)
+            .build(manager)?;
+
+        // Initialize the database schema using a pooled connection
+        let conn = pool.get()?;
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS scripts (							
+            "CREATE TABLE IF NOT EXISTS scripts (
 							name  TEXT NOT NULL PRIMARY KEY,
-							result INTEGER NOT NULL,						
+							result INTEGER NOT NULL,
 							crc	 	INTEGER NOT NULL
 					)",
             (), // empty list of parameters.
         )?;
-        Ok(ScriptDatabase { db_name: filename })
+
+        Ok(ScriptDatabase { pool })
     }
 
     pub fn insert(&self, file: String, crc: u32, result: ScriptResult) -> eyre::Result<()> {
-        let conn = Connection::open(self.db_name.clone())?;
+        let conn = self.pool.get()?;
         // Prepare the statement and insert the records
         let mut stmt = conn.prepare(
             "
@@ -65,7 +78,7 @@ impl ScriptDatabase {
 
     /// Remove skip status (delete the record so script appears as Not Run)
     pub fn unmark_skipped(&self, file: String) -> eyre::Result<()> {
-        let conn = Connection::open(self.db_name.clone())?;
+        let conn = self.pool.get()?;
         let mut stmt = conn.prepare("DELETE FROM scripts WHERE name = ?")?;
         stmt.execute([file])?;
         Ok(())
@@ -134,7 +147,7 @@ impl ScriptDatabase {
     /// Get the stored checksum and result for a script
     /// Returns None if the script has never been executed
     pub fn get_script_record(&self, file_path: &str) -> eyre::Result<Option<ScriptDatabaseRecord>> {
-        let conn = Connection::open(self.db_name.clone())?;
+        let conn = self.pool.get()?;
 
         let query = "SELECT crc, result FROM scripts WHERE name = ?";
         let mut stmt = conn.prepare(query)?;
@@ -161,7 +174,7 @@ impl ScriptDatabase {
     /// Get all script names that have been executed (Success, Error, or Skipped)
     /// Returns a HashSet for O(1) lookup
     pub fn get_all_executed_scripts(&self) -> eyre::Result<std::collections::HashSet<String>> {
-        let conn = Connection::open(self.db_name.clone())?;
+        let conn = self.pool.get()?;
         let mut stmt = conn.prepare("SELECT name FROM scripts")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
 
@@ -174,7 +187,7 @@ impl ScriptDatabase {
 
     #[allow(dead_code)]
     pub fn get_file_status(&self, file_path: &str, crc: &u32) -> eyre::Result<EntryStatus> {
-        let conn = Connection::open(self.db_name.clone())?;
+        let conn = self.pool.get()?;
 
         // Prepare the query to fetch the matching record for a single file
         let query = "SELECT name, crc, result FROM scripts WHERE name = ?";
@@ -223,7 +236,16 @@ impl ScriptDatabase {
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_path = std::env::temp_dir().join(format!("squealmate_test_{}.db", id));
 
-        let conn = Connection::open(&temp_path)?;
+        // Create connection manager for test database
+        let manager = SqliteConnectionManager::file(&temp_path);
+
+        // Build connection pool
+        let pool = Pool::builder()
+            .max_size(5)
+            .build(manager)?;
+
+        // Initialize the schema
+        let conn = pool.get()?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS scripts (
 							name  TEXT NOT NULL PRIMARY KEY,
@@ -232,7 +254,8 @@ impl ScriptDatabase {
 					)",
             (),
         )?;
-        Ok(ScriptDatabase { db_name: temp_path })
+
+        Ok(ScriptDatabase { pool })
     }
 }
 
@@ -244,14 +267,11 @@ mod tests {
     async fn test_new_database_creates_table() {
         let db = ScriptDatabase::new_test().unwrap();
 
-        // Verify table exists by querying it
-        let conn = Connection::open(&db.db_name).unwrap();
+        // Verify table exists by querying it using the pool
+        let conn = db.pool.get().unwrap();
         let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scripts'").unwrap();
         let exists: bool = stmt.exists([]).unwrap();
         assert!(exists, "scripts table should exist");
-
-        // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -262,8 +282,8 @@ mod tests {
         let result = db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success);
         assert!(result.is_ok(), "Insert should succeed");
 
-        // Verify it was inserted
-        let conn = Connection::open(&db.db_name).unwrap();
+        // Verify it was inserted using the pool
+        let conn = db.pool.get().unwrap();
         let mut stmt = conn.prepare("SELECT name, crc, result FROM scripts WHERE name = ?").unwrap();
         let mut rows = stmt.query(["test_script.sql"]).unwrap();
 
@@ -271,9 +291,6 @@ mod tests {
         assert_eq!(row.get::<_, String>(0).unwrap(), "test_script.sql");
         assert_eq!(row.get::<_, u32>(1).unwrap(), 12345);
         assert_eq!(row.get::<_, i32>(2).unwrap(), 1); // true = 1
-
-        // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -286,17 +303,14 @@ mod tests {
         // Update with different CRC and result
         db.insert("test_script.sql".to_string(), 67890, ScriptResult::Error).unwrap();
 
-        // Verify it was updated
-        let conn = Connection::open(&db.db_name).unwrap();
+        // Verify it was updated using the pool
+        let conn = db.pool.get().unwrap();
         let mut stmt = conn.prepare("SELECT crc, result FROM scripts WHERE name = ?").unwrap();
         let mut rows = stmt.query(["test_script.sql"]).unwrap();
 
         let row = rows.next().unwrap().unwrap();
         assert_eq!(row.get::<_, u32>(0).unwrap(), 67890);
         assert_eq!(row.get::<_, i32>(1).unwrap(), 0); // false = 0
-
-        // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -308,7 +322,6 @@ mod tests {
         assert!(matches!(status, EntryStatus::NeverStarted));
 
         // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -323,7 +336,6 @@ mod tests {
         assert!(matches!(status, EntryStatus::Finished(true)));
 
         // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -338,7 +350,6 @@ mod tests {
         assert!(matches!(status, EntryStatus::Finished(false)));
 
         // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -353,7 +364,6 @@ mod tests {
         assert!(matches!(status, EntryStatus::Changed));
 
         // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 
     #[tokio::test]
@@ -375,6 +385,5 @@ mod tests {
         assert!(matches!(status3, EntryStatus::Finished(true)));
 
         // Cleanup
-        std::fs::remove_file(&db.db_name).ok();
     }
 }

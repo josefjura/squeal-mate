@@ -30,6 +30,8 @@ cliclack = "0.3.5"
 # Database
 tiberius = { version = "0.12.3", features = ["integrated-auth-gssapi"] }
 rusqlite = { version = "0.32.0", features = ["bundled", "array"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
 
 # Configuration
 config = "0.15.18"
