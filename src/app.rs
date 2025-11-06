@@ -157,6 +157,37 @@ impl App {
         }
     }
 
+    /// Initialize components with action handlers and config
+    /// This is extracted for testing purposes
+    pub fn initialize_components(
+        &mut self,
+        action_tx: mpsc::UnboundedSender<Action>,
+        terminal_size: ratatui::layout::Size,
+    ) -> eyre::Result<()> {
+        // Register action handlers
+        for screen in self.screens.iter_mut() {
+            for component in screen.components.iter_mut() {
+                component.register_action_handler(action_tx.clone())?;
+            }
+        }
+
+        // Register config handlers
+        for screen in self.screens.iter_mut() {
+            for component in screen.components.iter_mut() {
+                component.register_config_handler(self.config.clone())?;
+            }
+        }
+
+        // Initialize components with terminal size
+        for screen in self.screens.iter_mut() {
+            for component in screen.components.iter_mut() {
+                component.init(terminal_size)?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn run(&mut self) -> eyre::Result<()> {
         let (action_tx, mut action_rx) = mpsc::unbounded_channel();
 
@@ -166,23 +197,8 @@ impl App {
         // tui.mouse(true);
         tui.enter()?;
 
-        for screen in self.screens.iter_mut() {
-            for component in screen.components.iter_mut() {
-                component.register_action_handler(action_tx.clone())?;
-            }
-        }
-
-        for screen in self.screens.iter_mut() {
-            for component in screen.components.iter_mut() {
-                component.register_config_handler(self.config.clone())?;
-            }
-        }
-
-        for screen in self.screens.iter_mut() {
-            for component in screen.components.iter_mut() {
-                component.init(tui.size()?)?;
-            }
-        }
+        // Use extracted initialization method
+        self.initialize_components(action_tx.clone(), tui.size()?)?;
 
         loop {
             if let Some(e) = tui.next().await {
