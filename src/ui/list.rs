@@ -808,11 +808,8 @@ impl Component for List {
                             // Get database-only status (no file reading, no CRC)
                             match memory.get_script_record(&entry.relative_path) {
                                 Ok(Some(record)) => {
-                                    let status = match record.result {
-                                        crate::script_memory::ScriptResult::Success => EntryStatus::Finished(true),
-                                        crate::script_memory::ScriptResult::Error => EntryStatus::Finished(false),
-                                        crate::script_memory::ScriptResult::Skipped => EntryStatus::Skipped,
-                                    };
+                                    // Convert ScriptResult to EntryStatus (using From trait)
+                                    let status = EntryStatus::from(record.result);
                                     send_through_channel(
                                         &channel,
                                         Action::EntryStatusChanged(entry.relative_path, status),

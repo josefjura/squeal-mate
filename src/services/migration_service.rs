@@ -47,15 +47,8 @@ impl MigrationService {
         // Get the updated status after recording
         let updated_status = self.tracker.get_status(&script.path, result.checksum).await?;
 
-        // Convert ScriptStatus to EntryStatus for UI updates
-        let entry_status = match updated_status {
-            ScriptStatus::NeverRun => crate::entries::EntryStatus::NeverStarted,
-            ScriptStatus::UpToDate => crate::entries::EntryStatus::Finished(true),
-            ScriptStatus::Modified => crate::entries::EntryStatus::Changed,
-            ScriptStatus::Failed { .. } => crate::entries::EntryStatus::Finished(false),
-            ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
-            ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
-        };
+        // Convert ScriptStatus to EntryStatus for UI updates (using From trait)
+        let entry_status = crate::entries::EntryStatus::from(updated_status);
 
         // Update the entry status in the UI
         dispatcher.dispatch(Action::EntryStatusChanged(
@@ -109,15 +102,8 @@ impl MigrationService {
                 // Get status from database only (no CRC checking)
                 match tracker.get_database_status(script_path).await {
                     Ok(status) => {
-                        // Convert ScriptStatus to EntryStatus
-                        let entry_status = match status {
-                            ScriptStatus::NeverRun => crate::entries::EntryStatus::NeverStarted,
-                            ScriptStatus::UpToDate => crate::entries::EntryStatus::Finished(true),
-                            ScriptStatus::Modified => crate::entries::EntryStatus::Changed,
-                            ScriptStatus::Failed { .. } => crate::entries::EntryStatus::Finished(false),
-                            ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
-                            ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
-                        };
+                        // Convert ScriptStatus to EntryStatus (using From trait)
+                        let entry_status = crate::entries::EntryStatus::from(status);
 
                         disp.dispatch(Action::EntryStatusChanged(
                             script_path.to_string(),
