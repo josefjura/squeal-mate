@@ -158,6 +158,20 @@ impl ScriptDatabase {
         }
     }
 
+    /// Get all script names that have been executed (Success, Error, or Skipped)
+    /// Returns a HashSet for O(1) lookup
+    pub fn get_all_executed_scripts(&self) -> eyre::Result<std::collections::HashSet<String>> {
+        let conn = Connection::open(self.db_name.clone())?;
+        let mut stmt = conn.prepare("SELECT name FROM scripts")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+
+        let mut scripts = std::collections::HashSet::new();
+        for row in rows {
+            scripts.insert(row?);
+        }
+        Ok(scripts)
+    }
+
     #[allow(dead_code)]
     pub fn get_file_status(&self, file_path: &str, crc: &u32) -> eyre::Result<EntryStatus> {
         let conn = Connection::open(self.db_name.clone())?;

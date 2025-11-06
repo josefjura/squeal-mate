@@ -485,6 +485,25 @@ impl TreeState {
         false
     }
 
+    /// Check if a directory path has children loaded
+    pub fn has_children_loaded(&self, path: &str) -> bool {
+        Self::has_children_loaded_recursive(&self.root, path)
+    }
+
+    fn has_children_loaded_recursive(node: &TreeNode, path: &str) -> bool {
+        if node.entry.relative_path == path {
+            return !node.children.is_empty();
+        }
+
+        for child in &node.children {
+            if Self::has_children_loaded_recursive(child, path) {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Collect all files from the tree (recursively, regardless of expansion state)
     pub fn collect_all_files(&self) -> Vec<(String, EntryStatus)> {
         self.root.collect_all_files()

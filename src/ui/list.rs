@@ -30,6 +30,7 @@ pub struct List {
     tree_state: TreeState,  // Tree view state with hierarchy
     file_explorer: Arc<FileExplorer>,  // Simple file browsing (no domain abstractions)
     script_memory: ScriptDatabase,
+    is_searching: bool,  // Flag for showing "Searching..." indicator
 }
 
 impl List {
@@ -50,6 +51,7 @@ impl List {
             file_explorer,
             base: base.clone(),
             tree_state,
+            is_searching: false,
         })
     }
 
@@ -358,7 +360,7 @@ impl List {
     }
 
     pub fn jump_to_next_not_run(&mut self) {
-        // Search through filesystem (not just loaded tree) to handle lazy-loaded directories
+        // Optimized batch search with progress indicator
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
         let script_memory = self.script_memory.clone();
@@ -367,72 +369,108 @@ impl List {
         let current_path = self.tree_state.selected_node()
             .map(|n| n.entry.relative_path);
 
+        // Show searching indicator
+        if let Some(ref disp) = dispatcher {
+            disp.dispatch(Action::SearchingForNextNotRun(true));
+        }
+
         // Spawn async search
         tokio::spawn(async move {
-            // Get all SQL files from filesystem
-            match file_explorer.list_sql_files_recursive(&root_dir).await {
-                Ok(paths) => {
-                    let mut all_files: Vec<(String, EntryStatus)> = Vec::new();
+            log::info!("Starting search for next Not Run script...");
 
-                    for path in paths {
-                        if let Ok(relative_path) = path.strip_prefix(&root_dir) {
-                            let path_str = relative_path.to_string_lossy().to_string();
-
-                            // Get status from script memory
-                            // For navigation purposes, we just need to know if it's never been run
-                            // We don't need to check for modifications (that would require reading file content)
-                            let status = match script_memory.get_script_record(&path_str) {
-                                Ok(Some(record)) => {
-                                    match record.result {
-                                        crate::script_memory::ScriptResult::Success => EntryStatus::Finished(true),
-                                        crate::script_memory::ScriptResult::Error => EntryStatus::Finished(false),
-                                        crate::script_memory::ScriptResult::Skipped => EntryStatus::Skipped,
-                                    }
-                                }
-                                Ok(None) => EntryStatus::NeverStarted,
-                                Err(_) => EntryStatus::Unknown,
-                            };
-
-                            all_files.push((path_str, status));
-                        }
-                    }
-
-                    // Find current position
-                    let current_index = if let Some(ref path) = current_path {
-                        all_files.iter().position(|(p, _)| p == path)
-                    } else {
-                        None
-                    };
-
-                    let start_index = current_index.map(|i| i + 1).unwrap_or(0);
-
-                    // Search forward from current position
-                    for i in start_index..all_files.len() {
-                        let (path, status) = &all_files[i];
-                        if *status == EntryStatus::NeverStarted {
-                            // Found a Not Run file - dispatch action to navigate to it
-                            if let Some(ref disp) = dispatcher {
-                                disp.dispatch(Action::JumpToPath(path.clone()));
-                            }
-                            return;
-                        }
-                    }
-
-                    // Wrap around to the beginning
-                    for i in 0..start_index {
-                        let (path, status) = &all_files[i];
-                        if *status == EntryStatus::NeverStarted {
-                            // Found a Not Run file - dispatch action to navigate to it
-                            if let Some(ref disp) = dispatcher {
-                                disp.dispatch(Action::JumpToPath(path.clone()));
-                            }
-                            return;
-                        }
-                    }
-                }
+            // Step 1: Get all executed scripts from database in ONE query
+            log::info!("Querying database for executed scripts...");
+            let executed_scripts = match script_memory.get_all_executed_scripts() {
+                Ok(set) => {
+                    log::info!("Found {} executed scripts in database", set.len());
+                    set
+                },
                 Err(e) => {
-                    log::error!("Failed to list files for jump_to_next_not_run: {}", e);
+                    log::error!("Failed to query executed scripts: {}", e);
+                    if let Some(ref disp) = dispatcher {
+                        disp.dispatch(Action::SearchingForNextNotRun(false));
+                    }
+                    return;
                 }
+            };
+
+            // Step 2: Get all SQL files from filesystem
+            log::info!("Scanning filesystem for SQL files at {}...", root_dir.display());
+            let paths = match file_explorer.list_sql_files_recursive(&root_dir).await {
+                Ok(p) => {
+                    log::info!("Found {} total SQL files", p.len());
+                    p
+                },
+                Err(e) => {
+                    log::error!("Failed to list files: {}", e);
+                    if let Some(ref disp) = dispatcher {
+                        disp.dispatch(Action::SearchingForNextNotRun(false));
+                    }
+                    return;
+                }
+            };
+
+            // Step 3: Build list of Not Run files (not in database)
+            log::info!("Filtering for Not Run scripts...");
+            let mut not_run_files: Vec<String> = Vec::new();
+            for path in paths {
+                if let Ok(relative_path) = path.strip_prefix(&root_dir) {
+                    let path_str = relative_path.to_string_lossy().to_string();
+                    if !executed_scripts.contains(&path_str) {
+                        not_run_files.push(path_str);
+                    }
+                }
+            }
+
+            log::info!("Found {} Not Run scripts", not_run_files.len());
+
+            if not_run_files.is_empty() {
+                log::warn!("No Not Run scripts found");
+                if let Some(ref disp) = dispatcher {
+                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                }
+                return;
+            }
+
+            // Step 4: Find current position and search forward
+            let current_index = if let Some(ref path) = current_path {
+                let idx = not_run_files.iter().position(|p| p == path);
+                log::info!("Current path: {:?}, index in Not Run list: {:?}", path, idx);
+                idx
+            } else {
+                log::info!("No current path selected");
+                None
+            };
+
+            let start_index = current_index.map(|i| i + 1).unwrap_or(0);
+            log::info!("Starting search from index {}", start_index);
+
+            // Search forward from current position
+            if start_index < not_run_files.len() {
+                let path = &not_run_files[start_index];
+                log::info!("Found next Not Run script: {}", path);
+                if let Some(ref disp) = dispatcher {
+                    disp.dispatch(Action::JumpToPath(path.clone(), 0));
+                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                }
+                return;
+            }
+
+            // Wrap around to the beginning
+            if !not_run_files.is_empty() {
+                let path = &not_run_files[0];
+                log::info!("Wrapping around to first Not Run script: {}", path);
+                if let Some(ref disp) = dispatcher {
+                    disp.dispatch(Action::JumpToPath(path.clone(), 0));
+                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                }
+                return;
+            }
+
+            // No Not Run script found (shouldn't happen since we checked empty above)
+            log::warn!("Unexpected: checked for empty but no scripts to jump to");
+            if let Some(ref disp) = dispatcher {
+                disp.dispatch(Action::SearchingForNextNotRun(false));
             }
         });
     }
@@ -798,31 +836,47 @@ impl Component for List {
                 self.jump_to_next_not_run();
                 return Ok(None);
             }
-            Action::JumpToPath(path) => {
-                // Try to expand and find the path
+            Action::JumpToPath(path, retry_count) => {
+                const MAX_RETRIES: usize = 10;
+
+                // First, ensure all parent directories are loaded into the tree
+                let path_parts: Vec<&str> = path.split('/').collect();
+
+                // Load all parent directories if they haven't been loaded yet
+                for i in 1..path_parts.len() {
+                    let parent_path = path_parts[..i].join("/");
+
+                    // Only load if this directory doesn't have children yet
+                    if !self.tree_state.has_children_loaded(&parent_path) {
+                        log::info!("Loading parent directory: {}", parent_path);
+                        if let Err(e) = self.load_directory_children(&parent_path) {
+                            log::debug!("Failed to load parent directory {}: {}", parent_path, e);
+                        }
+                    } else {
+                        log::debug!("Parent directory {} already has children loaded", parent_path);
+                    }
+                }
+
+                // Now try to expand and find the path
                 if let Some(index) = self.tree_state.expand_and_find_path(&path) {
+                    log::info!("Successfully jumped to path: {}", path);
                     self.tree_state.set_cursor(index);
                     self.widget_state.select(Some(index));
                     return Ok(Some(Action::Render));
-                } else {
-                    // Path not in tree yet - need to load parent directory first
-                    // Extract parent path
-                    if let Some(parent_idx) = path.rfind('/') {
-                        let parent_path = &path[..parent_idx];
-                        // Try to load the parent directory
-                        if let Err(e) = self.load_directory_children(parent_path) {
-                            log::error!("Failed to load parent directory {}: {}", parent_path, e);
-                        }
-                        // Re-dispatch JumpToPath after a delay to try again
-                        if let Some(ref disp) = self.dispatcher {
-                            let path_clone = path.clone();
-                            let disp_clone = disp.clone();
-                            tokio::spawn(async move {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                                disp_clone.dispatch(Action::JumpToPath(path_clone));
-                            });
-                        }
+                } else if retry_count < MAX_RETRIES {
+                    // Still not found - retry after a short delay to let async loading complete
+                    log::info!("Path {} not in tree yet (retry {}), waiting for async load...", path, retry_count);
+                    if let Some(ref disp) = self.dispatcher {
+                        let path_clone = path.clone();
+                        let disp_clone = disp.clone();
+                        let next_retry = retry_count + 1;
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                            disp_clone.dispatch(Action::JumpToPath(path_clone, next_retry));
+                        });
                     }
+                } else {
+                    log::error!("Failed to jump to path {} after {} retries - directory may not exist in tree", path, MAX_RETRIES);
                 }
                 return Ok(None);
             }
@@ -866,11 +920,10 @@ impl Component for List {
                     // Use service to calculate file statuses asynchronously
                     migration_service.calculate_statuses(script_paths, dispatcher);
                 } else {
-                    // Legacy fallback (old implementation)
+                    // Legacy fallback (old implementation) - now also database-only
                     log::warn!("MigrationService not available, using legacy status calculation");
                     let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
                     let memory = self.script_memory.clone();
-                    let base = self.base.clone();
                     let entries: Vec<_> = entries.iter().map(|e| (*e).clone()).collect();
                     tokio::spawn(async move {
                         for entry in entries {
@@ -884,24 +937,29 @@ impl Component for List {
                                 );
                                 continue;
                             }
-                            let full_path = base.join(&entry.relative_path);
 
-                            let content = tokio::fs::read_to_string(full_path).await;
-                            match content {
-                                core::result::Result::Ok(content) => {
-                                    let hasher = Crc::<u32>::new(&CRC_32_ISO_HDLC);
-                                    let crc = hasher.checksum(content.as_bytes());
-                                    let status = memory.get_file_status(&entry.relative_path, &crc);
-
-                                    if let core::result::Result::Ok(status) = status {
-                                        send_through_channel(
-                                            &channel,
-                                            Action::EntryStatusChanged(entry.relative_path, status),
-                                        )
-                                    }
+                            // Get database-only status (no file reading, no CRC)
+                            match memory.get_script_record(&entry.relative_path) {
+                                Ok(Some(record)) => {
+                                    let status = match record.result {
+                                        crate::script_memory::ScriptResult::Success => EntryStatus::Finished(true),
+                                        crate::script_memory::ScriptResult::Error => EntryStatus::Finished(false),
+                                        crate::script_memory::ScriptResult::Skipped => EntryStatus::Skipped,
+                                    };
+                                    send_through_channel(
+                                        &channel,
+                                        Action::EntryStatusChanged(entry.relative_path, status),
+                                    );
+                                }
+                                Ok(None) => {
+                                    // Never executed
+                                    send_through_channel(
+                                        &channel,
+                                        Action::EntryStatusChanged(entry.relative_path, EntryStatus::NeverStarted),
+                                    );
                                 }
                                 Err(e) => {
-                                    log::error!("Error reading file {} : {}", e, entry.relative_path);
+                                    log::error!("Error getting status for {} : {}", entry.relative_path, e);
                                 }
                             }
                         }
@@ -955,16 +1013,39 @@ impl Component for List {
                 return Ok(self.get_highlighted_script(state));
             }
             Action::DirectoryChildrenLoaded(parent_path, children) => {
+                // Calculate statuses for ONLY the new children (before adding to tree)
+                if let (Some(migration_service), Some(dispatcher)) =
+                    (&self.migration_service, &self.dispatcher) {
+                    use crate::domain::ScriptPath;
+
+                    // Dispatch directory statuses immediately
+                    for child in &children {
+                        if child.is_directory {
+                            dispatcher.dispatch(Action::EntryStatusChanged(
+                                child.relative_path.clone(),
+                                EntryStatus::Directory,
+                            ));
+                        }
+                    }
+
+                    // Convert only the new file children to ScriptPaths
+                    let script_paths: Vec<ScriptPath> = children
+                        .iter()
+                        .filter(|e| !e.is_directory)
+                        .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
+                        .collect();
+
+                    // Calculate statuses only for the new children
+                    if !script_paths.is_empty() {
+                        migration_service.calculate_statuses(script_paths, dispatcher);
+                    }
+                }
+
                 // Add children to the tree under the parent directory
                 self.tree_state.add_children_to_directory(&parent_path, children);
 
                 // Sync widget state
                 self.widget_state.select(Some(self.tree_state.cursor()));
-
-                // Calculate statuses for new children
-                if let Some(ref dispatcher) = self.dispatcher {
-                    dispatcher.dispatch(Action::CalculateEntryStatus);
-                }
 
                 return Ok(None);
             }
@@ -975,6 +1056,10 @@ impl Component for List {
                 let _ = (current, total); // Suppress unused warning
 
                 // Request a render to show the progress update
+                return Ok(Some(Action::Render));
+            }
+            Action::SearchingForNextNotRun(is_searching) => {
+                self.is_searching = is_searching;
                 return Ok(Some(Action::Render));
             }
             Action::AddSelection(paths) => {
@@ -1222,6 +1307,12 @@ impl Component for List {
             })
             .collect();
 
+        let title = if self.is_searching {
+            "Searching for next Not Run..."
+        } else {
+            "Press h for help"
+        };
+
         let list_draw = ratatui::widgets::List::new(items)
             .block(
                 Block::default()
@@ -1229,7 +1320,7 @@ impl Component for List {
                     .border_type(BorderType::Double)
                     .title_position(Position::Bottom)
                     .title_alignment(Alignment::Right)
-                    .title("Press h for help"),
+                    .title(title),
             )
             .highlight_style(Style::default().add_modifier(Modifier::BOLD))
             .highlight_symbol(">> ")

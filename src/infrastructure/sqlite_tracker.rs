@@ -82,6 +82,32 @@ impl ExecutionTracker for SqliteTracker {
         Ok(domain_status)
     }
 
+    async fn get_database_status(&self, path: &ScriptPath) -> DomainResult<ScriptStatus> {
+        // Get the stored record (if exists)
+        let record = self.db
+            .get_script_record(&path.to_string())
+            .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
+
+        // Check if the script is marked as skipped
+        if let Some(ref rec) = record {
+            if rec.result == ScriptResult::Skipped {
+                return Ok(ScriptStatus::Skipped);
+            }
+        }
+
+        // Determine status from database record only (no checksum comparison)
+        match record {
+            Some(rec) => {
+                match rec.result {
+                    ScriptResult::Success => Ok(ScriptStatus::UpToDate), // Assume up-to-date without CRC check
+                    ScriptResult::Error => Ok(ScriptStatus::Failed { error: "Previous execution failed".to_string() }),
+                    ScriptResult::Skipped => Ok(ScriptStatus::Skipped),
+                }
+            }
+            None => Ok(ScriptStatus::NeverRun),
+        }
+    }
+
     async fn has_been_executed(&self, path: &ScriptPath) -> DomainResult<bool> {
         // Simple check - if we can get a checksum, it's been executed
         let checksum = self.get_last_checksum(path).await?;

@@ -22,6 +22,10 @@ pub trait ExecutionTracker: Send + Sync {
         current_checksum: Checksum,
     ) -> DomainResult<ScriptStatus>;
 
+    /// Get database-only status (without checksum comparison)
+    /// This returns the status based on execution history only, without checking for modifications
+    async fn get_database_status(&self, path: &ScriptPath) -> DomainResult<ScriptStatus>;
+
     /// Check if a script has ever been executed
     async fn has_been_executed(&self, path: &ScriptPath) -> DomainResult<bool>;
 

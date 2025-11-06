@@ -104,10 +104,15 @@ impl ScriptPreview {
         f.render_widget(paragraph, area);
     }
 
-    /// Truncate a string to fit within the given width
+    /// Truncate a string to fit within the given width (respecting UTF-8 character boundaries)
     fn truncate_str(s: &str, max_width: usize) -> String {
         if s.len() > max_width && max_width > 1 {
-            format!("{}…", &s[..max_width.saturating_sub(1)])
+            // Find a valid UTF-8 character boundary at or before max_width - 1
+            let mut truncate_at = max_width.saturating_sub(1);
+            while truncate_at > 0 && !s.is_char_boundary(truncate_at) {
+                truncate_at -= 1;
+            }
+            format!("{}…", &s[..truncate_at])
         } else {
             s.to_string()
         }

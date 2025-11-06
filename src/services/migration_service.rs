@@ -107,14 +107,13 @@ impl MigrationService {
                 disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
 
                 // Get status from database only (no CRC checking)
-                match tracker.get_status(script_path, Checksum::from_value(0)).await {
+                match tracker.get_database_status(script_path).await {
                     Ok(status) => {
                         // Convert ScriptStatus to EntryStatus
-                        // Note: We'll never get Modified status here since we don't check CRC
                         let entry_status = match status {
                             ScriptStatus::NeverRun => crate::entries::EntryStatus::NeverStarted,
                             ScriptStatus::UpToDate => crate::entries::EntryStatus::Finished(true),
-                            ScriptStatus::Modified => crate::entries::EntryStatus::Changed, // Won't happen without CRC check
+                            ScriptStatus::Modified => crate::entries::EntryStatus::Changed,
                             ScriptStatus::Failed { .. } => crate::entries::EntryStatus::Finished(false),
                             ScriptStatus::Running => crate::entries::EntryStatus::Unknown,
                             ScriptStatus::Skipped => crate::entries::EntryStatus::Skipped,
