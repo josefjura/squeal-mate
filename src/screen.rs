@@ -1,9 +1,10 @@
-use crate::components::Component;
+use crate::ui::Component;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     FileChooser,
     ScriptRunner,
+    Unified, // New unified lazygit-style view
 }
 
 pub(crate) struct Screen {

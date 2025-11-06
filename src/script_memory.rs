@@ -1,46 +1,86 @@
-use crate::{config::get_script_database, entries::EntryStatus};
+use crate::{entries::EntryStatus, infrastructure::get_script_database};
 use color_eyre::eyre::{self};
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{named_params, Connection};
 use std::path::PathBuf;
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicU32, Ordering};
+
 pub struct ScriptDatabaseRecord {
-    crc: u32,
-    result: bool,
+    pub crc: u32,
+    pub result: ScriptResult,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptResult {
+    Success,
+    Error,
+    Skipped,
 }
 
 #[derive(Clone, Debug)]
 pub struct ScriptDatabase {
-    db_name: PathBuf,
+    pool: Pool<SqliteConnectionManager>,
 }
 
 impl ScriptDatabase {
     pub async fn new() -> eyre::Result<Self> {
         let filename = get_script_database();
-        let conn = Connection::open(filename.clone())?;
+
+        // Create connection manager
+        let manager = SqliteConnectionManager::file(&filename);
+
+        // Build connection pool with sensible defaults
+        let pool = Pool::builder()
+            .max_size(5) // Max 5 connections (SQLite limitation on concurrent writers)
+            .build(manager)?;
+
+        // Initialize the database schema using a pooled connection
+        let conn = pool.get()?;
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS scripts (							
+            "CREATE TABLE IF NOT EXISTS scripts (
 							name  TEXT NOT NULL PRIMARY KEY,
-							result INTEGER NOT NULL,						
+							result INTEGER NOT NULL,
 							crc	 	INTEGER NOT NULL
 					)",
             (), // empty list of parameters.
         )?;
-        Ok(ScriptDatabase { db_name: filename })
+
+        Ok(ScriptDatabase { pool })
     }
 
-    pub fn insert(&self, file: String, crc: u32, result: bool) -> eyre::Result<()> {
-        let conn = Connection::open(self.db_name.clone())?;
+    pub fn insert(&self, file: String, crc: u32, result: ScriptResult) -> eyre::Result<()> {
+        let conn = self.pool.get()?;
         // Prepare the statement and insert the records
         let mut stmt = conn.prepare(
             "
-						INSERT INTO scripts (name, crc, result) 
-						VALUES (:name, :crc, :result) ON CONFLICT(name) 
+						INSERT INTO scripts (name, crc, result)
+						VALUES (:name, :crc, :result) ON CONFLICT(name)
          		DO UPDATE SET crc = excluded.crc, result = excluded.result
 						",
         )?;
-        let res_text = if result { 1 } else { 0 };
-        stmt.execute(named_params! { ":name": file, ":crc": crc, ":result": res_text })?;
+        let res_value = match result {
+            ScriptResult::Success => 1,
+            ScriptResult::Error => 0,
+            ScriptResult::Skipped => -1,
+        };
+        stmt.execute(named_params! { ":name": file, ":crc": crc, ":result": res_value })?;
 
+        Ok(())
+    }
+
+    /// Mark a script as skipped (we don't care about CRC for skipped scripts, use 0)
+    pub fn mark_skipped(&self, file: String) -> eyre::Result<()> {
+        self.insert(file, 0, ScriptResult::Skipped)
+    }
+
+    /// Remove skip status (delete the record so script appears as Not Run)
+    pub fn unmark_skipped(&self, file: String) -> eyre::Result<()> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("DELETE FROM scripts WHERE name = ?")?;
+        stmt.execute([file])?;
         Ok(())
     }
 
@@ -104,9 +144,50 @@ impl ScriptDatabase {
     //     Ok(results)
     // }
 
+    /// Get the stored checksum and result for a script
+    /// Returns None if the script has never been executed
+    pub fn get_script_record(&self, file_path: &str) -> eyre::Result<Option<ScriptDatabaseRecord>> {
+        let conn = self.pool.get()?;
+
+        let query = "SELECT crc, result FROM scripts WHERE name = ?";
+        let mut stmt = conn.prepare(query)?;
+        let mut rows = stmt.query_map([file_path], |row| {
+            let result_value = row.get::<_, i32>(1)?;
+            let result = match result_value {
+                1 => ScriptResult::Success,
+                0 => ScriptResult::Error,
+                -1 => ScriptResult::Skipped,
+                _ => ScriptResult::Error, // Default to error for unknown values
+            };
+            Ok(ScriptDatabaseRecord {
+                crc: row.get::<_, u32>(0)?,
+                result,
+            })
+        })?;
+
+        match rows.next() {
+            Some(record) => Ok(Some(record?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Get all script names that have been executed (Success, Error, or Skipped)
+    /// Returns a HashSet for O(1) lookup
+    pub fn get_all_executed_scripts(&self) -> eyre::Result<std::collections::HashSet<String>> {
+        let conn = self.pool.get()?;
+        let mut stmt = conn.prepare("SELECT name FROM scripts")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+
+        let mut scripts = std::collections::HashSet::new();
+        for row in rows {
+            scripts.insert(row?);
+        }
+        Ok(scripts)
+    }
+
     #[allow(dead_code)]
     pub fn get_file_status(&self, file_path: &str, crc: &u32) -> eyre::Result<EntryStatus> {
-        let conn = Connection::open(self.db_name.clone())?;
+        let conn = self.pool.get()?;
 
         // Prepare the query to fetch the matching record for a single file
         let query = "SELECT name, crc, result FROM scripts WHERE name = ?";
@@ -114,9 +195,16 @@ impl ScriptDatabase {
         // Prepare the statement and query the database for the matching record
         let mut stmt = conn.prepare(query)?;
         let mut rows = stmt.query_map([file_path], |row| {
+            let result_value = row.get::<_, i32>(2)?;
+            let result = match result_value {
+                1 => ScriptResult::Success,
+                0 => ScriptResult::Error,
+                -1 => ScriptResult::Skipped,
+                _ => ScriptResult::Error,
+            };
             Ok(ScriptDatabaseRecord {
-                crc: row.get::<_, u32>(1)?,     // Using String for CRC
-                result: row.get::<_, bool>(2)?, // Using bool for result
+                crc: row.get::<_, u32>(1)?,
+                result,
             })
         })?;
 
@@ -124,8 +212,11 @@ impl ScriptDatabase {
         match rows.next() {
             Some(record) => match record {
                 Ok(record) => {
-                    if record.crc == *crc {
-                        Ok(EntryStatus::Finished(record.result))
+                    if record.result == ScriptResult::Skipped {
+                        Ok(EntryStatus::Skipped)
+                    } else if record.crc == *crc {
+                        let success = record.result == ScriptResult::Success;
+                        Ok(EntryStatus::Finished(success))
                     } else {
                         Ok(EntryStatus::Changed)
                     }
@@ -137,5 +228,174 @@ impl ScriptDatabase {
             },
             None => Ok(EntryStatus::NeverStarted),
         }
+    }
+
+    #[cfg(test)]
+    pub fn new_test() -> eyre::Result<Self> {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let temp_path = std::env::temp_dir().join(format!("squealmate_test_{}.db", id));
+
+        // Create connection manager for test database
+        let manager = SqliteConnectionManager::file(&temp_path);
+
+        // Build connection pool
+        let pool = Pool::builder().max_size(5).build(manager)?;
+
+        // Initialize the schema
+        let conn = pool.get()?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS scripts (
+							name  TEXT NOT NULL PRIMARY KEY,
+							result INTEGER NOT NULL,
+							crc	 	INTEGER NOT NULL
+					)",
+            (),
+        )?;
+
+        Ok(ScriptDatabase { pool })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_new_database_creates_table() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Verify table exists by querying it using the pool
+        let conn = db.pool.get().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scripts'")
+            .unwrap();
+        let exists: bool = stmt.exists([]).unwrap();
+        assert!(exists, "scripts table should exist");
+    }
+
+    #[tokio::test]
+    async fn test_insert_new_record() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert a record
+        let result = db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success);
+        assert!(result.is_ok(), "Insert should succeed");
+
+        // Verify it was inserted using the pool
+        let conn = db.pool.get().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name, crc, result FROM scripts WHERE name = ?")
+            .unwrap();
+        let mut rows = stmt.query(["test_script.sql"]).unwrap();
+
+        let row = rows.next().unwrap().unwrap();
+        assert_eq!(row.get::<_, String>(0).unwrap(), "test_script.sql");
+        assert_eq!(row.get::<_, u32>(1).unwrap(), 12345);
+        assert_eq!(row.get::<_, i32>(2).unwrap(), 1); // true = 1
+    }
+
+    #[tokio::test]
+    async fn test_insert_update_existing_record() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert initial record
+        db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
+
+        // Update with different CRC and result
+        db.insert("test_script.sql".to_string(), 67890, ScriptResult::Error)
+            .unwrap();
+
+        // Verify it was updated using the pool
+        let conn = db.pool.get().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT crc, result FROM scripts WHERE name = ?")
+            .unwrap();
+        let mut rows = stmt.query(["test_script.sql"]).unwrap();
+
+        let row = rows.next().unwrap().unwrap();
+        assert_eq!(row.get::<_, u32>(0).unwrap(), 67890);
+        assert_eq!(row.get::<_, i32>(1).unwrap(), 0); // false = 0
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_never_started() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Query for non-existent file
+        let status = db.get_file_status("nonexistent.sql", &12345).unwrap();
+        assert!(matches!(status, EntryStatus::NeverStarted));
+
+        // Cleanup
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_finished_success() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert a successful script
+        db.insert("success.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
+
+        // Query with matching CRC
+        let status = db.get_file_status("success.sql", &12345).unwrap();
+        assert!(matches!(status, EntryStatus::Finished(true)));
+
+        // Cleanup
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_finished_error() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert a failed script
+        db.insert("failed.sql".to_string(), 12345, ScriptResult::Error)
+            .unwrap();
+
+        // Query with matching CRC
+        let status = db.get_file_status("failed.sql", &12345).unwrap();
+        assert!(matches!(status, EntryStatus::Finished(false)));
+
+        // Cleanup
+    }
+
+    #[tokio::test]
+    async fn test_get_file_status_changed() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert with original CRC
+        db.insert("changed.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
+
+        // Query with different CRC
+        let status = db.get_file_status("changed.sql", &67890).unwrap();
+        assert!(matches!(status, EntryStatus::Changed));
+
+        // Cleanup
+    }
+
+    #[tokio::test]
+    async fn test_multiple_scripts() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        // Insert multiple scripts
+        db.insert("script1.sql".to_string(), 111, ScriptResult::Success)
+            .unwrap();
+        db.insert("script2.sql".to_string(), 222, ScriptResult::Error)
+            .unwrap();
+        db.insert("script3.sql".to_string(), 333, ScriptResult::Success)
+            .unwrap();
+
+        // Verify all are stored correctly
+        let status1 = db.get_file_status("script1.sql", &111).unwrap();
+        let status2 = db.get_file_status("script2.sql", &222).unwrap();
+        let status3 = db.get_file_status("script3.sql", &333).unwrap();
+
+        assert!(matches!(status1, EntryStatus::Finished(true)));
+        assert!(matches!(status2, EntryStatus::Finished(false)));
+        assert!(matches!(status3, EntryStatus::Finished(true)));
+
+        // Cleanup
     }
 }

@@ -31,7 +31,7 @@ impl BatchParser {
                     go_detected = true; // Potential start of "GO"
                 } else if go_detected
                     && ch == 'O'
-                    && sql.chars().nth(i + 1).map_or(true, |c| c.is_whitespace())
+                    && sql.chars().nth(i + 1).is_none_or(|c| c.is_whitespace())
                 {
                     // Confirmed "GO" with whitespaces around, split batch
                     batches.push(current_batch.clone().trim_end_matches('G').to_owned());

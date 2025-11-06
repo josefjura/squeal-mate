@@ -1,8 +1,8 @@
 use clap::{Args, Parser, Subcommand};
 
 use crate::{
-    config::Settings,
-    db::{Authentication, Database},
+    db::{Authentication, Database, EncryptionConfig, EncryptionLevel},
+    infrastructure::Settings,
     ArgumentsError,
 };
 
@@ -19,6 +19,10 @@ pub struct SquealMateArgs {
 
     #[command(flatten)]
     pub connection: ConnectionArgs,
+
+    /// Force start the application even if database connection fails
+    #[arg(long, short = 'f')]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -88,11 +92,32 @@ impl ConnectionArgs {
             Authentication::SqlServer { username, password }
         };
 
+        // Parse encryption settings from config
+        let encryption_level = settings
+            .database
+            .encryption
+            .as_ref()
+            .map(|s| match s.as_str() {
+                "required" => EncryptionLevel::Required,
+                "optional" => EncryptionLevel::Optional,
+                "not_supported" => EncryptionLevel::NotSupported,
+                _ => EncryptionLevel::Required, // Default to required for SQL Server 2022
+            })
+            .unwrap_or(EncryptionLevel::Required);
+
+        let trust_certificate = settings.database.trust_server_certificate.unwrap_or(true); // Default to true for self-signed certs
+
+        let encryption = EncryptionConfig {
+            level: encryption_level,
+            trust_certificate,
+        };
+
         Ok(Database {
             server,
             port,
             name,
             authentication,
+            encryption,
         })
     }
 }
@@ -106,6 +131,9 @@ pub enum Command {
     /// Helps set up the config file
     #[command(name = "init")]
     Initialize,
+    /// Generates SQL script to set up database user and permissions
+    #[command(name = "setup-db")]
+    SetupDatabase,
 }
 
 #[test]
@@ -168,6 +196,7 @@ fn simple_positive() {
         port: _,
         name,
         authentication: Authentication::SqlServer { username, password },
+        encryption: _,
     }) = database
     {
         assert_eq!("test", username);

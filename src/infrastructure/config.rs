@@ -20,6 +20,14 @@ pub struct Database {
     pub port: Option<u16>,
     #[serde(default)]
     pub name: Option<String>,
+    /// Encryption mode: "required", "optional", or "not_supported"
+    /// SQL Server 2022 typically requires encryption by default
+    #[serde(default)]
+    pub encryption: Option<String>,
+    /// Trust server certificate for self-signed certs (development only)
+    /// Set to true if using self-signed certificate or encryption errors occur
+    #[serde(default)]
+    pub trust_server_certificate: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -96,6 +104,8 @@ impl Settings {
                 server: None,
                 username: None,
                 name: None,
+                encryption: None,
+                trust_server_certificate: None,
             },
             repository: Repository { path: None },
         }
