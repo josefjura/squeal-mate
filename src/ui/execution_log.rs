@@ -1,18 +1,13 @@
 use color_eyre::eyre::Result;
 use ratatui::{
+    layout::Size,
     prelude::*,
     widgets::{List, ListItem},
-    layout::Size,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{
-    action::Action,
-    app::AppState,
-    infrastructure::Settings,
-    tui::Frame,
-};
+use crate::{action::Action, app::AppState, infrastructure::Settings, tui::Frame};
 
 /// Execution log panel that shows real-time script execution progress
 pub struct ExecutionLog {
@@ -77,8 +72,7 @@ impl ExecutionLog {
                 )),
             ];
 
-            let paragraph = ratatui::widgets::Paragraph::new(text)
-                .alignment(Alignment::Center);
+            let paragraph = ratatui::widgets::Paragraph::new(text).alignment(Alignment::Center);
 
             f.render_widget(paragraph, area);
             return;
@@ -102,10 +96,7 @@ impl ExecutionLog {
                         format!("[{}] ", entry.timestamp),
                         Style::default().fg(Color::DarkGray),
                     ),
-                    Span::styled(
-                        format!("{} ", icon),
-                        Style::default().fg(color).bold(),
-                    ),
+                    Span::styled(format!("{} ", icon), Style::default().fg(color).bold()),
                     Span::styled(&entry.message, Style::default().fg(Color::White)),
                 ]);
 
@@ -143,10 +134,7 @@ impl Component for ExecutionLog {
         // Listen for execution events
         match action {
             Action::ScriptRunning(ref path) => {
-                self.add_log(
-                    format!("Executing {}", path),
-                    LogLevel::Running,
-                );
+                self.add_log(format!("Executing {}", path), LogLevel::Running);
                 Ok(Some(Action::Render))
             }
             Action::ScriptFinished(ref path, elapsed, _) => {

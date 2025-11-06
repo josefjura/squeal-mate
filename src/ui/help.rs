@@ -46,7 +46,10 @@ impl<'a> Help<'a> {
         text_lines.push(Line::raw(""));
 
         // Getting Started section
-        text_lines.push(Line::styled("── GETTING STARTED ──", Style::default().bold().yellow()));
+        text_lines.push(Line::styled(
+            "── GETTING STARTED ──",
+            Style::default().bold().yellow(),
+        ));
         text_lines.push(Line::raw(""));
 
         match mode {
@@ -66,7 +69,9 @@ impl<'a> Help<'a> {
             Mode::Unified => {
                 text_lines.push(Line::raw("  1. All panels visible at once (lazygit-style)"));
                 text_lines.push(Line::raw("  2. Tree view on left, details/log on right"));
-                text_lines.push(Line::raw("  3. Navigate with ↑↓, expand folders with Enter"));
+                text_lines.push(Line::raw(
+                    "  3. Navigate with ↑↓, expand folders with Enter",
+                ));
                 text_lines.push(Line::raw("  4. Press 'r' to run, Tab to cycle panels"));
                 text_lines.push(Line::raw("  5. See real-time execution in log panel"));
             }
@@ -74,7 +79,10 @@ impl<'a> Help<'a> {
         text_lines.push(Line::raw(""));
 
         // Navigation section
-        text_lines.push(Line::styled("── NAVIGATION ──", Style::default().bold().yellow()));
+        text_lines.push(Line::styled(
+            "── NAVIGATION ──",
+            Style::default().bold().yellow(),
+        ));
         text_lines.push(Line::raw(""));
 
         let nav_keys = match mode {
@@ -107,7 +115,10 @@ impl<'a> Help<'a> {
         match mode {
             Mode::FileChooser => {
                 // Selection section
-                text_lines.push(Line::styled("── SELECTION ──", Style::default().bold().yellow()));
+                text_lines.push(Line::styled(
+                    "── SELECTION ──",
+                    Style::default().bold().yellow(),
+                ));
                 text_lines.push(Line::raw(""));
 
                 let sel_keys = vec![
@@ -121,7 +132,10 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw(""));
 
                 // Execution section
-                text_lines.push(Line::styled("── EXECUTION ──", Style::default().bold().yellow()));
+                text_lines.push(Line::styled(
+                    "── EXECUTION ──",
+                    Style::default().bold().yellow(),
+                ));
                 text_lines.push(Line::raw(""));
 
                 let exec_keys = vec![
@@ -137,7 +151,10 @@ impl<'a> Help<'a> {
             }
             Mode::ScriptRunner => {
                 // Execution info
-                text_lines.push(Line::styled("── EXECUTION INFO ──", Style::default().bold().yellow()));
+                text_lines.push(Line::styled(
+                    "── EXECUTION INFO ──",
+                    Style::default().bold().yellow(),
+                ));
                 text_lines.push(Line::raw(""));
                 text_lines.push(Line::raw("  Script output is shown in real-time"));
                 text_lines.push(Line::raw("  ✓ = Finished successfully"));
@@ -147,7 +164,10 @@ impl<'a> Help<'a> {
             }
             Mode::Unified => {
                 // Selection section
-                text_lines.push(Line::styled("── SELECTION ──", Style::default().bold().yellow()));
+                text_lines.push(Line::styled(
+                    "── SELECTION ──",
+                    Style::default().bold().yellow(),
+                ));
                 text_lines.push(Line::raw(""));
 
                 let sel_keys = vec![
@@ -161,7 +181,10 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw(""));
 
                 // Execution section
-                text_lines.push(Line::styled("── EXECUTION ──", Style::default().bold().yellow()));
+                text_lines.push(Line::styled(
+                    "── EXECUTION ──",
+                    Style::default().bold().yellow(),
+                ));
                 text_lines.push(Line::raw(""));
 
                 let exec_keys = vec![
@@ -176,7 +199,10 @@ impl<'a> Help<'a> {
                 text_lines.push(Line::raw(""));
 
                 // Panel info
-                text_lines.push(Line::styled("── PANELS ──", Style::default().bold().yellow()));
+                text_lines.push(Line::styled(
+                    "── PANELS ──",
+                    Style::default().bold().yellow(),
+                ));
                 text_lines.push(Line::raw(""));
                 text_lines.push(Line::raw("  Left: Tree view (expand folders on-demand)"));
                 text_lines.push(Line::raw("  Right Top: Script details & preview"));
@@ -187,7 +213,10 @@ impl<'a> Help<'a> {
         }
 
         // General section (same for all modes)
-        text_lines.push(Line::styled("── GENERAL ──", Style::default().bold().yellow()));
+        text_lines.push(Line::styled(
+            "── GENERAL ──",
+            Style::default().bold().yellow(),
+        ));
         text_lines.push(Line::raw(""));
         text_lines.push(Line::raw(format!("  {:>12}  {}", "?", "Toggle this help")));
         text_lines.push(Line::raw(format!("  {:>12}  {}", "q", "Quit application")));

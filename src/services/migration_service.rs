@@ -45,7 +45,10 @@ impl MigrationService {
         self.tracker.record_execution(&script.path, &result).await?;
 
         // Get the updated status after recording
-        let updated_status = self.tracker.get_status(&script.path, result.checksum).await?;
+        let updated_status = self
+            .tracker
+            .get_status(&script.path, result.checksum)
+            .await?;
 
         // Convert ScriptStatus to EntryStatus for UI updates (using From trait)
         let entry_status = crate::entries::EntryStatus::from(updated_status);
@@ -85,11 +88,7 @@ impl MigrationService {
 
     /// Get database status for all scripts and dispatch status updates
     /// Does NOT check for file modifications - use check_for_changes() for that
-    pub fn calculate_statuses(
-        &self,
-        scripts: Vec<ScriptPath>,
-        dispatcher: &ActionDispatcher,
-    ) {
+    pub fn calculate_statuses(&self, scripts: Vec<ScriptPath>, dispatcher: &ActionDispatcher) {
         let tracker = self.tracker.clone();
         let disp = dispatcher.clone();
         let total = scripts.len();
@@ -120,11 +119,7 @@ impl MigrationService {
 
     /// Check for file modifications by comparing CRC checksums
     /// Only checks scripts that have been executed before (not NeverRun or Skipped)
-    pub fn check_for_changes(
-        &self,
-        scripts: Vec<ScriptPath>,
-        dispatcher: &ActionDispatcher,
-    ) {
+    pub fn check_for_changes(&self, scripts: Vec<ScriptPath>, dispatcher: &ActionDispatcher) {
         let tracker = self.tracker.clone();
         let repo = self.repository.clone();
         let disp = dispatcher.clone();

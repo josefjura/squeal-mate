@@ -29,17 +29,12 @@ pub trait MigrationRepository: Send + Sync {
     ) -> DomainResult<Vec<ScriptPath>>;
 
     /// Get scripts after a given script name (in current directory, non-recursive)
-    async fn get_scripts_after_in_current(
-        &self,
-        after_name: &str,
-    ) -> DomainResult<Vec<ScriptPath>>;
+    async fn get_scripts_after_in_current(&self, after_name: &str)
+        -> DomainResult<Vec<ScriptPath>>;
 
     /// Get all scripts in the current directory (non-recursive)
     async fn get_scripts_in_current(&self) -> DomainResult<Vec<ScriptPath>>;
 
     /// Get all scripts starting from a specific path (recursive, globally from repo root)
-    async fn get_scripts_after_global(
-        &self,
-        after_name: &str,
-    ) -> DomainResult<Vec<ScriptPath>>;
+    async fn get_scripts_after_global(&self, after_name: &str) -> DomainResult<Vec<ScriptPath>>;
 }

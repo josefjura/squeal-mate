@@ -1,11 +1,11 @@
 use color_eyre::eyre::Result;
 use ratatui::{
+    layout::Size,
     prelude::*,
     widgets::{Block, Clear, Paragraph, Wrap},
-    layout::Size,
 };
-use tokio::sync::mpsc::UnboundedSender;
 use std::path::PathBuf;
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
 use crate::{
@@ -69,7 +69,12 @@ impl ScriptPreview {
                     };
 
                     if let Some(tx) = command_tx {
-                        let _ = tx.send(Action::FileContentLoaded(script_path_owned, cache.content_preview.clone(), cache.line_count, cache.file_size));
+                        let _ = tx.send(Action::FileContentLoaded(
+                            script_path_owned,
+                            cache.content_preview.clone(),
+                            cache.line_count,
+                            cache.file_size,
+                        ));
                     }
                 }
                 Err(e) => {
@@ -134,7 +139,7 @@ impl ScriptPreview {
                 Span::styled("Path: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     Self::truncate_str(&script.relative_path, max_width.saturating_sub(6)),
-                    Style::default().fg(Color::White)
+                    Style::default().fg(Color::White),
                 ),
             ]),
             Line::from(""),
@@ -174,9 +179,10 @@ impl ScriptPreview {
 
         if let Some(ref error) = script.error {
             lines.push(Line::from(""));
-            lines.push(Line::from(vec![
-                Span::styled("Error: ", Style::default().fg(Color::Red).bold()),
-            ]));
+            lines.push(Line::from(vec![Span::styled(
+                "Error: ",
+                Style::default().fg(Color::Red).bold(),
+            )]));
             lines.push(Line::from(""));
 
             // Show first few lines of error (truncated to fit)
@@ -244,9 +250,9 @@ impl ScriptPreview {
         }
 
         let paragraph = Paragraph::new(lines)
-            .wrap(Wrap { trim: false })  // Disable wrap since we manually truncate
+            .wrap(Wrap { trim: false }) // Disable wrap since we manually truncate
             .scroll((0, 0))
-            .block(Block::default());  // Add block to ensure clipping
+            .block(Block::default()); // Add block to ensure clipping
 
         f.render_widget(paragraph, area);
     }
@@ -291,7 +297,9 @@ impl Component for ScriptPreview {
             Action::ScriptHighlighted(script) => {
                 if let Some(ref new_script) = script {
                     // Check if this is a new script (different from current)
-                    let should_load = self.highlighted_script.as_ref()
+                    let should_load = self
+                        .highlighted_script
+                        .as_ref()
                         .map(|s| s.relative_path != new_script.relative_path)
                         .unwrap_or(true);
 
@@ -325,9 +333,9 @@ impl Component for ScriptPreview {
                 }
                 Ok(None)
             }
-            Action::ScriptRunning(ref path) |
-            Action::ScriptFinished(ref path, ..) |
-            Action::ScriptError(ref path, ..) => {
+            Action::ScriptRunning(ref path)
+            | Action::ScriptFinished(ref path, ..)
+            | Action::ScriptError(ref path, ..) => {
                 // Update the highlighted script's state if it matches
                 if let Some(ref mut script) = self.highlighted_script {
                     if script.relative_path == *path {

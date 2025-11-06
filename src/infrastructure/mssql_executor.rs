@@ -4,8 +4,8 @@ use crate::db::Database;
 use crate::domain::{DomainResult, ExecutionResult, MigrationScript, ScriptExecutor};
 use crate::infrastructure::error::InfraError;
 use async_trait::async_trait;
-use tokio::time::Instant;
 use std::error::Error;
+use tokio::time::Instant;
 
 /// SQL Server implementation of script executor
 pub struct MssqlExecutor {
@@ -29,9 +29,7 @@ impl MssqlExecutor {
 
             format!(
                 "SQL Error at line {}:\n{}\n\nContext:\n{}",
-                line_num,
-                error_msg,
-                snippet
+                line_num, error_msg, snippet
             )
         } else {
             // No line number found, just format the error nicely

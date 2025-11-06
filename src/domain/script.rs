@@ -20,17 +20,19 @@ impl ScriptPath {
 
         // Must have .sql extension
         if path.extension().and_then(|s| s.to_str()) != Some("sql") {
-            return Err(DomainError::InvalidScriptPath(
-                format!("Script must have .sql extension: {}", path.display())
-            ));
+            return Err(DomainError::InvalidScriptPath(format!(
+                "Script must have .sql extension: {}",
+                path.display()
+            )));
         }
 
         // Must not be hidden (start with . or _)
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if name.starts_with('.') || name.starts_with('_') {
-                return Err(DomainError::InvalidScriptPath(
-                    format!("Script filename cannot start with . or _: {}", name)
-                ));
+                return Err(DomainError::InvalidScriptPath(format!(
+                    "Script filename cannot start with . or _: {}",
+                    name
+                )));
             }
         }
 
@@ -127,7 +129,7 @@ impl MigrationScript {
     pub fn validate(&self) -> DomainResult<()> {
         if self.content.trim().is_empty() {
             return Err(DomainError::InvalidScriptContent(
-                "Script content cannot be empty".to_string()
+                "Script content cannot be empty".to_string(),
             ));
         }
         Ok(())

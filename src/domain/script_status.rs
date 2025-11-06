@@ -46,10 +46,7 @@ impl ScriptStatus {
 
     /// Check if the script can be executed
     pub fn can_execute(&self) -> bool {
-        matches!(
-            self,
-            Self::NeverRun | Self::Modified | Self::Failed { .. }
-        )
+        matches!(self, Self::NeverRun | Self::Modified | Self::Failed { .. })
         // Note: Skipped scripts should NOT be executable
     }
 

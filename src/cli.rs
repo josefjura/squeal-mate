@@ -1,8 +1,8 @@
 use clap::{Args, Parser, Subcommand};
 
 use crate::{
-    infrastructure::Settings,
     db::{Authentication, Database, EncryptionConfig, EncryptionLevel},
+    infrastructure::Settings,
     ArgumentsError,
 };
 
@@ -105,10 +105,7 @@ impl ConnectionArgs {
             })
             .unwrap_or(EncryptionLevel::Required);
 
-        let trust_certificate = settings
-            .database
-            .trust_server_certificate
-            .unwrap_or(true); // Default to true for self-signed certs
+        let trust_certificate = settings.database.trust_server_certificate.unwrap_or(true); // Default to true for self-signed certs
 
         let encryption = EncryptionConfig {
             level: encryption_level,

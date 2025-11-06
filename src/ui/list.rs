@@ -10,11 +10,15 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
 use crate::{
-    action::Action, infrastructure::Settings, entries::EntryStatus,
-    script_memory::ScriptDatabase, tui::Frame, utils::send_through_channel,
-    services::{ActionDispatcher, MigrationService},
+    action::Action,
+    entries::EntryStatus,
     infrastructure::FileExplorer,
+    infrastructure::Settings,
+    script_memory::ScriptDatabase,
+    services::{ActionDispatcher, MigrationService},
+    tui::Frame,
     ui::tree_state::TreeState,
+    utils::send_through_channel,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
@@ -25,18 +29,15 @@ pub struct List {
     dispatcher: Option<ActionDispatcher>,
     migration_service: Option<Arc<MigrationService>>,
     config: Settings,
-    widget_state: ListState,  // Ratatui widget state (for scrolling)
-    tree_state: TreeState,  // Tree view state with hierarchy
-    file_explorer: Arc<FileExplorer>,  // Simple file browsing (no domain abstractions)
+    widget_state: ListState,          // Ratatui widget state (for scrolling)
+    tree_state: TreeState,            // Tree view state with hierarchy
+    file_explorer: Arc<FileExplorer>, // Simple file browsing (no domain abstractions)
     script_memory: ScriptDatabase,
-    is_searching: bool,  // Flag for showing "Searching..." indicator
+    is_searching: bool, // Flag for showing "Searching..." indicator
 }
 
 impl List {
-    pub fn new(
-        base: PathBuf,
-        script_memory: ScriptDatabase,
-    ) -> Result<Self> {
+    pub fn new(base: PathBuf, script_memory: ScriptDatabase) -> Result<Self> {
         let file_explorer = Arc::new(FileExplorer::new(base.clone())?);
         let tree_state = TreeState::new(base.clone());
 
@@ -81,7 +82,8 @@ impl List {
                     explorer_entries
                         .into_iter()
                         .map(|entry| {
-                            let relative_path = entry.path
+                            let relative_path = entry
+                                .path
                                 .strip_prefix(&root_dir)
                                 .map(|p| p.to_string_lossy().to_string())
                                 .unwrap_or_else(|_| entry.name.clone());
@@ -128,7 +130,8 @@ impl List {
                     explorer_entries
                         .into_iter()
                         .map(|entry| {
-                            let relative_path = entry.path
+                            let relative_path = entry
+                                .path
                                 .strip_prefix(&root_dir)
                                 .map(|p| p.to_string_lossy().to_string())
                                 .unwrap_or_else(|_| entry.name.clone());
@@ -275,10 +278,13 @@ impl List {
                                 let path_str = relative_path.to_string_lossy().to_string();
 
                                 // Check if script is skipped
-                                let is_skipped = script_memory.get_script_record(&path_str)
+                                let is_skipped = script_memory
+                                    .get_script_record(&path_str)
                                     .ok()
                                     .flatten()
-                                    .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                    .map(|rec| {
+                                        rec.result == crate::script_memory::ScriptResult::Skipped
+                                    })
                                     .unwrap_or(false);
 
                                 if !is_skipped {
@@ -292,7 +298,11 @@ impl List {
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to get children recursively for directory {}: {}", entry_path, e);
+                        log::error!(
+                            "Failed to get children recursively for directory {}: {}",
+                            entry_path,
+                            e
+                        );
                     }
                 }
             });
@@ -315,7 +325,9 @@ impl List {
         let script_memory = self.script_memory.clone();
         let dispatcher = self.dispatcher.clone();
 
-        let current_path = self.tree_state.selected_node()
+        let current_path = self
+            .tree_state
+            .selected_node()
             .map(|n| n.entry.relative_path);
 
         // Show searching indicator
@@ -333,7 +345,7 @@ impl List {
                 Ok(set) => {
                     log::info!("Found {} executed scripts in database", set.len());
                     set
-                },
+                }
                 Err(e) => {
                     log::error!("Failed to query executed scripts: {}", e);
                     if let Some(ref disp) = dispatcher {
@@ -344,12 +356,15 @@ impl List {
             };
 
             // Step 2: Get all SQL files from filesystem
-            log::info!("Scanning filesystem for SQL files at {}...", root_dir.display());
+            log::info!(
+                "Scanning filesystem for SQL files at {}...",
+                root_dir.display()
+            );
             let paths = match file_explorer.list_sql_files_recursive(&root_dir).await {
                 Ok(p) => {
                     log::info!("Found {} total SQL files", p.len());
                     p
-                },
+                }
                 Err(e) => {
                     log::error!("Failed to list files: {}", e);
                     if let Some(ref disp) = dispatcher {
@@ -473,10 +488,13 @@ impl List {
                         // Check if file is in this directory (or subdirectories)
                         if file_path.starts_with(&dir_prefix) || dir_prefix.is_empty() {
                             // Check if script is skipped
-                            let is_skipped = script_memory.get_script_record(file_path)
+                            let is_skipped = script_memory
+                                .get_script_record(file_path)
                                 .ok()
                                 .flatten()
-                                .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                .map(|rec| {
+                                    rec.result == crate::script_memory::ScriptResult::Skipped
+                                })
                                 .unwrap_or(false);
 
                             if !is_skipped && !items.contains(file_path) {
@@ -489,7 +507,8 @@ impl List {
                     let path_str = &node.entry.relative_path;
                     if all_relative_paths.contains(path_str) {
                         // Check if script is skipped
-                        let is_skipped = script_memory.get_script_record(path_str)
+                        let is_skipped = script_memory
+                            .get_script_record(path_str)
                             .ok()
                             .flatten()
                             .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
@@ -540,15 +559,19 @@ impl List {
                         }
 
                         // Check the first file to determine if directory is currently skipped
-                        let first_file_path = paths[0].strip_prefix(&root_dir)
+                        let first_file_path = paths[0]
+                            .strip_prefix(&root_dir)
                             .ok()
                             .map(|p| p.to_string_lossy().to_string());
 
                         let is_currently_skipped = if let Some(ref first_path) = first_file_path {
-                            script_memory_check.get_script_record(first_path)
+                            script_memory_check
+                                .get_script_record(first_path)
                                 .ok()
                                 .flatten()
-                                .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                .map(|rec| {
+                                    rec.result == crate::script_memory::ScriptResult::Skipped
+                                })
                                 .unwrap_or(false)
                         } else {
                             false
@@ -576,14 +599,19 @@ impl List {
                                         EntryStatus::Skipped
                                     };
                                     if let Some(ref tx) = command_tx {
-                                        let _ = tx.send(Action::EntryStatusChanged(path_str, new_status));
+                                        let _ = tx
+                                            .send(Action::EntryStatusChanged(path_str, new_status));
                                     }
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to get children recursively for directory {}: {}", entry_path, e);
+                        log::error!(
+                            "Failed to get children recursively for directory {}: {}",
+                            entry_path,
+                            e
+                        );
                     }
                 }
             });
@@ -631,7 +659,8 @@ impl List {
         }
 
         // Check if script is in the selected/executed list (current session)
-        let script = if let Some(existing) = state.selected
+        let script = if let Some(existing) = state
+            .selected
             .iter()
             .find(|s| s.relative_path == entry.relative_path)
         {
@@ -743,7 +772,10 @@ impl Component for List {
                             log::debug!("Failed to load parent directory {}: {}", parent_path, e);
                         }
                     } else {
-                        log::debug!("Parent directory {} already has children loaded", parent_path);
+                        log::debug!(
+                            "Parent directory {} already has children loaded",
+                            parent_path
+                        );
                     }
                 }
 
@@ -755,7 +787,11 @@ impl Component for List {
                     return Ok(Some(Action::Render));
                 } else if retry_count < MAX_RETRIES {
                     // Still not found - retry after a short delay to let async loading complete
-                    log::info!("Path {} not in tree yet (retry {}), waiting for async load...", path, retry_count);
+                    log::info!(
+                        "Path {} not in tree yet (retry {}), waiting for async load...",
+                        path,
+                        retry_count
+                    );
                     if let Some(ref disp) = self.dispatcher {
                         let path_clone = path.clone();
                         let disp_clone = disp.clone();
@@ -784,17 +820,15 @@ impl Component for List {
 
                 // Use MigrationService if available, otherwise fall back to legacy
                 if let (Some(migration_service), Some(dispatcher)) =
-                    (&self.migration_service, &self.dispatcher) {
-
+                    (&self.migration_service, &self.dispatcher)
+                {
                     use crate::domain::ScriptPath;
 
                     // Convert entries to ScriptPaths (only files, not directories)
                     let script_paths: Vec<ScriptPath> = entries
                         .iter()
                         .filter(|e| !e.is_directory)
-                        .filter_map(|e| {
-                            ScriptPath::new(e.relative_path.clone()).ok()
-                        })
+                        .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
                         .collect();
 
                     // Dispatch directory statuses immediately
@@ -842,11 +876,18 @@ impl Component for List {
                                     // Never executed
                                     send_through_channel(
                                         &channel,
-                                        Action::EntryStatusChanged(entry.relative_path, EntryStatus::NeverStarted),
+                                        Action::EntryStatusChanged(
+                                            entry.relative_path,
+                                            EntryStatus::NeverStarted,
+                                        ),
                                     );
                                 }
                                 Err(e) => {
-                                    log::error!("Error getting status for {} : {}", entry.relative_path, e);
+                                    log::error!(
+                                        "Error getting status for {} : {}",
+                                        entry.relative_path,
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -862,16 +903,15 @@ impl Component for List {
 
                 // Use MigrationService if available
                 if let (Some(migration_service), Some(dispatcher)) =
-                    (&self.migration_service, &self.dispatcher) {
+                    (&self.migration_service, &self.dispatcher)
+                {
                     use crate::domain::ScriptPath;
 
                     // Convert entries to ScriptPaths (only files, not directories)
                     let script_paths: Vec<ScriptPath> = entries
                         .iter()
                         .filter(|e| !e.is_directory)
-                        .filter_map(|e| {
-                            ScriptPath::new(e.relative_path.clone()).ok()
-                        })
+                        .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
                         .collect();
 
                     // Use service to check for changes asynchronously
@@ -902,7 +942,8 @@ impl Component for List {
             Action::DirectoryChildrenLoaded(parent_path, children) => {
                 // Calculate statuses for ONLY the new children (before adding to tree)
                 if let (Some(migration_service), Some(dispatcher)) =
-                    (&self.migration_service, &self.dispatcher) {
+                    (&self.migration_service, &self.dispatcher)
+                {
                     use crate::domain::ScriptPath;
 
                     // Dispatch directory statuses immediately
@@ -929,7 +970,8 @@ impl Component for List {
                 }
 
                 // Add children to the tree under the parent directory
-                self.tree_state.add_children_to_directory(&parent_path, children);
+                self.tree_state
+                    .add_children_to_directory(&parent_path, children);
 
                 // Sync widget state
                 self.widget_state.select(Some(self.tree_state.cursor()));
@@ -1124,9 +1166,7 @@ impl Component for List {
                     // ? Unknown status (not yet checked)
                     EntryStatus::Unknown => ("?", Style::new().fg(Color::Gray)),
                     // • Never run before (bullet point - neutral)
-                    EntryStatus::NeverStarted => {
-                        ("\u{2022}", Style::new().fg(Color::Cyan))
-                    }
+                    EntryStatus::NeverStarted => ("\u{2022}", Style::new().fg(Color::Cyan)),
                     // ⊗ Skipped (marked to never run)
                     EntryStatus::Skipped => ("\u{2297}", Style::new().fg(Color::DarkGray)),
                     // (directory has blue background, no icon needed)

@@ -1,6 +1,6 @@
-use std::fmt::Display;
-use crate::script_memory::ScriptResult;
 use crate::domain::ScriptStatus;
+use crate::script_memory::ScriptResult;
+use std::fmt::Display;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Hash)]
 
@@ -19,8 +19,8 @@ pub enum EntryStatus {
     Changed,
     Unknown,
     Directory,
-    Loading,  // New: file/directory is being processed
-    Skipped,  // Marked to be skipped (user-defined, persisted in DB)
+    Loading, // New: file/directory is being processed
+    Skipped, // Marked to be skipped (user-defined, persisted in DB)
 }
 
 impl Display for ListEntry {

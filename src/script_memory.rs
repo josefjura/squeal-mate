@@ -1,9 +1,9 @@
-use crate::{infrastructure::get_script_database, entries::EntryStatus};
+use crate::{entries::EntryStatus, infrastructure::get_script_database};
 use color_eyre::eyre::{self};
-use rusqlite::{named_params, Connection};
-use std::path::PathBuf;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::{named_params, Connection};
+use std::path::PathBuf;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -240,9 +240,7 @@ impl ScriptDatabase {
         let manager = SqliteConnectionManager::file(&temp_path);
 
         // Build connection pool
-        let pool = Pool::builder()
-            .max_size(5)
-            .build(manager)?;
+        let pool = Pool::builder().max_size(5).build(manager)?;
 
         // Initialize the schema
         let conn = pool.get()?;
@@ -269,7 +267,9 @@ mod tests {
 
         // Verify table exists by querying it using the pool
         let conn = db.pool.get().unwrap();
-        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scripts'").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scripts'")
+            .unwrap();
         let exists: bool = stmt.exists([]).unwrap();
         assert!(exists, "scripts table should exist");
     }
@@ -284,7 +284,9 @@ mod tests {
 
         // Verify it was inserted using the pool
         let conn = db.pool.get().unwrap();
-        let mut stmt = conn.prepare("SELECT name, crc, result FROM scripts WHERE name = ?").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name, crc, result FROM scripts WHERE name = ?")
+            .unwrap();
         let mut rows = stmt.query(["test_script.sql"]).unwrap();
 
         let row = rows.next().unwrap().unwrap();
@@ -298,14 +300,18 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert initial record
-        db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success).unwrap();
+        db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
 
         // Update with different CRC and result
-        db.insert("test_script.sql".to_string(), 67890, ScriptResult::Error).unwrap();
+        db.insert("test_script.sql".to_string(), 67890, ScriptResult::Error)
+            .unwrap();
 
         // Verify it was updated using the pool
         let conn = db.pool.get().unwrap();
-        let mut stmt = conn.prepare("SELECT crc, result FROM scripts WHERE name = ?").unwrap();
+        let mut stmt = conn
+            .prepare("SELECT crc, result FROM scripts WHERE name = ?")
+            .unwrap();
         let mut rows = stmt.query(["test_script.sql"]).unwrap();
 
         let row = rows.next().unwrap().unwrap();
@@ -329,7 +335,8 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert a successful script
-        db.insert("success.sql".to_string(), 12345, ScriptResult::Success).unwrap();
+        db.insert("success.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
 
         // Query with matching CRC
         let status = db.get_file_status("success.sql", &12345).unwrap();
@@ -343,7 +350,8 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert a failed script
-        db.insert("failed.sql".to_string(), 12345, ScriptResult::Error).unwrap();
+        db.insert("failed.sql".to_string(), 12345, ScriptResult::Error)
+            .unwrap();
 
         // Query with matching CRC
         let status = db.get_file_status("failed.sql", &12345).unwrap();
@@ -357,7 +365,8 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert with original CRC
-        db.insert("changed.sql".to_string(), 12345, ScriptResult::Success).unwrap();
+        db.insert("changed.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
 
         // Query with different CRC
         let status = db.get_file_status("changed.sql", &67890).unwrap();
@@ -371,9 +380,12 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert multiple scripts
-        db.insert("script1.sql".to_string(), 111, ScriptResult::Success).unwrap();
-        db.insert("script2.sql".to_string(), 222, ScriptResult::Error).unwrap();
-        db.insert("script3.sql".to_string(), 333, ScriptResult::Success).unwrap();
+        db.insert("script1.sql".to_string(), 111, ScriptResult::Success)
+            .unwrap();
+        db.insert("script2.sql".to_string(), 222, ScriptResult::Error)
+            .unwrap();
+        db.insert("script3.sql".to_string(), 333, ScriptResult::Success)
+            .unwrap();
 
         // Verify all are stored correctly
         let status1 = db.get_file_status("script1.sql", &111).unwrap();

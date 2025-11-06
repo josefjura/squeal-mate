@@ -24,10 +24,16 @@ impl FileExplorer {
     /// Create a new file explorer rooted at the given directory
     pub fn new(root: PathBuf) -> Result<Self> {
         if !root.exists() {
-            return Err(color_eyre::eyre::eyre!("Path does not exist: {}", root.display()));
+            return Err(color_eyre::eyre::eyre!(
+                "Path does not exist: {}",
+                root.display()
+            ));
         }
         if !root.is_dir() {
-            return Err(color_eyre::eyre::eyre!("Path is not a directory: {}", root.display()));
+            return Err(color_eyre::eyre::eyre!(
+                "Path is not a directory: {}",
+                root.display()
+            ));
         }
         Ok(Self { root })
     }
@@ -39,8 +45,9 @@ impl FileExplorer {
         tokio::task::spawn_blocking(move || {
             let mut entries = Vec::new();
 
-            let read_dir = std::fs::read_dir(&dir)
-                .map_err(|e| color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e))?;
+            let read_dir = std::fs::read_dir(&dir).map_err(|e| {
+                color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e)
+            })?;
 
             for entry_result in read_dir {
                 let entry = entry_result?;
@@ -60,7 +67,9 @@ impl FileExplorer {
                         path,
                         is_directory: true,
                     });
-                } else if metadata.is_file() && path.extension().and_then(|s| s.to_str()) == Some("sql") {
+                } else if metadata.is_file()
+                    && path.extension().and_then(|s| s.to_str()) == Some("sql")
+                {
                     // Only include .sql files
                     entries.push(Entry {
                         name,
@@ -71,12 +80,10 @@ impl FileExplorer {
             }
 
             // Sort: directories first, then by name
-            entries.sort_by(|a, b| {
-                match (a.is_directory, b.is_directory) {
-                    (true, false) => std::cmp::Ordering::Less,
-                    (false, true) => std::cmp::Ordering::Greater,
-                    _ => a.name.cmp(&b.name),
-                }
+            entries.sort_by(|a, b| match (a.is_directory, b.is_directory) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.cmp(&b.name),
             });
 
             Ok(entries)
@@ -92,8 +99,9 @@ impl FileExplorer {
         tokio::task::spawn_blocking(move || {
             let mut files = Vec::new();
 
-            let read_dir = std::fs::read_dir(&dir)
-                .map_err(|e| color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e))?;
+            let read_dir = std::fs::read_dir(&dir).map_err(|e| {
+                color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e)
+            })?;
 
             for entry_result in read_dir {
                 let entry = entry_result?;
@@ -102,9 +110,7 @@ impl FileExplorer {
                 if path.is_file() {
                     if let Some(ext) = path.extension() {
                         if ext == "sql" {
-                            let name = path.file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("");
+                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                             // Skip hidden files
                             if !name.starts_with('.') && !name.starts_with('_') {
@@ -116,9 +122,7 @@ impl FileExplorer {
             }
 
             // Sort by name
-            files.sort_by(|a, b| {
-                a.file_name().cmp(&b.file_name())
-            });
+            files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
 
             Ok(files)
         })
@@ -143,17 +147,14 @@ impl FileExplorer {
 
     /// Helper function to recursively collect SQL files
     fn collect_sql_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
-        let read_dir = std::fs::read_dir(dir)
-            .map_err(|e| {
-                color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e)
-            })?;
+        let read_dir = std::fs::read_dir(dir).map_err(|e| {
+            color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e)
+        })?;
 
         for entry_result in read_dir {
             let entry = entry_result?;
             let path = entry.path();
-            let name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             // Skip hidden files/directories
             if name.starts_with('.') || name.starts_with('_') {
@@ -178,7 +179,8 @@ impl FileExplorer {
     /// Read the contents of a SQL file
     #[allow(dead_code)]
     pub async fn read_file(&self, path: &Path) -> Result<String> {
-        tokio::fs::read_to_string(path).await
+        tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| color_eyre::eyre::eyre!("Failed to read file {}: {}", path.display(), e))
     }
 

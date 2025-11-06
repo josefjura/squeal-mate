@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 /// Filesystem repository implementation
 pub struct FilesystemRepository {
     inner: Repository,
-    root_path: PathBuf,  // Store owned path for returning references
+    root_path: PathBuf, // Store owned path for returning references
 }
 
 impl FilesystemRepository {
@@ -54,12 +54,10 @@ impl MigrationRepository for FilesystemRepository {
             }
         }
 
-        let script_paths: Result<Vec<_>, _> = paths
-            .into_iter()
-            .map(ScriptPath::new)
-            .collect();
+        let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
-        script_paths}
+        script_paths
+    }
 
     async fn read_script(&self, path: &ScriptPath) -> DomainResult<MigrationScript> {
         let full_path = self.inner.base_as_path_buf().join(path.as_path());
@@ -75,14 +73,14 @@ impl MigrationRepository for FilesystemRepository {
     }
 
     async fn get_children(&self, directory_path: &Path) -> DomainResult<Vec<ScriptPath>> {
-        let paths = self.inner.get_children(directory_path.to_string_lossy().to_string());
+        let paths = self
+            .inner
+            .get_children(directory_path.to_string_lossy().to_string());
 
-        let script_paths: Result<Vec<_>, _> = paths
-            .into_iter()
-            .map(ScriptPath::new)
-            .collect();
+        let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
-        script_paths}
+        script_paths
+    }
 
     async fn get_scripts_after(
         &self,
@@ -95,12 +93,10 @@ impl MigrationRepository for FilesystemRepository {
 
         let paths = self.inner.read_files_after(filename);
 
-        let script_paths: Result<Vec<_>, _> = paths
-            .into_iter()
-            .map(ScriptPath::new)
-            .collect();
+        let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
-        script_paths}
+        script_paths
+    }
 
     async fn get_scripts_after_in_current(
         &self,
@@ -111,12 +107,10 @@ impl MigrationRepository for FilesystemRepository {
             .read_files_after_in_directory(after_name)
             .map_err(|e| InfraError::IoError(std::io::Error::other(e.to_string())))?;
 
-        let script_paths: Result<Vec<_>, _> = paths
-            .into_iter()
-            .map(ScriptPath::new)
-            .collect();
+        let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
-        script_paths}
+        script_paths
+    }
 
     async fn get_scripts_in_current(&self) -> DomainResult<Vec<ScriptPath>> {
         let paths = self
@@ -124,24 +118,16 @@ impl MigrationRepository for FilesystemRepository {
             .read_files_in_directory()
             .map_err(|e| InfraError::IoError(std::io::Error::other(e.to_string())))?;
 
-        let script_paths: Result<Vec<_>, _> = paths
-            .into_iter()
-            .map(ScriptPath::new)
-            .collect();
+        let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
-        script_paths}
+        script_paths
+    }
 
-    async fn get_scripts_after_global(
-        &self,
-        after_name: &str,
-    ) -> DomainResult<Vec<ScriptPath>> {
+    async fn get_scripts_after_global(&self, after_name: &str) -> DomainResult<Vec<ScriptPath>> {
         let paths = self.inner.read_files_after(after_name);
 
-        let script_paths: Result<Vec<_>, _> = paths
-            .into_iter()
-            .map(ScriptPath::new)
-            .collect();
+        let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
-        script_paths}
-
+        script_paths
+    }
 }

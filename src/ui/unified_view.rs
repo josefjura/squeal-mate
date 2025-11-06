@@ -1,8 +1,8 @@
 use color_eyre::eyre::Result;
 use ratatui::{
+    layout::Size,
     prelude::*,
     widgets::{Block, Borders},
-    layout::Size,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -57,8 +57,8 @@ impl UnifiedView {
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(10),        // Content area (flexible)
-                Constraint::Length(3),      // Command bar (fixed height)
+                Constraint::Min(10),   // Content area (flexible)
+                Constraint::Length(3), // Command bar (fixed height)
             ])
             .split(area);
 
@@ -69,8 +69,8 @@ impl UnifiedView {
         let horizontal_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(60),  // File tree
-                Constraint::Percentage(40),  // Right side (details + log)
+                Constraint::Percentage(60), // File tree
+                Constraint::Percentage(40), // Right side (details + log)
             ])
             .split(content_area);
 
@@ -81,8 +81,8 @@ impl UnifiedView {
         let right_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(60),  // Script preview/details
-                Constraint::Percentage(40),  // Execution log
+                Constraint::Percentage(60), // Script preview/details
+                Constraint::Percentage(40), // Execution log
             ])
             .split(right_panel);
 
@@ -111,7 +111,8 @@ impl Component for UnifiedView {
 
         // Register with all sub-components
         self.file_tree.register_config_handler(config.clone())?;
-        self.script_preview.register_config_handler(config.clone())?;
+        self.script_preview
+            .register_config_handler(config.clone())?;
         self.execution_log.register_config_handler(config.clone())?;
         self.command_bar.register_config_handler(config)?;
 
@@ -124,10 +125,14 @@ impl Component for UnifiedView {
         let (file_area, preview_area, log_area, cmd_area) = self.layout(rect);
 
         // Init sub-components with their sizes
-        self.file_tree.init(Size::new(file_area.width, file_area.height))?;
-        self.script_preview.init(Size::new(preview_area.width, preview_area.height))?;
-        self.execution_log.init(Size::new(log_area.width, log_area.height))?;
-        self.command_bar.init(Size::new(cmd_area.width, cmd_area.height))?;
+        self.file_tree
+            .init(Size::new(file_area.width, file_area.height))?;
+        self.script_preview
+            .init(Size::new(preview_area.width, preview_area.height))?;
+        self.execution_log
+            .init(Size::new(log_area.width, log_area.height))?;
+        self.command_bar
+            .init(Size::new(cmd_area.width, cmd_area.height))?;
 
         Ok(())
     }

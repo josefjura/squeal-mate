@@ -4,7 +4,7 @@ use crate::ui::Component;
 pub(crate) enum Mode {
     FileChooser,
     ScriptRunner,
-    Unified,  // New unified lazygit-style view
+    Unified, // New unified lazygit-style view
 }
 
 pub(crate) struct Screen {

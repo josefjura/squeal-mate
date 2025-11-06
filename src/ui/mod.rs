@@ -6,14 +6,14 @@
 pub mod component;
 pub mod help;
 pub mod list;
-pub mod tree_state;
 pub mod script_status;
+pub mod tree_state;
 
 // Unified view components
-pub mod unified_view;
 pub mod command_bar;
-pub mod script_preview;
 pub mod execution_log;
+pub mod script_preview;
+pub mod unified_view;
 
 pub use component::Component;
 pub use unified_view::UnifiedView;

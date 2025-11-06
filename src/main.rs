@@ -24,19 +24,22 @@ use cli::{Command, SquealMateArgs};
 use cliclack::{confirm, input, intro, note, outro};
 
 use color_eyre::eyre;
-use ui::help::Help;
-use ui::script_status::ScriptStatus;
-use ui::{UnifiedView, command_bar::CommandBar, script_preview::ScriptPreview, execution_log::ExecutionLog};
-use infrastructure::{get_config_dir, get_data_dir, Settings};
 use crossterm::style::Stylize;
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
+use infrastructure::{get_config_dir, get_data_dir, Settings};
 use script_memory::ScriptDatabase;
 use std::env;
 use std::io::{self, stdout};
 use std::path::Path;
 use std::{io::Write, path::PathBuf, str::FromStr};
+use ui::help::Help;
+use ui::script_status::ScriptStatus;
+use ui::{
+    command_bar::CommandBar, execution_log::ExecutionLog, script_preview::ScriptPreview,
+    UnifiedView,
+};
 use utils::{initialize_logging, initialize_panic_handler};
 
 async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre::Result<()> {
@@ -71,152 +74,155 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
         return Ok(());
     }
 
-    {  // Start scope for infrastructure setup
-            // Create infrastructure layer instances
-            use std::sync::Arc;
-            use infrastructure::{FilesystemRepository, MssqlExecutor, SqliteTracker};
-            use services::MigrationService;
+    {
+        // Start scope for infrastructure setup
+        // Create infrastructure layer instances
+        use infrastructure::{FilesystemRepository, MssqlExecutor, SqliteTracker};
+        use services::MigrationService;
+        use std::sync::Arc;
 
-            eprintln!("🔧 Initializing infrastructure...");
+        eprintln!("🔧 Initializing infrastructure...");
 
-            let fs_repo = Arc::new(
-                FilesystemRepository::new(path.clone())
-                    .map_err(|e| eyre::eyre!("Failed to create filesystem repository: {}", e))?
-            );
-            let executor = Arc::new(MssqlExecutor::new(connection.clone()));
-            let tracker = Arc::new(
-                SqliteTracker::new().await
-                    .map_err(|e| eyre::eyre!("Failed to create tracker: {}", e))?
-            );
+        let fs_repo = Arc::new(
+            FilesystemRepository::new(path.clone())
+                .map_err(|e| eyre::eyre!("Failed to create filesystem repository: {}", e))?,
+        );
+        let executor = Arc::new(MssqlExecutor::new(connection.clone()));
+        let tracker = Arc::new(
+            SqliteTracker::new()
+                .await
+                .map_err(|e| eyre::eyre!("Failed to create tracker: {}", e))?,
+        );
 
-            // Create service layer
-            let migration_service = Arc::new(MigrationService::new(
-                fs_repo.clone(),
-                executor.clone(),
-                tracker.clone(),
-            ));
+        // Create service layer
+        let migration_service = Arc::new(MigrationService::new(
+            fs_repo.clone(),
+            executor.clone(),
+            tracker.clone(),
+        ));
 
-            // Test database connection before starting TUI (with timeout)
-            eprintln!("🔌 Testing database connection...");
-            log::info!("Testing database connection...");
-            let test_result = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                migration_service.test_connection()
-            ).await;
+        // Test database connection before starting TUI (with timeout)
+        eprintln!("🔌 Testing database connection...");
+        log::info!("Testing database connection...");
+        let test_result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            migration_service.test_connection(),
+        )
+        .await;
 
-            match test_result {
-                Ok(Ok(())) => {
-                    eprintln!("✅ Database connection successful");
-                    log::info!("Database connection successful");
-                }
-                Ok(Err(e)) => {
-                    log::error!("Database connection failed: {}", e);
+        match test_result {
+            Ok(Ok(())) => {
+                eprintln!("✅ Database connection successful");
+                log::info!("Database connection successful");
+            }
+            Ok(Err(e)) => {
+                log::error!("Database connection failed: {}", e);
 
-                    // Use detailed error formatting
-                    let detailed_error = db::format_connection_error(&e.to_string(), &connection);
-                    eprintln!("{}", detailed_error);
+                // Use detailed error formatting
+                let detailed_error = db::format_connection_error(&e.to_string(), &connection);
+                eprintln!("{}", detailed_error);
 
-                    if force {
-                        eprintln!();
-                        eprintln!("⚠️  --force flag detected, starting anyway...");
-                        eprintln!("   (You won't be able to execute scripts)");
-                        eprintln!();
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    } else {
-                        eprintln!();
-                        eprintln!("Use --force (-f) to start anyway without database connection.");
-                        return Err(eyre::eyre!("Database connection failed"));
-                    }
-                }
-                Err(_) => {
-                    log::error!("Database connection timed out after 5 seconds");
-                    eprintln!("❌ Connection timed out after 5 seconds");
+                if force {
                     eprintln!();
-                    eprintln!("Server: {}:{}", connection.server, connection.port);
-                    eprintln!("Database: {}", connection.name);
+                    eprintln!("⚠️  --force flag detected, starting anyway...");
+                    eprintln!("   (You won't be able to execute scripts)");
                     eprintln!();
-                    eprintln!("This usually means:");
-                    eprintln!("  1. SQL Server is not running");
-                    eprintln!("  2. Firewall is blocking the connection");
-                    eprintln!("  3. Server address or port is incorrect");
-                    eprintln!("  4. Network issue preventing connection");
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                } else {
                     eprintln!();
-                    eprintln!("To diagnose:");
-                    eprintln!("  - Verify SQL Server is running");
-                    eprintln!("  - Test connectivity: ping {}", connection.server);
-                    eprintln!("  - Test port: telnet {} {}", connection.server, connection.port);
-                    eprintln!("  - Check firewall rules");
-                    eprintln!();
-                    eprintln!("To fix:");
-                    eprintln!("  1. Check configuration: squealmate config");
-                    eprintln!("  2. Reconfigure: squealmate init");
-
-                    if force {
-                        eprintln!();
-                        eprintln!("⚠️  --force flag detected, starting anyway...");
-                        eprintln!("   (You won't be able to execute scripts)");
-                        eprintln!();
-                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                    } else {
-                        eprintln!();
-                        eprintln!("Use --force (-f) to start anyway without database connection.");
-                        return Err(eyre::eyre!("Database connection timed out"));
-                    }
+                    eprintln!("Use --force (-f) to start anyway without database connection.");
+                    return Err(eyre::eyre!("Database connection failed"));
                 }
             }
+            Err(_) => {
+                log::error!("Database connection timed out after 5 seconds");
+                eprintln!("❌ Connection timed out after 5 seconds");
+                eprintln!();
+                eprintln!("Server: {}:{}", connection.server, connection.port);
+                eprintln!("Database: {}", connection.name);
+                eprintln!();
+                eprintln!("This usually means:");
+                eprintln!("  1. SQL Server is not running");
+                eprintln!("  2. Firewall is blocking the connection");
+                eprintln!("  3. Server address or port is incorrect");
+                eprintln!("  4. Network issue preventing connection");
+                eprintln!();
+                eprintln!("To diagnose:");
+                eprintln!("  - Verify SQL Server is running");
+                eprintln!("  - Test connectivity: ping {}", connection.server);
+                eprintln!(
+                    "  - Test port: telnet {} {}",
+                    connection.server, connection.port
+                );
+                eprintln!("  - Check firewall rules");
+                eprintln!();
+                eprintln!("To fix:");
+                eprintln!("  1. Check configuration: squealmate config");
+                eprintln!("  2. Reconfigure: squealmate init");
 
-            eprintln!("🎨 Loading UI components...");
+                if force {
+                    eprintln!();
+                    eprintln!("⚠️  --force flag detected, starting anyway...");
+                    eprintln!("   (You won't be able to execute scripts)");
+                    eprintln!();
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                } else {
+                    eprintln!();
+                    eprintln!("Use --force (-f) to start anyway without database connection.");
+                    return Err(eyre::eyre!("Database connection timed out"));
+                }
+            }
+        }
 
-            // Create List component (uses simple FileExplorer for UI browsing)
-            let mut list = List::new(path.clone(), script_memory.clone())?;
-            list.set_migration_service(migration_service.clone());
-            // Note: refresh_entries() will be called in init() after dispatcher is set up
+        eprintln!("🎨 Loading UI components...");
 
-            // Clone for unified view
-            let mut list_for_unified = List::new(path.clone(), script_memory.clone())?;
-            list_for_unified.set_migration_service(migration_service.clone());
+        // Create List component (uses simple FileExplorer for UI browsing)
+        let mut list = List::new(path.clone(), script_memory.clone())?;
+        list.set_migration_service(migration_service.clone());
+        // Note: refresh_entries() will be called in init() after dispatcher is set up
 
-            let script_status = ScriptStatus::new();
-            let execution_log_for_runner = ExecutionLog::new();
+        // Clone for unified view
+        let mut list_for_unified = List::new(path.clone(), script_memory.clone())?;
+        list_for_unified.set_migration_service(migration_service.clone());
 
-            // Create unified view components
-            let unified_view = UnifiedView::new(
-                Box::new(list_for_unified),
-                Box::new(ScriptPreview::new(path.clone())),
-                Box::new(ExecutionLog::new()),
-                Box::new(CommandBar::new()),
-            );
+        let script_status = ScriptStatus::new();
+        let execution_log_for_runner = ExecutionLog::new();
 
-            let mut app = App::new(
-                vec![
-                    // New unified view (default)
-                    Screen::new(
-                        Mode::Unified,
-                        vec![Box::new(unified_view)],
-                    ),
-                    // Keep old screens for now (can switch with Tab)
-                    Screen::new(
-                        Mode::FileChooser,
-                        vec![Box::new(list), Box::new(Help::new())],
-                    ),
-                    Screen::new(
-                        Mode::ScriptRunner,
-                        vec![
-                            Box::new(execution_log_for_runner),
-                            Box::new(script_status),
-                            Box::new(Help::new()),
-                        ],
-                    ),
-                ],
-                config,
-            );
+        // Create unified view components
+        let unified_view = UnifiedView::new(
+            Box::new(list_for_unified),
+            Box::new(ScriptPreview::new(path.clone())),
+            Box::new(ExecutionLog::new()),
+            Box::new(CommandBar::new()),
+        );
 
-            app.run().await?;
-            execute!(
-                stdout(),
-                Print("🦀 Thank you for using SquealMate 🦀\n".yellow())
-            )?;
-    }  // End infrastructure setup scope
+        let mut app = App::new(
+            vec![
+                // New unified view (default)
+                Screen::new(Mode::Unified, vec![Box::new(unified_view)]),
+                // Keep old screens for now (can switch with Tab)
+                Screen::new(
+                    Mode::FileChooser,
+                    vec![Box::new(list), Box::new(Help::new())],
+                ),
+                Screen::new(
+                    Mode::ScriptRunner,
+                    vec![
+                        Box::new(execution_log_for_runner),
+                        Box::new(script_status),
+                        Box::new(Help::new()),
+                    ],
+                ),
+            ],
+            config,
+        );
+
+        app.run().await?;
+        execute!(
+            stdout(),
+            Print("🦀 Thank you for using SquealMate 🦀\n".yellow())
+        )?;
+    } // End infrastructure setup scope
 
     Ok(())
 }
@@ -338,18 +344,29 @@ fn init_config() -> eyre::Result<()> {
     // Encryption settings (SQL Server 2022 requires encryption by default)
     cliclack::log::info("SQL Server 2022 and newer require encryption by default.")?;
 
-    let trust_cert: bool = confirm(
-        "Trust server certificate? (Required for self-signed certificates)"
-    )
-    .initial_value(true)
-    .interact()?;
+    let trust_cert: bool =
+        confirm("Trust server certificate? (Required for self-signed certificates)")
+            .initial_value(true)
+            .interact()?;
     settings.database.trust_server_certificate = Some(trust_cert);
 
     let encryption_prompt = cliclack::select("Encryption level:")
         .initial_value("required")
-        .item("required", "Required (SQL Server 2022 default)", "Encryption must be used")
-        .item("optional", "Optional", "Try encryption, fall back to unencrypted if needed")
-        .item("not_supported", "Not supported", "For older SQL Server versions without encryption")
+        .item(
+            "required",
+            "Required (SQL Server 2022 default)",
+            "Encryption must be used",
+        )
+        .item(
+            "optional",
+            "Optional",
+            "Try encryption, fall back to unencrypted if needed",
+        )
+        .item(
+            "not_supported",
+            "Not supported",
+            "For older SQL Server versions without encryption",
+        )
         .interact()?;
     settings.database.encryption = Some(encryption_prompt.to_string());
 
@@ -428,7 +445,7 @@ fn setup_database() -> eyre::Result<()> {
         "This wizard will help you:\n\
          1. Generate a secure password for database user\n\
          2. Create a SQL script to set up the user\n\
-         3. Save credentials to your config file"
+         3. Save credentials to your config file",
     )?;
 
     // Load existing settings or create new
@@ -439,7 +456,13 @@ fn setup_database() -> eyre::Result<()> {
 
     // Get database name
     let db_name: String = input("Database name")
-        .default_input(&settings.database.name.clone().unwrap_or_else(|| "master".to_string()))
+        .default_input(
+            &settings
+                .database
+                .name
+                .clone()
+                .unwrap_or_else(|| "master".to_string()),
+        )
         .validate(|input: &String| {
             if input.is_empty() {
                 Err("Database name cannot be empty")
@@ -548,13 +571,29 @@ PRINT 'Next step: Run squealmate and it will use these credentials.';
 PRINT '========================================';
 GO
 "#,
-        db_name, username,
-        username, username, password, db_name,
-        username, username, username, password, username,
         db_name,
-        username, username, username, username, username,
-        username, username, username, username,
-        username, db_name
+        username,
+        username,
+        username,
+        password,
+        db_name,
+        username,
+        username,
+        username,
+        password,
+        username,
+        db_name,
+        username,
+        username,
+        username,
+        username,
+        username,
+        username,
+        username,
+        username,
+        username,
+        username,
+        db_name
     );
 
     // Ask where to save the script
@@ -600,7 +639,7 @@ GO
              \n\
              3. Run 'squealmate' to start using your migrations!",
             save_location, save_location
-        )
+        ),
     )?;
 
     Ok(())

@@ -13,7 +13,7 @@ pub fn format_connection_error(error_msg: &str, db_config: &Database) -> String 
     // Check for specific error patterns
     if error_msg.contains("connection refused") || error_msg.contains("could not connect") {
         format!(
-r#"❌ Connection refused: SQL Server is not accepting connections
+            r#"❌ Connection refused: SQL Server is not accepting connections
 
 Server: {}:{}
 Database: {}
@@ -44,12 +44,21 @@ To fix:
   1. Check configuration: squealmate config
   2. Reconfigure: squealmate init
 "#,
-            db_config.server, db_config.port, db_config.name,
-            db_config.port, db_config.port, db_config.port,
-            db_config.server, db_config.port, db_config.server
+            db_config.server,
+            db_config.port,
+            db_config.name,
+            db_config.port,
+            db_config.port,
+            db_config.port,
+            db_config.server,
+            db_config.port,
+            db_config.server
         )
-    } else if error_msg.contains("tls") || error_msg.contains("ssl") ||
-              error_msg.contains("encryption") || error_msg.contains("certificate") {
+    } else if error_msg.contains("tls")
+        || error_msg.contains("ssl")
+        || error_msg.contains("encryption")
+        || error_msg.contains("certificate")
+    {
         let encryption_setting = match db_config.encryption.level {
             EncryptionLevel::Required => "required",
             EncryptionLevel::Optional => "optional",
@@ -57,7 +66,7 @@ To fix:
         };
 
         format!(
-r#"❌ Encryption/TLS error
+            r#"❌ Encryption/TLS error
 
 Server: {}:{}
 Current encryption setting: {}
@@ -95,19 +104,23 @@ Option 3: Install valid certificate on SQL Server
 
 To reconfigure: squealmate init
 "#,
-            db_config.server, db_config.port,
+            db_config.server,
+            db_config.port,
             encryption_setting,
             db_config.encryption.trust_certificate
         )
-    } else if error_msg.contains("login") || error_msg.contains("authentication") ||
-              error_msg.contains("password") || error_msg.contains("user") {
+    } else if error_msg.contains("login")
+        || error_msg.contains("authentication")
+        || error_msg.contains("password")
+        || error_msg.contains("user")
+    {
         let (username, auth_mode) = match &db_config.authentication {
             Authentication::Integrated => ("[Windows Authentication]".to_string(), "Integrated"),
             Authentication::SqlServer { username, .. } => (username.clone(), "SQL Server"),
         };
 
         format!(
-r#"❌ Login failed: Invalid credentials or authentication mode
+            r#"❌ Login failed: Invalid credentials or authentication mode
 
 Server: {}:{}
 Database: {}
@@ -146,15 +159,23 @@ Troubleshooting:
 
 To reconfigure: squealmate init
 "#,
-            db_config.server, db_config.port, db_config.name,
-            auth_mode, username,
-            username, db_config.name, username,
-            db_config.name, username, username, username
+            db_config.server,
+            db_config.port,
+            db_config.name,
+            auth_mode,
+            username,
+            username,
+            db_config.name,
+            username,
+            db_config.name,
+            username,
+            username,
+            username
         )
     } else {
         // Generic error
         format!(
-r#"❌ Database connection error
+            r#"❌ Database connection error
 
 Server: {}:{}
 Database: {}
@@ -172,8 +193,12 @@ If the error persists:
   - Check firewall settings
   - Verify database name exists
 "#,
-            db_config.server, db_config.port, db_config.name,
-            db_config.server, db_config.server, db_config.port
+            db_config.server,
+            db_config.port,
+            db_config.name,
+            db_config.server,
+            db_config.server,
+            db_config.port
         )
     }
 }
@@ -210,7 +235,7 @@ impl Default for EncryptionConfig {
         Self {
             // SQL Server 2022 requires encryption by default
             level: EncryptionLevel::Required,
-            trust_certificate: true,  // Trust self-signed certs by default
+            trust_certificate: true, // Trust self-signed certs by default
         }
     }
 }
@@ -337,7 +362,7 @@ mod tests {
         let config = create_test_db_config();
         let error = format_connection_error("login failed for user", &config);
 
-        assert!(error.contains("Login failed"));  // Actual message
+        assert!(error.contains("Login failed")); // Actual message
         assert!(error.contains("test_user"));
         assert!(error.contains("SQL Server authentication mode"));
         assert!(error.contains("database_principals"));

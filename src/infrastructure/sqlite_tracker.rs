@@ -1,6 +1,8 @@
 //! SQLite-based execution tracker
 
-use crate::domain::{Checksum, DomainResult, ExecutionResult, ExecutionTracker, ScriptPath, ScriptStatus};
+use crate::domain::{
+    Checksum, DomainResult, ExecutionResult, ExecutionTracker, ScriptPath, ScriptStatus,
+};
 use crate::infrastructure::error::InfraError;
 use crate::script_memory::{ScriptDatabase, ScriptResult};
 use async_trait::async_trait;
@@ -34,11 +36,7 @@ impl ExecutionTracker for SqliteTracker {
         };
 
         self.db
-            .insert(
-                path.to_string(),
-                result.checksum.value(),
-                script_result,
-            )
+            .insert(path.to_string(), result.checksum.value(), script_result)
             .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error
 
         Ok(())
@@ -50,7 +48,8 @@ impl ExecutionTracker for SqliteTracker {
         current_checksum: Checksum,
     ) -> DomainResult<ScriptStatus> {
         // Get the stored record (if exists)
-        let record = self.db
+        let record = self
+            .db
             .get_script_record(&path.to_string())
             .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
@@ -84,7 +83,8 @@ impl ExecutionTracker for SqliteTracker {
 
     async fn get_database_status(&self, path: &ScriptPath) -> DomainResult<ScriptStatus> {
         // Get the stored record (if exists)
-        let record = self.db
+        let record = self
+            .db
             .get_script_record(&path.to_string())
             .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 
@@ -100,7 +100,9 @@ impl ExecutionTracker for SqliteTracker {
             Some(rec) => {
                 match rec.result {
                     ScriptResult::Success => Ok(ScriptStatus::UpToDate), // Assume up-to-date without CRC check
-                    ScriptResult::Error => Ok(ScriptStatus::Failed { error: "Previous execution failed".to_string() }),
+                    ScriptResult::Error => Ok(ScriptStatus::Failed {
+                        error: "Previous execution failed".to_string(),
+                    }),
                     ScriptResult::Skipped => Ok(ScriptStatus::Skipped),
                 }
             }
@@ -116,7 +118,8 @@ impl ExecutionTracker for SqliteTracker {
 
     async fn get_last_checksum(&self, path: &ScriptPath) -> DomainResult<Option<Checksum>> {
         // Query the database for the stored record
-        let record = self.db
+        let record = self
+            .db
             .get_script_record(&path.to_string())
             .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
 

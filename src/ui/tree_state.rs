@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::entries::{EntryStatus, ListEntry};
+use std::path::PathBuf;
 
 /// A node in the file tree
 #[derive(Debug, Clone)]
@@ -229,20 +229,24 @@ impl TreeState {
 
                 if entry.is_directory {
                     // Recursively build children
-                    Self::build_subtree_static(&mut child, entries_by_parent, &entry.relative_path, child_depth);
+                    Self::build_subtree_static(
+                        &mut child,
+                        entries_by_parent,
+                        &entry.relative_path,
+                        child_depth,
+                    );
                 }
 
                 node.children.push(child);
             }
 
             // Sort children: directories first, then files, alphabetically
-            node.children.sort_by(|a, b| {
-                match (a.entry.is_directory, b.entry.is_directory) {
+            node.children
+                .sort_by(|a, b| match (a.entry.is_directory, b.entry.is_directory) {
                     (true, false) => std::cmp::Ordering::Less,
                     (false, true) => std::cmp::Ordering::Greater,
                     _ => a.entry.name.cmp(&b.entry.name),
-                }
-            });
+                });
         }
     }
 
@@ -454,7 +458,11 @@ impl TreeState {
         }
     }
 
-    fn add_children_recursive(node: &mut TreeNode, parent_path: &str, children: Vec<ListEntry>) -> bool {
+    fn add_children_recursive(
+        node: &mut TreeNode,
+        parent_path: &str,
+        children: Vec<ListEntry>,
+    ) -> bool {
         if node.entry.relative_path == parent_path {
             // Found the parent - add children
             for child_entry in children {
@@ -464,13 +472,12 @@ impl TreeState {
             }
 
             // Sort children: directories first, then files, alphabetically
-            node.children.sort_by(|a, b| {
-                match (a.entry.is_directory, b.entry.is_directory) {
+            node.children
+                .sort_by(|a, b| match (a.entry.is_directory, b.entry.is_directory) {
                     (true, false) => std::cmp::Ordering::Less,
                     (false, true) => std::cmp::Ordering::Greater,
                     _ => a.entry.name.cmp(&b.entry.name),
-                }
-            });
+                });
 
             return true;
         }

@@ -7,14 +7,19 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use crate::{action::{Action, PanelFocus}, app::AppState, infrastructure::Settings, tui::Frame};
+use crate::{
+    action::{Action, PanelFocus},
+    app::AppState,
+    infrastructure::Settings,
+    tui::Frame,
+};
 
 /// Persistent command bar shown at the bottom of the screen
 /// Displays context-sensitive keyboard shortcuts
 pub struct CommandBar {
     command_tx: Option<UnboundedSender<Action>>,
     config: Settings,
-    focused_panel: Option<PanelFocus>,  // Track focused panel in unified view
+    focused_panel: Option<PanelFocus>, // Track focused panel in unified view
 }
 
 impl CommandBar {
@@ -49,11 +54,7 @@ impl CommandBar {
             }
             Some(PanelFocus::ScriptPreview) => {
                 // Script preview commands (read-only)
-                vec![
-                    ("tab", "switch panel"),
-                    ("?", "help"),
-                    ("q", "quit"),
-                ]
+                vec![("tab", "switch panel"), ("?", "help"), ("q", "quit")]
             }
             Some(PanelFocus::ExecutionLog) => {
                 // Execution log commands (could add scrolling later)
