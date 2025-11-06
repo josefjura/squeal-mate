@@ -425,7 +425,7 @@ impl List {
     }
 
     pub fn select_from_cursor_to_end(&mut self, state: &mut AppState) {
-        // Get all entries from cursor to end, recursively process directories
+        // OPTIMIZATION: Scan filesystem ONCE at the start, then filter in memory
         let flattened = self.tree_state.flattened().to_vec();
         let current_cursor = self.tree_state.cursor();
 
@@ -435,51 +435,74 @@ impl List {
         let file_explorer = self.file_explorer.clone();
 
         tokio::spawn(async move {
+            // Step 1: Get ALL SQL files in repository ONCE (operation-scoped cache)
+            log::debug!("Scanning filesystem once for select_from_cursor_to_end");
+            let all_files = match file_explorer.list_sql_files_recursive(&root_dir).await {
+                Ok(files) => files,
+                Err(e) => {
+                    log::error!("Failed to scan filesystem: {}", e);
+                    return;
+                }
+            };
+
+            // Step 2: Convert to relative paths and build a HashSet for O(1) lookup
+            let all_relative_paths: std::collections::HashSet<String> = all_files
+                .iter()
+                .filter_map(|p| {
+                    p.strip_prefix(&root_dir)
+                        .ok()
+                        .map(|rp| rp.to_string_lossy().to_string())
+                })
+                .collect();
+
+            log::debug!("Found {} total SQL files", all_relative_paths.len());
+
+            // Step 3: Process entries from cursor to end using cached file list
             let mut items: Vec<String> = Vec::new();
 
             for node in flattened.iter().skip(current_cursor) {
                 if node.entry.is_directory {
-                    // Recursively get all files in this directory
-                    let dir_path = root_dir.join(&node.entry.relative_path);
-                    match file_explorer.list_sql_files_recursive(&dir_path).await {
-                        Ok(paths) => {
-                            for path in paths {
-                                if let Ok(relative_path) = path.strip_prefix(&root_dir) {
-                                    let path_str = relative_path.to_string_lossy().to_string();
+                    // Filter cached files that belong to this directory
+                    let dir_prefix = if node.entry.relative_path.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{}/", node.entry.relative_path)
+                    };
 
-                                    // Check if script is skipped
-                                    let is_skipped = script_memory.get_script_record(&path_str)
-                                        .ok()
-                                        .flatten()
-                                        .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
-                                        .unwrap_or(false);
+                    for file_path in &all_relative_paths {
+                        // Check if file is in this directory (or subdirectories)
+                        if file_path.starts_with(&dir_prefix) || dir_prefix.is_empty() {
+                            // Check if script is skipped
+                            let is_skipped = script_memory.get_script_record(file_path)
+                                .ok()
+                                .flatten()
+                                .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                                .unwrap_or(false);
 
-                                    if !is_skipped {
-                                        items.push(path_str);
-                                    }
-                                }
+                            if !is_skipped && !items.contains(file_path) {
+                                items.push(file_path.clone());
                             }
-                        }
-                        Err(e) => {
-                            log::error!("Failed to get children for directory {}: {}", node.entry.relative_path, e);
                         }
                     }
                 } else {
-                    // It's a file
-                    let path_str = node.entry.relative_path.clone();
+                    // It's a file - check if it exists in our cached list
+                    let path_str = &node.entry.relative_path;
+                    if all_relative_paths.contains(path_str) {
+                        // Check if script is skipped
+                        let is_skipped = script_memory.get_script_record(path_str)
+                            .ok()
+                            .flatten()
+                            .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
+                            .unwrap_or(false);
 
-                    // Check if script is skipped
-                    let is_skipped = script_memory.get_script_record(&path_str)
-                        .ok()
-                        .flatten()
-                        .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
-                        .unwrap_or(false);
-
-                    if !is_skipped {
-                        items.push(path_str);
+                        if !is_skipped {
+                            items.push(path_str.clone());
+                        }
                     }
                 }
             }
+
+            log::debug!("Selected {} files from cursor to end", items.len());
 
             if let Some(dispatcher) = dispatcher {
                 dispatcher.dispatch(Action::ToggleSelection(items));
