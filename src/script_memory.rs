@@ -259,7 +259,7 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert a record
-        let result = db.insert("test_script.sql".to_string(), 12345, true);
+        let result = db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success);
         assert!(result.is_ok(), "Insert should succeed");
 
         // Verify it was inserted
@@ -281,10 +281,10 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert initial record
-        db.insert("test_script.sql".to_string(), 12345, true).unwrap();
+        db.insert("test_script.sql".to_string(), 12345, ScriptResult::Success).unwrap();
 
         // Update with different CRC and result
-        db.insert("test_script.sql".to_string(), 67890, false).unwrap();
+        db.insert("test_script.sql".to_string(), 67890, ScriptResult::Error).unwrap();
 
         // Verify it was updated
         let conn = Connection::open(&db.db_name).unwrap();
@@ -316,7 +316,7 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert a successful script
-        db.insert("success.sql".to_string(), 12345, true).unwrap();
+        db.insert("success.sql".to_string(), 12345, ScriptResult::Success).unwrap();
 
         // Query with matching CRC
         let status = db.get_file_status("success.sql", &12345).unwrap();
@@ -331,7 +331,7 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert a failed script
-        db.insert("failed.sql".to_string(), 12345, false).unwrap();
+        db.insert("failed.sql".to_string(), 12345, ScriptResult::Error).unwrap();
 
         // Query with matching CRC
         let status = db.get_file_status("failed.sql", &12345).unwrap();
@@ -346,7 +346,7 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert with original CRC
-        db.insert("changed.sql".to_string(), 12345, true).unwrap();
+        db.insert("changed.sql".to_string(), 12345, ScriptResult::Success).unwrap();
 
         // Query with different CRC
         let status = db.get_file_status("changed.sql", &67890).unwrap();
@@ -361,9 +361,9 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         // Insert multiple scripts
-        db.insert("script1.sql".to_string(), 111, true).unwrap();
-        db.insert("script2.sql".to_string(), 222, false).unwrap();
-        db.insert("script3.sql".to_string(), 333, true).unwrap();
+        db.insert("script1.sql".to_string(), 111, ScriptResult::Success).unwrap();
+        db.insert("script2.sql".to_string(), 222, ScriptResult::Error).unwrap();
+        db.insert("script3.sql".to_string(), 333, ScriptResult::Success).unwrap();
 
         // Verify all are stored correctly
         let status1 = db.get_file_status("script1.sql", &111).unwrap();

@@ -85,6 +85,7 @@ impl FileExplorer {
     }
 
     /// List only SQL files in a directory (no directories, non-recursive)
+    #[allow(dead_code)]
     pub async fn list_sql_files(&self, dir: &Path) -> Result<Vec<PathBuf>> {
         let dir = dir.to_path_buf();
 
@@ -175,12 +176,14 @@ impl FileExplorer {
     }
 
     /// Read the contents of a SQL file
+    #[allow(dead_code)]
     pub async fn read_file(&self, path: &Path) -> Result<String> {
         tokio::fs::read_to_string(path).await
             .map_err(|e| color_eyre::eyre::eyre!("Failed to read file {}: {}", path.display(), e))
     }
 
     /// Get the root directory
+    #[allow(dead_code)]
     pub fn root(&self) -> &Path {
         &self.root
     }

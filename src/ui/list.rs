@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use color_eyre::eyre::{self, Result};
 
-use crc::{Crc, CRC_32_ISO_HDLC};
 use ratatui::{
     prelude::*,
     widgets::{block::Position, *},
@@ -247,16 +246,6 @@ impl List {
         Ok(())
     }
 
-    /// Collapse current folder or move to parent (tree view)
-    pub fn leave_current_directory(&mut self) -> eyre::Result<()> {
-        // In tree view, we can collapse the current folder if it's expanded
-        // For now, just toggle (same as open)
-        if self.tree_state.toggle_current_expansion() {
-            self.widget_state.select(Some(self.tree_state.cursor()));
-        }
-        Ok(())
-    }
-
     pub fn select_current(&mut self, state: &mut AppState) {
         let entry = self.get_selection();
 
@@ -312,46 +301,6 @@ impl List {
             if entry.status != EntryStatus::Skipped {
                 state.toggle(entry.relative_path);
             }
-        }
-    }
-
-    pub fn unselect_current(&mut self, state: &mut AppState) {
-        let entry = self.get_selection();
-
-        if entry.is_none() {
-            return;
-        };
-
-        let entry = entry.unwrap();
-
-        if entry.is_directory {
-            // Spawn async task to get directory children
-            let repo_base = self.base.clone();
-            let rel_path = repo_base.join(&entry.relative_path);
-            let root_dir = self.base.clone();
-            let file_explorer = self.file_explorer.clone();
-            let dispatcher = self.dispatcher.clone();
-            let entry_path = entry.relative_path.clone();
-
-            tokio::spawn(async move {
-                match file_explorer.list_sql_files(&rel_path).await {
-                    Ok(paths) => {
-                        let items: Vec<String> = paths.into_iter()
-                            .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                            .map(|p| p.to_string_lossy().to_string())
-                            .collect();
-
-                        if let Some(dispatcher) = dispatcher {
-                            dispatcher.dispatch(Action::RemoveSelection(items));
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to get children for directory {}: {}", entry_path, e);
-                    }
-                }
-            });
-        } else {
-            state.remove(entry.relative_path);
         }
     }
 
@@ -643,88 +592,6 @@ impl List {
                 }
             });
         }
-    }
-
-    pub fn select_all_after(&mut self, _state: &mut AppState) {
-        let entry = self.get_selection();
-
-        if entry.is_none() {
-            return;
-        };
-
-        let entry = entry.unwrap();
-
-        // In tree view, select all files after current one (recursively)
-        let root_dir = self.base.clone();
-        let file_explorer = self.file_explorer.clone();
-        let after_name = entry.name.clone();
-        let dispatcher = self.dispatcher.clone();
-
-        tokio::spawn(async move {
-            match file_explorer.list_sql_files(&root_dir).await {
-                Ok(paths) => {
-                    // Filter to only files after the selected one (alphabetically)
-                    let entries: Vec<String> = paths.into_iter()
-                        .filter(|p| {
-                            p.file_name()
-                                .and_then(|n| n.to_str())
-                                .map(|name| name > after_name.as_str())
-                                .unwrap_or(false)
-                        })
-                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect();
-
-                    if let Some(dispatcher) = dispatcher {
-                        dispatcher.dispatch(Action::AddSelection(entries));
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to get scripts after {}: {}", after_name, e);
-                }
-            }
-        });
-    }
-
-    pub fn select_all_after_in_directory(&mut self, _state: &mut AppState) {
-        let entry = self.get_selection();
-
-        if entry.is_none() {
-            return;
-        };
-
-        let entry = entry.unwrap();
-
-        // In tree view, same as select_all_after (no directory context)
-        let root_dir = self.base.clone();
-        let file_explorer = self.file_explorer.clone();
-        let after_name = entry.name.clone();
-        let dispatcher = self.dispatcher.clone();
-
-        tokio::spawn(async move {
-            match file_explorer.list_sql_files(&root_dir).await {
-                Ok(paths) => {
-                    // Filter to only files after the selected one (alphabetically)
-                    let entries: Vec<String> = paths.into_iter()
-                        .filter(|p| {
-                            p.file_name()
-                                .and_then(|n| n.to_str())
-                                .map(|name| name > after_name.as_str())
-                                .unwrap_or(false)
-                        })
-                        .filter_map(|p| p.strip_prefix(&root_dir).ok().map(|p| p.to_path_buf()))
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect();
-
-                    if let Some(dispatcher) = dispatcher {
-                        dispatcher.dispatch(Action::AddSelection(entries));
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to get scripts after {} in directory: {}", after_name, e);
-                }
-            }
-        });
     }
 
     /// Get the currently highlighted script for the preview panel
