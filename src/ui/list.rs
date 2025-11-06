@@ -12,7 +12,7 @@ use super::Component;
 use crate::{
     action::Action,
     entries::EntryStatus,
-    infrastructure::FileExplorer,
+    infrastructure::{FileExplorer, FileSystem},
     infrastructure::Settings,
     script_memory::ScriptDatabase,
     services::{ActionDispatcher, MigrationService},
@@ -31,14 +31,24 @@ pub struct List {
     config: Settings,
     widget_state: ListState,          // Ratatui widget state (for scrolling)
     tree_state: TreeState,            // Tree view state with hierarchy
-    file_explorer: Arc<FileExplorer>, // Simple file browsing (no domain abstractions)
+    filesystem: Arc<dyn FileSystem>,  // Abstraction for file browsing (allows mocking)
     script_memory: ScriptDatabase,
     is_searching: bool, // Flag for showing "Searching..." indicator
 }
 
 impl List {
+    /// Create a new List with the real filesystem
     pub fn new(base: PathBuf, script_memory: ScriptDatabase) -> Result<Self> {
-        let file_explorer = Arc::new(FileExplorer::new(base.clone())?);
+        let filesystem = Arc::new(FileExplorer::new(base.clone())?) as Arc<dyn FileSystem>;
+        Self::new_with_filesystem(base, script_memory, filesystem)
+    }
+
+    /// Create a new List with a custom filesystem (for testing)
+    pub fn new_with_filesystem(
+        base: PathBuf,
+        script_memory: ScriptDatabase,
+        filesystem: Arc<dyn FileSystem>,
+    ) -> Result<Self> {
         let tree_state = TreeState::new(base.clone());
 
         Ok(Self {
@@ -48,7 +58,7 @@ impl List {
             migration_service: None,
             config: Settings::default(),
             script_memory,
-            file_explorer,
+            filesystem,
             base: base.clone(),
             tree_state,
             is_searching: false,
@@ -69,12 +79,12 @@ impl List {
 
         // Spawn async task to load ONLY root directory entries (non-recursive)
         let root_dir = self.base.clone();
-        let file_explorer = self.file_explorer.clone();
+        let filesystem = self.filesystem.clone();
         let dispatcher = self.dispatcher.clone();
 
         tokio::spawn(async move {
             // Only load immediate children, not recursive
-            let result = file_explorer.list_directory(&root_dir).await;
+            let result = filesystem.list_directory(&root_dir).await;
 
             let entries = match result {
                 Ok(explorer_entries) => {
@@ -117,12 +127,12 @@ impl List {
     fn load_directory_children(&mut self, dir_path: &str) -> eyre::Result<()> {
         let full_path = self.base.join(dir_path);
         let root_dir = self.base.clone();
-        let file_explorer = self.file_explorer.clone();
+        let filesystem = self.filesystem.clone();
         let dispatcher = self.dispatcher.clone();
         let dir_path_owned = dir_path.to_string();
 
         tokio::spawn(async move {
-            let result = file_explorer.list_directory(&full_path).await;
+            let result = filesystem.list_directory(&full_path).await;
 
             let entries = match result {
                 Ok(explorer_entries) => {
@@ -263,13 +273,13 @@ impl List {
             let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
-            let file_explorer = self.file_explorer.clone();
+            let filesystem = self.filesystem.clone();
             let script_memory = self.script_memory.clone();
             let dispatcher = self.dispatcher.clone();
             let entry_path = entry.relative_path.clone();
 
             tokio::spawn(async move {
-                match file_explorer.list_sql_files_recursive(&rel_path).await {
+                match filesystem.list_sql_files_recursive(&rel_path).await {
                     Ok(paths) => {
                         // Filter out skipped scripts
                         let mut items: Vec<String> = Vec::new();
@@ -321,7 +331,7 @@ impl List {
     pub fn jump_to_next_not_run(&mut self) {
         // Optimized batch search with progress indicator
         let root_dir = self.base.clone();
-        let file_explorer = self.file_explorer.clone();
+        let filesystem = self.filesystem.clone();
         let script_memory = self.script_memory.clone();
         let dispatcher = self.dispatcher.clone();
 
@@ -360,7 +370,7 @@ impl List {
                 "Scanning filesystem for SQL files at {}...",
                 root_dir.display()
             );
-            let paths = match file_explorer.list_sql_files_recursive(&root_dir).await {
+            let paths = match filesystem.list_sql_files_recursive(&root_dir).await {
                 Ok(p) => {
                     log::info!("Found {} total SQL files", p.len());
                     p
@@ -447,12 +457,12 @@ impl List {
         let root_dir = self.base.clone();
         let script_memory = self.script_memory.clone();
         let dispatcher = self.dispatcher.clone();
-        let file_explorer = self.file_explorer.clone();
+        let filesystem = self.filesystem.clone();
 
         tokio::spawn(async move {
             // Step 1: Get ALL SQL files in repository ONCE (operation-scoped cache)
             log::debug!("Scanning filesystem once for select_from_cursor_to_end");
-            let all_files = match file_explorer.list_sql_files_recursive(&root_dir).await {
+            let all_files = match filesystem.list_sql_files_recursive(&root_dir).await {
                 Ok(files) => files,
                 Err(e) => {
                     log::error!("Failed to scan filesystem: {}", e);
@@ -546,13 +556,13 @@ impl List {
             let repo_base = self.base.clone();
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
-            let file_explorer = self.file_explorer.clone();
+            let filesystem = self.filesystem.clone();
             let script_memory_check = self.script_memory.clone();
             let script_memory = self.script_memory.clone();
             let entry_path = entry.relative_path.clone();
 
             tokio::spawn(async move {
-                match file_explorer.list_sql_files_recursive(&rel_path).await {
+                match filesystem.list_sql_files_recursive(&rel_path).await {
                     Ok(paths) => {
                         if paths.is_empty() {
                             return;

@@ -27,11 +27,14 @@ impl Repository {
     ///
     /// # Examples
     ///
-    /// ```
-    /// let x: Result<Repository, RepositoryError> = Repository::new("some/existing/file");
+    /// ```no_run
+    /// use squealmate::repository::{Repository, RepositoryError};
+    /// use std::path::PathBuf;
+    ///
+    /// let x: Result<Repository, RepositoryError> = Repository::new(PathBuf::from("some/existing/file"));
     /// assert_eq!(x.is_ok(), true);
     ///
-    /// let x: Result<Repository, RepositoryError> = Repository::new("some/non-existing/file");
+    /// let x: Result<Repository, RepositoryError> = Repository::new(PathBuf::from("some/non-existing/file"));
     /// assert_eq!(x.is_ok(), false);
     /// ```
     pub fn new(root: PathBuf) -> Result<Self, RepositoryError> {

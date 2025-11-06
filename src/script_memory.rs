@@ -2,10 +2,7 @@ use crate::{entries::EntryStatus, infrastructure::get_script_database};
 use color_eyre::eyre::{self};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{named_params, Connection};
-use std::path::PathBuf;
-
-#[cfg(test)]
+use rusqlite::named_params;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct ScriptDatabaseRecord {
@@ -230,7 +227,10 @@ impl ScriptDatabase {
         }
     }
 
-    #[cfg(test)]
+    /// Create a new in-memory test database
+    ///
+    /// This is available for both unit tests and integration tests.
+    /// Each call creates a unique temporary database file.
     pub fn new_test() -> eyre::Result<Self> {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);

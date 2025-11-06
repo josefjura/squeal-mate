@@ -1,24 +1,12 @@
-mod action;
-mod app;
-mod batch_parser;
-mod cli;
-mod db;
-mod domain;
-mod entries;
-mod error;
-mod infrastructure;
-mod repository;
-mod screen;
-mod script_memory;
-mod services;
-mod tui;
-mod ui;
-mod utils;
+// Re-use the library instead of re-declaring modules
+use squealmate::{
+    action, app, batch_parser, cli, db, domain, entries, error, infrastructure, repository,
+    screen, script_memory, services, tui, ui, utils,
+};
 
-use crate::screen::{Mode, Screen};
-
-use crate::app::App;
-use crate::ui::list::List;
+use screen::{Mode, Screen};
+use app::App;
+use ui::list::List;
 use clap::Parser;
 use cli::{Command, SquealMateArgs};
 use cliclack::{confirm, input, intro, note, outro};

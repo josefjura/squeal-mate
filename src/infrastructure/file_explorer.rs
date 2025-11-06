@@ -191,6 +191,33 @@ impl FileExplorer {
     }
 }
 
+// Implement FileSystem trait for FileExplorer
+#[async_trait::async_trait]
+impl crate::infrastructure::FileSystem for FileExplorer {
+    async fn list_directory(&self, dir: &Path) -> Result<Vec<crate::infrastructure::FsEntry>> {
+        // Call the local implementation and convert Entry types
+        FileExplorer::list_directory(self, dir).await.map(|entries| {
+            entries
+                .into_iter()
+                .map(|e| crate::infrastructure::FsEntry {
+                    name: e.name,
+                    path: e.path,
+                    is_directory: e.is_directory,
+                })
+                .collect()
+        })
+    }
+
+    async fn list_sql_files_recursive(&self, dir: &Path) -> Result<Vec<PathBuf>> {
+        // Call the local implementation
+        FileExplorer::list_sql_files_recursive(self, dir).await
+    }
+
+    fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
