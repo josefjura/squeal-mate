@@ -6,3 +6,7 @@
 setup-*.sql
 
 .idea
+
+# Insta snapshot review artifacts (should not be committed)
+*.snap.new
+*.snap.pending

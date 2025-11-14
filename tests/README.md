@@ -9,6 +9,7 @@ This directory contains the end-to-end (E2E) testing infrastructure for SquealMa
 - [Test Support Infrastructure](#test-support-infrastructure)
 - [Writing E2E Tests](#writing-e2e-tests)
 - [Test Patterns](#test-patterns)
+- [Snapshot Testing](#snapshot-testing)
 - [Running Tests](#running-tests)
 - [Troubleshooting](#troubleshooting)
 
@@ -264,6 +265,36 @@ async fn test_app_state_manipulation() {
 }
 ```
 
+#### 5. Snapshot Tests
+Test UI rendering and capture visual output for regression testing.
+
+**File:** `e2e_snapshot_test.rs`
+
+**Example:**
+```rust
+#[tokio::test]
+async fn test_list_renders_with_files() {
+    let mock_fs = MockFileSystem::new(root.clone())
+        .with_files(&["001_init.sql", "002_users.sql"]);
+
+    let mut list = List::new_with_filesystem(root, db, Arc::new(mock_fs))?;
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend)?;
+
+    // Render component
+    terminal.draw(|f| {
+        list.draw(f, f.area(), &app_state)?;
+    })?;
+
+    // Extract and snapshot text
+    let lines = extract_text_lines(terminal.backend().buffer());
+    insta::assert_debug_snapshot!("list_with_files", lines);
+}
+```
+
+See [Snapshot Testing](#snapshot-testing) section for detailed documentation.
+
 ## Test Patterns
 
 ### Pattern 1: Testing Component Safety
@@ -335,6 +366,280 @@ async fn test_nested_directories() {
     // Test directory expansion, navigation, etc.
 }
 ```
+
+## Snapshot Testing
+
+### Overview
+
+Snapshot testing captures the rendered UI output and compares it against previously approved snapshots. Any changes to the UI will cause tests to fail, allowing you to review and approve intentional changes while catching unintended regressions.
+
+**File:** `e2e_snapshot_test.rs`
+
+### How It Works
+
+1. **Render to TestBackend**: Components render to an in-memory buffer
+2. **Extract text**: Convert the buffer to readable text lines
+3. **Snapshot**: Save or compare against stored snapshot
+4. **Review**: Use `cargo insta` to review any changes
+
+### Snapshot Test Template
+
+```rust
+#[tokio::test]
+async fn test_component_renders_state() {
+    // 1. Setup mocked dependencies
+    let root = PathBuf::from("/test");
+    let mock_fs = MockFileSystem::new(root.clone())
+        .with_files(&["001_init.sql", "002_users.sql"]);
+
+    let db = ScriptDatabase::new_test().unwrap();
+    let mut list = List::new_with_filesystem(root, db, Arc::new(mock_fs)).unwrap();
+
+    // 2. Setup TestBackend with desired terminal size
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    // 3. Initialize component
+    let (action_tx, _action_rx) = mpsc::unbounded_channel();
+    list.register_action_handler(action_tx.clone()).unwrap();
+
+    let terminal_size = ratatui::layout::Size {
+        width: 80,
+        height: 24,
+    };
+    list.init(terminal_size).unwrap();
+
+    // 4. Trigger any async operations
+    list.refresh_entries().unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // 5. Render to test buffer
+    let app_state = AppState::new();
+    terminal
+        .draw(|f| {
+            list.draw(f, f.area(), &app_state).unwrap();
+        })
+        .unwrap();
+
+    // 6. Extract text lines from buffer
+    let buffer = terminal.backend().buffer();
+    let height = buffer.area().height as usize;
+    let width = buffer.area().width as usize;
+    let mut lines = Vec::new();
+
+    for y in 0..height {
+        let mut line = String::new();
+        for x in 0..width {
+            let cell = buffer.cell((x as u16, y as u16)).unwrap();
+            line.push_str(cell.symbol());
+        }
+        lines.push(line.trim_end().to_string());
+    }
+
+    // 7. Create snapshot
+    insta::assert_debug_snapshot!("test_component_state", lines);
+}
+```
+
+### Example Snapshot Output
+
+Snapshots are stored in `tests/snapshots/` as YAML files:
+
+```yaml
+---
+source: tests/e2e_snapshot_test.rs
+expression: lines
+---
+[
+    "📂  /test",
+    "╔══════════════════════════════════════════════╗",
+    "║>> ▶ ? test                                   ║",
+    "║   ▶ ✓ 001_init.sql                           ║",
+    "║   ▶ ✗ 002_users.sql                          ║",
+    "║   ▶ ? 003_products.sql                       ║",
+    "║                                              ║",
+    "╚═══════════════════════════Press h for help══╝",
+]
+```
+
+### Working with Snapshots
+
+#### First-Time Setup
+
+Install `cargo-insta` CLI tool:
+```bash
+cargo install cargo-insta
+```
+
+#### Creating New Snapshots
+
+When you first run a snapshot test, it will fail (no snapshot exists yet):
+
+```bash
+# Run tests - will fail with "snapshot missing"
+cargo test --test e2e_snapshot_test
+
+# Review and accept new snapshots
+cargo insta review
+
+# Or auto-accept all new snapshots
+cargo insta test --test e2e_snapshot_test --accept
+```
+
+#### Reviewing Changed Snapshots
+
+When UI changes cause snapshots to differ:
+
+```bash
+# Run tests - will fail with diff
+cargo test
+
+# Interactive review of all changes
+cargo insta review
+
+# Show what changed
+cargo insta test --test e2e_snapshot_test --review
+```
+
+The interactive reviewer shows:
+- Old snapshot (red)
+- New snapshot (green)
+- Options: Accept, Reject, Skip
+
+#### Accepting/Rejecting Changes
+
+```bash
+# Accept all changes (when changes are intentional)
+cargo insta accept
+
+# Reject all changes (when changes are bugs)
+cargo insta reject
+
+# Accept specific snapshot
+cargo insta accept <snapshot_name>
+```
+
+### Existing Snapshot Tests
+
+#### 1. `test_list_renders_empty_state`
+- **Tests**: Empty filesystem rendering
+- **Verifies**: Initial state, borders, help text
+- **Snapshot**: Shows empty list with prompt
+
+#### 2. `test_list_renders_with_files`
+- **Tests**: List with 3 SQL files
+- **Verifies**: File display, formatting
+- **Snapshot**: Shows file list in tree view
+
+#### 3. `test_list_renders_with_execution_history`
+- **Tests**: Files with mixed execution status
+- **Pre-populated**: Success, Error, Never Run
+- **Verifies**: Status indicators (✓, ✗, ?)
+- **Snapshot**: Shows colored status markers
+
+#### 4. `test_list_renders_nested_directories`
+- **Tests**: Hierarchical directory structure
+- **Files**: root/, migrations/, migrations/2024/
+- **Verifies**: Tree indentation, folder icons
+- **Snapshot**: Shows nested directory structure
+
+### Best Practices for Snapshot Testing
+
+#### ✅ DO
+
+- **Review snapshots carefully** before accepting
+- **Keep snapshots small** - test specific components/states
+- **Use descriptive names** - `test_list_empty_not_loaded_state`
+- **Test different terminal sizes** - 80x24, 100x30, etc.
+- **Test edge cases** - empty, full, errors, loading states
+- **Commit snapshots** to git - they're part of the test suite
+- **Update snapshots intentionally** when UI changes
+- **Use consistent terminal sizes** for comparable snapshots
+
+#### ❌ DON'T
+
+- **Auto-accept without review** - could hide bugs
+- **Snapshot entire app screens** - too brittle, hard to debug
+- **Test dynamic content** - timestamps, random IDs will cause flakes
+- **Ignore failing snapshots** - they're catching regressions!
+- **Manually edit snapshots** - always regenerate through tests
+- **Snapshot raw Cell data** - use text lines instead
+- **Test with variable content** - use fixed test data
+
+### Snapshot Testing Workflow
+
+1. **Write test** with expected UI behavior
+2. **Run test** - it will fail (no snapshot)
+3. **Review output** - verify it looks correct
+4. **Accept snapshot** with `cargo insta accept`
+5. **Commit snapshot** to git
+6. **CI runs tests** - ensures UI stays consistent
+7. **On UI changes**:
+   - Tests fail with diff
+   - Review changes
+   - Accept if intentional, reject if bug
+
+### Debugging Failed Snapshots
+
+When a snapshot test fails:
+
+```bash
+# See the diff
+cargo insta test --test e2e_snapshot_test --review
+
+# Check what changed
+git diff tests/snapshots/
+```
+
+**Common causes:**
+- Intentional UI improvements ✅ (accept)
+- Styling changes ✅ (accept)
+- Bug in rendering ❌ (reject and fix)
+- Change in test data ❌ (fix test)
+- Terminal size changed ❌ (use consistent size)
+
+### Advanced: Custom Snapshot Filters
+
+For dynamic content that changes between runs:
+
+```rust
+use insta::Settings;
+
+let mut settings = Settings::clone_current();
+settings.add_filter(r"\d{4}-\d{2}-\d{2}", "[DATE]");
+settings.bind(|| {
+    insta::assert_debug_snapshot!("name", output);
+});
+```
+
+This replaces dates like "2024-01-15" with "[DATE]" for consistent snapshots.
+
+### Snapshot File Structure
+
+```
+tests/
+├── e2e_snapshot_test.rs          # Snapshot test code
+├── snapshots/                     # Snapshot storage
+│   ├── e2e_snapshot_test__list_empty_state.snap
+│   ├── e2e_snapshot_test__list_with_files.snap
+│   ├── e2e_snapshot_test__list_with_execution_history.snap
+│   └── e2e_snapshot_test__list_nested_directories.snap
+└── README.md                      # This file
+```
+
+### CI Integration
+
+In CI pipelines:
+
+```bash
+# Run tests - should pass if snapshots are committed
+cargo test
+
+# If snapshots are out of date, CI will fail with diff
+# Developers must update and commit new snapshots
+```
+
+**Never** use `--accept` in CI - it would hide regressions!
 
 ## Running Tests
 
@@ -468,20 +773,21 @@ let db = ScriptDatabase::new()?; // Don't use in tests!
 
 ### Planned Features
 
-1. **TestBackend Integration**
-   - Render to test buffer
-   - Snapshot testing with `insta`
-   - UI output verification
+1. ~~**TestBackend Integration**~~ ✅ **COMPLETED**
+   - ~~Render to test buffer~~ ✅
+   - ~~Snapshot testing with `insta`~~ ✅
+   - ~~UI output verification~~ ✅
 
 2. **Full Event Loop Testing**
    - Process actions with component updates
    - Test complete user workflows
    - Verify state changes after async operations
 
-3. **Mock Database**
+3. **Mock Database** (Optional)
    - In-memory database implementation
    - Faster test execution
    - More control over database behavior
+   - **Note**: `ScriptDatabase::new_test()` already provides test isolation
 
 4. **Test Utilities**
    - Common test fixtures
@@ -506,10 +812,12 @@ See existing test files for comprehensive examples:
 - **`app_test.rs`**: App initialization and configuration
 - **`e2e_navigation_test.rs`**: Navigation, selection, and UI operations
 - **`e2e_with_actions_test.rs`**: Action system and state management
+- **`e2e_snapshot_test.rs`**: UI rendering and snapshot testing
 - **`mock_filesystem_test.rs`**: MockFileSystem API usage
 
 ---
 
-**Test Count:** 90 tests across 5 test files
-**Test Coverage:** Components, actions, state, navigation, integration
+**Test Count:** 97 tests across 6 test files
+**Test Coverage:** Components, actions, state, navigation, UI rendering, integration
 **Average Test Time:** <50ms per test
+**Snapshot Tests:** 4 snapshots capturing UI output

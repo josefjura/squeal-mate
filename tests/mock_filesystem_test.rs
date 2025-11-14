@@ -9,8 +9,7 @@ use support::MockFileSystem;
 #[tokio::test]
 async fn test_mock_filesystem_basic() {
     let root = PathBuf::from("/test");
-    let fs = MockFileSystem::new(root.clone())
-        .with_files(&["001_init.sql", "002_users.sql"]);
+    let fs = MockFileSystem::new(root.clone()).with_files(&["001_init.sql", "002_users.sql"]);
 
     // List root directory
     let entries = fs.list_directory(&root).await.unwrap();

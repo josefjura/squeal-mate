@@ -135,12 +135,10 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("squealmate_test_app");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        let app = AppBuilder::new_test()
-            .with_root(temp_dir.clone())
-            .build();
+        let app = AppBuilder::new_test().with_root(temp_dir.clone()).build();
 
         match &app {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => panic!("AppBuilder failed: {:?}", e),
         }
 

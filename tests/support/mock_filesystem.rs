@@ -122,10 +122,7 @@ impl FileSystem for MockFileSystem {
     async fn list_directory(&self, dir: &Path) -> Result<Vec<FsEntry>> {
         let dirs = self.directories.lock().unwrap();
 
-        Ok(dirs
-            .get(dir)
-            .cloned()
-            .unwrap_or_default())
+        Ok(dirs.get(dir).cloned().unwrap_or_default())
     }
 
     async fn list_sql_files_recursive(&self, dir: &Path) -> Result<Vec<PathBuf>> {
@@ -151,8 +148,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_filesystem_basic() {
         let root = PathBuf::from("/test");
-        let fs = MockFileSystem::new(root.clone())
-            .with_files(&["001_init.sql", "002_users.sql"]);
+        let fs = MockFileSystem::new(root.clone()).with_files(&["001_init.sql", "002_users.sql"]);
 
         // List root directory
         let entries = fs.list_directory(&root).await.unwrap();
@@ -168,12 +164,11 @@ mod tests {
     #[tokio::test]
     async fn test_mock_filesystem_with_subdirs() {
         let root = PathBuf::from("/test");
-        let fs = MockFileSystem::new(root.clone())
-            .with_files(&[
-                "migrations/001_init.sql",
-                "migrations/002_users.sql",
-                "migrations/2024/003_products.sql",
-            ]);
+        let fs = MockFileSystem::new(root.clone()).with_files(&[
+            "migrations/001_init.sql",
+            "migrations/002_users.sql",
+            "migrations/2024/003_products.sql",
+        ]);
 
         // List all SQL files
         let all_files = fs.list_sql_files_recursive(&root).await.unwrap();

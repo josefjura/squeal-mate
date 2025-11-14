@@ -51,9 +51,7 @@ async fn test_app_initialization_with_actions() {
     while action_rx.try_recv().is_ok() {}
 
     // Send an action
-    action_tx
-        .send(Action::Tick)
-        .expect("Should send action");
+    action_tx.send(Action::Tick).expect("Should send action");
 
     // Receive the action
     let received_action = action_rx.try_recv();
@@ -106,10 +104,7 @@ async fn test_action_channel_communication() {
 async fn test_app_state_manipulation() {
     // Test that we can manipulate app state directly
     let root = PathBuf::from("/test");
-    let mock_fs = MockFileSystem::new(root.clone()).with_files(&[
-        "001_init.sql",
-        "002_users.sql",
-    ]);
+    let mock_fs = MockFileSystem::new(root.clone()).with_files(&["001_init.sql", "002_users.sql"]);
 
     let mut app = AppBuilder::new_test()
         .with_root(root)
@@ -118,7 +113,11 @@ async fn test_app_state_manipulation() {
         .expect("Should build app");
 
     // Initially empty
-    assert_eq!(app.state.selected.len(), 0, "Should have no selected scripts");
+    assert_eq!(
+        app.state.selected.len(),
+        0,
+        "Should have no selected scripts"
+    );
 
     // Add a script
     app.state.add("001_init.sql".to_string());
@@ -126,11 +125,19 @@ async fn test_app_state_manipulation() {
 
     // Toggle (should remove)
     app.state.toggle("001_init.sql".to_string());
-    assert_eq!(app.state.selected.len(), 0, "Should have no selected scripts after toggle");
+    assert_eq!(
+        app.state.selected.len(),
+        0,
+        "Should have no selected scripts after toggle"
+    );
 
     // Toggle again (should add)
     app.state.toggle("001_init.sql".to_string());
-    assert_eq!(app.state.selected.len(), 1, "Should have 1 selected script after re-toggle");
+    assert_eq!(
+        app.state.selected.len(),
+        1,
+        "Should have 1 selected script after re-toggle"
+    );
 }
 
 #[tokio::test]
@@ -155,13 +162,26 @@ async fn test_multiple_script_selection() {
     app.state.add("002_users.sql".to_string());
     app.state.add("003_products.sql".to_string());
 
-    assert_eq!(app.state.selected.len(), 3, "Should have 3 selected scripts");
+    assert_eq!(
+        app.state.selected.len(),
+        3,
+        "Should have 3 selected scripts"
+    );
 
     // Remove one
     app.state.remove("002_users.sql".to_string());
-    assert_eq!(app.state.selected.len(), 2, "Should have 2 selected scripts");
+    assert_eq!(
+        app.state.selected.len(),
+        2,
+        "Should have 2 selected scripts"
+    );
 
     // Remove many
-    app.state.remove_many(&["001_init.sql".to_string(), "003_products.sql".to_string()]);
-    assert_eq!(app.state.selected.len(), 0, "Should have no selected scripts");
+    app.state
+        .remove_many(&["001_init.sql".to_string(), "003_products.sql".to_string()]);
+    assert_eq!(
+        app.state.selected.len(),
+        0,
+        "Should have no selected scripts"
+    );
 }

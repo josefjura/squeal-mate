@@ -26,7 +26,10 @@ async fn test_list_initialization_with_mock_filesystem() {
     let db = ScriptDatabase::new_test().unwrap();
     let list = List::new_with_filesystem(root, db, Arc::new(mock_fs));
 
-    assert!(list.is_ok(), "Should be able to create List with mocked filesystem");
+    assert!(
+        list.is_ok(),
+        "Should be able to create List with mocked filesystem"
+    );
 }
 
 #[tokio::test]
@@ -72,7 +75,10 @@ async fn test_directory_operations_dont_panic() {
     assert!(result.is_ok(), "expand_current_directory should not error");
 
     let result = list.collapse_current_or_goto_parent();
-    assert!(result.is_ok(), "collapse_current_or_goto_parent should not error");
+    assert!(
+        result.is_ok(),
+        "collapse_current_or_goto_parent should not error"
+    );
 
     let result = list.open_selected_directory();
     assert!(result.is_ok(), "open_selected_directory should not error");
@@ -150,17 +156,17 @@ async fn test_database_integration() {
 
     // Should be able to create List with pre-populated database
     let list = List::new_with_filesystem(root, db, Arc::new(mock_fs));
-    assert!(list.is_ok(), "Should create List with pre-populated database");
+    assert!(
+        list.is_ok(),
+        "Should create List with pre-populated database"
+    );
 }
 
 #[tokio::test]
 async fn test_toggle_skip_doesnt_panic() {
     // Test that toggle_skip is safe to call
     let root = PathBuf::from("/test");
-    let mock_fs = MockFileSystem::new(root.clone()).with_files(&[
-        "001_init.sql",
-        "002_users.sql",
-    ]);
+    let mock_fs = MockFileSystem::new(root.clone()).with_files(&["001_init.sql", "002_users.sql"]);
 
     let db = ScriptDatabase::new_test().unwrap();
     let mut list = List::new_with_filesystem(root, db.clone(), Arc::new(mock_fs)).unwrap();

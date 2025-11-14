@@ -10,12 +10,11 @@ use support::{AppBuilder, MockFileSystem};
 fn test_app_initializes_with_mock_filesystem() {
     // Setup: Create mock filesystem with test scripts
     let root = PathBuf::from("/test");
-    let mock_fs = MockFileSystem::new(root.clone())
-        .with_files(&[
-            "001_init.sql",
-            "002_users.sql",
-            "migrations/003_products.sql",
-        ]);
+    let mock_fs = MockFileSystem::new(root.clone()).with_files(&[
+        "001_init.sql",
+        "002_users.sql",
+        "migrations/003_products.sql",
+    ]);
 
     // Build app with mocked dependencies
     let app = AppBuilder::new_test()
@@ -35,8 +34,8 @@ fn test_app_builds_with_custom_database() {
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Create a test database
-    let test_db = squealmate::script_memory::ScriptDatabase::new_test()
-        .expect("Should create test database");
+    let test_db =
+        squealmate::script_memory::ScriptDatabase::new_test().expect("Should create test database");
 
     // Build app with custom database
     let app = AppBuilder::new_test()
@@ -60,17 +59,16 @@ fn test_app_with_full_mock_dependencies() {
     let root = PathBuf::from("/mock/migrations");
 
     // Setup mock filesystem with a realistic structure
-    let mock_fs = MockFileSystem::new(root.clone())
-        .with_files(&[
-            "001_init.sql",
-            "002_create_users_table.sql",
-            "migrations/003_add_products.sql",
-            "migrations/2024/004_orders.sql",
-        ]);
+    let mock_fs = MockFileSystem::new(root.clone()).with_files(&[
+        "001_init.sql",
+        "002_create_users_table.sql",
+        "migrations/003_add_products.sql",
+        "migrations/2024/004_orders.sql",
+    ]);
 
     // Setup test database
-    let test_db = squealmate::script_memory::ScriptDatabase::new_test()
-        .expect("Should create test database");
+    let test_db =
+        squealmate::script_memory::ScriptDatabase::new_test().expect("Should create test database");
 
     // Build app with all mocked dependencies
     let app = AppBuilder::new_test()
@@ -81,7 +79,11 @@ fn test_app_with_full_mock_dependencies() {
         .expect("App should build with all mocked dependencies");
 
     // Verify the app structure
-    assert_eq!(app.screens.len(), 3, "Should have 3 screens: Unified, FileChooser, ScriptRunner");
+    assert_eq!(
+        app.screens.len(),
+        3,
+        "Should have 3 screens: Unified, FileChooser, ScriptRunner"
+    );
 
     // Verify we have the right screen modes
     let modes: Vec<_> = app.screens.iter().map(|s| s.mode).collect();
