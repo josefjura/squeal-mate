@@ -8,23 +8,49 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  fmt:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    - name: Install stable toolchain with rustfmt and clippy available
+    - name: Install stable toolchain with rustfmt
       uses: dtolnay/rust-toolchain@stable
       with:
-        components: rustfmt, clippy
-    - name: Cache cargo dependencies
-      uses: Swatinem/rust-cache@v2
-    - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y libclang-dev libkrb5-dev
+        components: rustfmt
     - name: Run cargo fmt
       run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Install stable toolchain with clippy
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+    - name: Cache cargo dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: cargo
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y libclang-dev libkrb5-dev
     - name: Run cargo clippy
       run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Install stable toolchain
+      uses: dtolnay/rust-toolchain@stable
+    - name: Cache cargo dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: cargo
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y libclang-dev libkrb5-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
