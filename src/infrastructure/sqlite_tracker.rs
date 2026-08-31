@@ -14,11 +14,16 @@ pub struct SqliteTracker {
 
 impl SqliteTracker {
     pub async fn new() -> Result<Self, InfraError> {
-        let db = ScriptDatabase::new()
-            .await
-            .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error conversion
+        let db = ScriptDatabase::new().await?;
 
         Ok(Self { db })
+    }
+
+    #[cfg(test)]
+    fn new_test() -> Self {
+        Self {
+            db: ScriptDatabase::new_test().expect("failed to create test database"),
+        }
     }
 }
 
@@ -37,7 +42,7 @@ impl ExecutionTracker for SqliteTracker {
 
         self.db
             .insert(path.to_string(), result.checksum.value(), script_result)
-            .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?; // TODO: Better error
+            .map_err(InfraError::from)?;
 
         Ok(())
     }
@@ -51,7 +56,7 @@ impl ExecutionTracker for SqliteTracker {
         let record = self
             .db
             .get_script_record(&path.to_string())
-            .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
+            .map_err(InfraError::from)?;
 
         // Check if the script is marked as skipped
         if let Some(ref rec) = record {
@@ -86,7 +91,7 @@ impl ExecutionTracker for SqliteTracker {
         let record = self
             .db
             .get_script_record(&path.to_string())
-            .map_err(|_e| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
+            .map_err(InfraError::from)?;
 
         // Check if the script is marked as skipped
         if let Some(ref rec) = record {
@@ -108,5 +113,99 @@ impl ExecutionTracker for SqliteTracker {
             }
             None => Ok(ScriptStatus::NeverRun),
         }
+    }
+
+    async fn is_skipped(&self, path: &ScriptPath) -> DomainResult<bool> {
+        Ok(self.db.is_skipped(&path.to_string()))
+    }
+
+    async fn mark_skipped(&self, path: &ScriptPath) -> DomainResult<()> {
+        self.db
+            .mark_skipped(path.to_string())
+            .map_err(InfraError::from)?;
+        Ok(())
+    }
+
+    async fn unmark_skipped(&self, path: &ScriptPath) -> DomainResult<()> {
+        self.db
+            .unmark_skipped(path.to_string())
+            .map_err(InfraError::from)?;
+        Ok(())
+    }
+
+    async fn get_all_executed_scripts(&self) -> DomainResult<std::collections::HashSet<String>> {
+        let scripts = self
+            .db
+            .get_all_executed_scripts()
+            .map_err(InfraError::from)?;
+        Ok(scripts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn mark_skipped_makes_is_skipped_true() {
+        let tracker = SqliteTracker::new_test();
+        let path = ScriptPath::new("foo.sql").unwrap();
+
+        assert!(!tracker.is_skipped(&path).await.unwrap());
+
+        tracker.mark_skipped(&path).await.unwrap();
+
+        assert!(tracker.is_skipped(&path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn unmark_skipped_makes_is_skipped_false() {
+        let tracker = SqliteTracker::new_test();
+        let path = ScriptPath::new("foo.sql").unwrap();
+
+        tracker.mark_skipped(&path).await.unwrap();
+        assert!(tracker.is_skipped(&path).await.unwrap());
+
+        tracker.unmark_skipped(&path).await.unwrap();
+
+        assert!(!tracker.is_skipped(&path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn mark_skipped_reflected_in_get_status_and_get_database_status() {
+        let tracker = SqliteTracker::new_test();
+        let path = ScriptPath::new("foo.sql").unwrap();
+
+        tracker.mark_skipped(&path).await.unwrap();
+
+        assert_eq!(
+            tracker
+                .get_status(&path, Checksum::from_value(123))
+                .await
+                .unwrap(),
+            ScriptStatus::Skipped
+        );
+        assert_eq!(
+            tracker.get_database_status(&path).await.unwrap(),
+            ScriptStatus::Skipped
+        );
+    }
+
+    #[tokio::test]
+    async fn get_all_executed_scripts_includes_skipped_and_recorded_scripts() {
+        let tracker = SqliteTracker::new_test();
+        let skipped = ScriptPath::new("skipped.sql").unwrap();
+        let run = ScriptPath::new("run.sql").unwrap();
+
+        tracker.mark_skipped(&skipped).await.unwrap();
+        tracker
+            .record_execution(&run, &ExecutionResult::success(10, Checksum::from_value(1)))
+            .await
+            .unwrap();
+
+        let executed = tracker.get_all_executed_scripts().await.unwrap();
+
+        assert!(executed.contains("skipped.sql"));
+        assert!(executed.contains("run.sql"));
     }
 }

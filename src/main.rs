@@ -29,7 +29,6 @@ use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
 use infrastructure::{get_config_dir, get_data_dir, Settings};
-use script_memory::ScriptDatabase;
 use std::env;
 use std::io::{self, stdout};
 use std::path::Path;
@@ -56,9 +55,6 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
     };
 
     eprintln!("📂 Repository: {}", path.display());
-
-    let script_memory = ScriptDatabase::new().await?;
-    eprintln!("💾 Script database initialized");
 
     // Validate that the path exists before proceeding
     if !path.exists() {
@@ -177,12 +173,12 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
         eprintln!("🎨 Loading UI components...");
 
         // Create List component (uses simple FileExplorer for UI browsing)
-        let mut list = List::new(path.clone(), script_memory.clone())?;
+        let mut list = List::new(path.clone())?;
         list.set_migration_service(migration_service.clone());
         // Note: refresh_entries() will be called in init() after dispatcher is set up
 
         // Clone for unified view
-        let mut list_for_unified = List::new(path.clone(), script_memory.clone())?;
+        let mut list_for_unified = List::new(path.clone())?;
         list_for_unified.set_migration_service(migration_service.clone());
 
         let script_status = ScriptStatus::new();
