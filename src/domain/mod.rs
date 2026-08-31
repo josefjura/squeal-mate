@@ -5,6 +5,8 @@
 
 pub mod error;
 pub mod executor;
+#[cfg(test)]
+pub mod fakes;
 pub mod repository;
 pub mod script;
 pub mod script_status;
