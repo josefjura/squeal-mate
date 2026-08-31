@@ -73,11 +73,6 @@ impl AppState {
         }
     }
 
-    pub fn remove(&mut self, script: String) {
-        self.selected.retain(|s| s.relative_path != script);
-        self.selected.sort()
-    }
-
     pub fn remove_many(&mut self, script: &[String]) {
         self.selected.retain(|s| !script.contains(&s.relative_path));
         self.selected.sort()

@@ -109,21 +109,4 @@ impl ExecutionTracker for SqliteTracker {
             None => Ok(ScriptStatus::NeverRun),
         }
     }
-
-    async fn has_been_executed(&self, path: &ScriptPath) -> DomainResult<bool> {
-        // Simple check - if we can get a checksum, it's been executed
-        let checksum = self.get_last_checksum(path).await?;
-        Ok(checksum.is_some())
-    }
-
-    async fn get_last_checksum(&self, path: &ScriptPath) -> DomainResult<Option<Checksum>> {
-        // Query the database for the stored record
-        let record = self
-            .db
-            .get_script_record(&path.to_string())
-            .map_err(|_| InfraError::SqliteError(rusqlite::Error::InvalidQuery))?;
-
-        // Return the stored checksum if found
-        Ok(record.map(|r| Checksum::from_value(r.crc)))
-    }
 }

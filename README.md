@@ -266,7 +266,7 @@ squealmate --server YOUR_SERVER # Add to config with encryption = "not_supported
    ```
 
 ## Contributing
-TODO
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to build, test, and submit changes.
 
 ## License
-This project is licensed under the terms specified in the [LICENSE.txt](./LICENSE.txt) file. 
+This project is licensed under the terms specified in the [LICENSE](./LICENSE) file. 

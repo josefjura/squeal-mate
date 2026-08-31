@@ -2,7 +2,7 @@
 
 use crate::action::Action;
 use crate::domain::{
-    Checksum, DomainResult, ExecutionTracker, MigrationRepository, MigrationScript, ScriptExecutor,
+    DomainResult, ExecutionTracker, MigrationRepository, MigrationScript, ScriptExecutor,
     ScriptPath, ScriptStatus,
 };
 use crate::services::ActionDispatcher;
@@ -75,15 +75,6 @@ impl MigrationService {
         }
 
         Ok(())
-    }
-
-    /// Get the status of a script
-    pub async fn get_script_status(
-        &self,
-        path: &ScriptPath,
-        checksum: Checksum,
-    ) -> DomainResult<ScriptStatus> {
-        self.tracker.get_status(path, checksum).await
     }
 
     /// Get database status for all scripts and dispatch status updates

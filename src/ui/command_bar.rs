@@ -91,12 +91,9 @@ impl Component for CommandBar {
 
     fn update(&mut self, _state: &mut AppState, action: Action) -> Result<Option<Action>> {
         // Listen for panel focus changes
-        match action {
-            Action::PanelFocusChanged(focus) => {
-                self.focused_panel = Some(focus);
-                return Ok(Some(Action::Render));
-            }
-            _ => {}
+        if let Action::PanelFocusChanged(focus) = action {
+            self.focused_panel = Some(focus);
+            return Ok(Some(Action::Render));
         }
         Ok(None)
     }

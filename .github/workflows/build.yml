@@ -12,22 +12,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
-    - name: Install nightly toolchain with rustfmt available
-      uses: actions-rs/toolchain@v1
+      uses: actions/checkout@v4
+    - name: Install stable toolchain with rustfmt and clippy available
+      uses: dtolnay/rust-toolchain@stable
       with:
-        profile: minimal
-        toolchain: nightly
-        override: true
-        components: rustfmt
+        components: rustfmt, clippy
+    - name: Cache cargo dependencies
+      uses: Swatinem/rust-cache@v2
     - name: Install dependencies
       run: sudo apt-get update && sudo apt-get install -y libclang-dev libkrb5-dev
     - name: Run cargo fmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+      run: cargo fmt --all -- --check
+    - name: Run cargo clippy
+      run: cargo clippy --all-targets -- -D warnings
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+
+  windows-cross-check:
+    name: Check windows-gnu cross-compile
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Install stable toolchain with windows-gnu target
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-pc-windows-gnu
+    - name: Cache cargo dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: windows-gnu
+    - name: Install mingw-w64 cross toolchain
+      run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+    - name: Check
+      run: cargo check --target x86_64-pc-windows-gnu --verbose
+      env:
+        CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
