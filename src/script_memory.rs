@@ -3,17 +3,41 @@ use color_eyre::eyre::{self};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::named_params;
+use thiserror::Error;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};
 
-pub struct ScriptDatabaseRecord {
+/// Errors coming from the SQLite-backed script database.
+///
+/// Kept distinct from `rusqlite::Error` because failures can also come from
+/// checking out a connection from the pool (`r2d2::Error`), not just from
+/// running a query.
+#[derive(Error, Debug)]
+pub enum ScriptDatabaseError {
+    #[error("connection pool error: {0}")]
+    Pool(#[from] r2d2::Error),
+    #[error("sqlite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+}
+
+type DbResult<T> = Result<T, ScriptDatabaseError>;
+
+pub(crate) struct ScriptDatabaseRecord {
     pub crc: u32,
     pub result: ScriptResult,
 }
 
+/// The raw persisted execution result for a script.
+///
+/// This is an implementation detail of how `ScriptDatabase` encodes a row -
+/// not a status concept in its own right, so it stays `pub(crate)` rather
+/// than joining `domain::ScriptStatus` (execution/modification semantics) and
+/// `entries::EntryStatus` (UI presentation) as a third public status type.
+/// `SqliteTracker` (its sole consumer outside this module) unwraps it into a
+/// `ScriptStatus` immediately; it never reaches the domain or UI layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScriptResult {
+pub(crate) enum ScriptResult {
     Success,
     Error,
     Skipped,
@@ -25,7 +49,7 @@ pub struct ScriptDatabase {
 }
 
 impl ScriptDatabase {
-    pub async fn new() -> eyre::Result<Self> {
+    pub async fn new() -> DbResult<Self> {
         let filename = get_script_database();
 
         // Create connection manager
@@ -50,7 +74,7 @@ impl ScriptDatabase {
         Ok(ScriptDatabase { pool })
     }
 
-    pub fn insert(&self, file: String, crc: u32, result: ScriptResult) -> eyre::Result<()> {
+    pub(crate) fn insert(&self, file: String, crc: u32, result: ScriptResult) -> DbResult<()> {
         let conn = self.pool.get()?;
         // Prepare the statement and insert the records
         let mut stmt = conn.prepare(
@@ -71,12 +95,12 @@ impl ScriptDatabase {
     }
 
     /// Mark a script as skipped (we don't care about CRC for skipped scripts, use 0)
-    pub fn mark_skipped(&self, file: String) -> eyre::Result<()> {
+    pub fn mark_skipped(&self, file: String) -> DbResult<()> {
         self.insert(file, 0, ScriptResult::Skipped)
     }
 
     /// Remove skip status (delete the record so script appears as Not Run)
-    pub fn unmark_skipped(&self, file: String) -> eyre::Result<()> {
+    pub fn unmark_skipped(&self, file: String) -> DbResult<()> {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare("DELETE FROM scripts WHERE name = ?")?;
         stmt.execute([file])?;
@@ -156,7 +180,10 @@ impl ScriptDatabase {
 
     /// Get the stored checksum and result for a script
     /// Returns None if the script has never been executed
-    pub fn get_script_record(&self, file_path: &str) -> eyre::Result<Option<ScriptDatabaseRecord>> {
+    pub(crate) fn get_script_record(
+        &self,
+        file_path: &str,
+    ) -> DbResult<Option<ScriptDatabaseRecord>> {
         let conn = self.pool.get()?;
 
         let query = "SELECT crc, result FROM scripts WHERE name = ?";
@@ -183,7 +210,7 @@ impl ScriptDatabase {
 
     /// Get all script names that have been executed (Success, Error, or Skipped)
     /// Returns a HashSet for O(1) lookup
-    pub fn get_all_executed_scripts(&self) -> eyre::Result<std::collections::HashSet<String>> {
+    pub fn get_all_executed_scripts(&self) -> DbResult<std::collections::HashSet<String>> {
         let conn = self.pool.get()?;
         let mut stmt = conn.prepare("SELECT name FROM scripts")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
@@ -245,6 +272,10 @@ impl ScriptDatabase {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let temp_path = std::env::temp_dir().join(format!("squealmate_test_{}.db", id));
+
+        // Counter-based filenames are only unique within a single test process;
+        // remove any file left behind by a previous run so tests don't inherit stale state.
+        let _ = std::fs::remove_file(&temp_path);
 
         // Create connection manager for test database
         let manager = SqliteConnectionManager::file(&temp_path);

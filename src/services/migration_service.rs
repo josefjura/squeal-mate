@@ -151,4 +151,26 @@ impl MigrationService {
     pub async fn test_connection(&self) -> DomainResult<()> {
         self.executor.test_connection().await
     }
+
+    /// Whether a script is currently marked to be skipped
+    pub async fn is_skipped(&self, path: &ScriptPath) -> DomainResult<bool> {
+        self.tracker.is_skipped(path).await
+    }
+
+    /// Mark a script as skipped
+    pub async fn mark_skipped(&self, path: &ScriptPath) -> DomainResult<()> {
+        self.tracker.mark_skipped(path).await
+    }
+
+    /// Remove skip status from a script
+    pub async fn unmark_skipped(&self, path: &ScriptPath) -> DomainResult<()> {
+        self.tracker.unmark_skipped(path).await
+    }
+
+    /// Get the relative paths of all scripts that have execution history
+    pub async fn get_all_executed_scripts(
+        &self,
+    ) -> DomainResult<std::collections::HashSet<String>> {
+        self.tracker.get_all_executed_scripts().await
+    }
 }

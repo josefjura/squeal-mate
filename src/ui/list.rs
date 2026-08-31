@@ -11,16 +11,36 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::Component;
 use crate::{
     action::Action,
+    domain::ScriptPath,
     entries::EntryStatus,
     infrastructure::FileExplorer,
     infrastructure::Settings,
-    script_memory::ScriptDatabase,
     services::{ActionDispatcher, MigrationService},
     tui::Frame,
     ui::tree_state::TreeState,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
+
+/// Whether a script is marked to be skipped, via the migration service.
+///
+/// `path_str` must come from a trusted source (e.g. `FileExplorer`'s already
+/// filtered `.sql` listing) since it is converted with `ScriptPath::from_trusted`.
+/// Treats an unavailable service as "not skipped"; logs and treats a tracker
+/// error the same way, since callers only use this to filter selections.
+async fn is_skipped(migration_service: &Option<Arc<MigrationService>>, path_str: &str) -> bool {
+    let Some(service) = migration_service else {
+        return false;
+    };
+    let script_path = ScriptPath::from_trusted(PathBuf::from(path_str));
+    match service.is_skipped(&script_path).await {
+        Ok(skipped) => skipped,
+        Err(e) => {
+            log::error!("Failed to check skip status for {}: {}", path_str, e);
+            false
+        }
+    }
+}
 
 pub struct List {
     base: PathBuf,
@@ -31,12 +51,11 @@ pub struct List {
     widget_state: ListState,          // Ratatui widget state (for scrolling)
     tree_state: TreeState,            // Tree view state with hierarchy
     file_explorer: Arc<FileExplorer>, // Simple file browsing (no domain abstractions)
-    script_memory: ScriptDatabase,
-    is_searching: bool, // Flag for showing "Searching..." indicator
+    is_searching: bool,               // Flag for showing "Searching..." indicator
 }
 
 impl List {
-    pub fn new(base: PathBuf, script_memory: ScriptDatabase) -> Result<Self> {
+    pub fn new(base: PathBuf) -> Result<Self> {
         let file_explorer = Arc::new(FileExplorer::new(base.clone())?);
         let tree_state = TreeState::new(base.clone());
 
@@ -46,7 +65,6 @@ impl List {
             dispatcher: None,
             migration_service: None,
             config: Settings::default(),
-            script_memory,
             file_explorer,
             base: base.clone(),
             tree_state,
@@ -263,7 +281,7 @@ impl List {
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
-            let script_memory = self.script_memory.clone();
+            let migration_service = self.migration_service.clone();
             let dispatcher = self.dispatcher.clone();
             let entry_path = entry.relative_path.clone();
 
@@ -276,7 +294,7 @@ impl List {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
                                 let path_str = relative_path.to_string_lossy().to_string();
 
-                                if !script_memory.is_skipped(&path_str) {
+                                if !is_skipped(&migration_service, &path_str).await {
                                     items.push(path_str);
                                 }
                             }
@@ -311,7 +329,7 @@ impl List {
         // Optimized batch search with progress indicator
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
-        let script_memory = self.script_memory.clone();
+        let migration_service = self.migration_service.clone();
         let dispatcher = self.dispatcher.clone();
 
         let current_path = self
@@ -330,7 +348,14 @@ impl List {
 
             // Step 1: Get all executed scripts from database in ONE query
             log::info!("Querying database for executed scripts...");
-            let executed_scripts = match script_memory.get_all_executed_scripts() {
+            let Some(service) = migration_service.as_ref() else {
+                log::error!("MigrationService not available for search");
+                if let Some(ref disp) = dispatcher {
+                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                }
+                return;
+            };
+            let executed_scripts = match service.get_all_executed_scripts().await {
                 Ok(set) => {
                     log::info!("Found {} executed scripts in database", set.len());
                     set
@@ -434,7 +459,7 @@ impl List {
         let current_cursor = self.tree_state.cursor();
 
         let root_dir = self.base.clone();
-        let script_memory = self.script_memory.clone();
+        let migration_service = self.migration_service.clone();
         let dispatcher = self.dispatcher.clone();
         let file_explorer = self.file_explorer.clone();
 
@@ -476,7 +501,7 @@ impl List {
                     for file_path in &all_relative_paths {
                         // Check if file is in this directory (or subdirectories)
                         if (file_path.starts_with(&dir_prefix) || dir_prefix.is_empty())
-                            && !script_memory.is_skipped(file_path)
+                            && !is_skipped(&migration_service, file_path).await
                             && !items.contains(file_path)
                         {
                             items.push(file_path.clone());
@@ -485,7 +510,8 @@ impl List {
                 } else {
                     // It's a file - check if it exists in our cached list
                     let path_str = &node.entry.relative_path;
-                    if all_relative_paths.contains(path_str) && !script_memory.is_skipped(path_str)
+                    if all_relative_paths.contains(path_str)
+                        && !is_skipped(&migration_service, path_str).await
                     {
                         items.push(path_str.clone());
                     }
@@ -518,8 +544,7 @@ impl List {
             let rel_path = repo_base.join(&entry.relative_path);
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
-            let script_memory_check = self.script_memory.clone();
-            let script_memory = self.script_memory.clone();
+            let migration_service = self.migration_service.clone();
             let entry_path = entry.relative_path.clone();
 
             tokio::spawn(async move {
@@ -535,21 +560,28 @@ impl List {
                             .ok()
                             .map(|p| p.to_string_lossy().to_string());
 
-                        let is_currently_skipped = first_file_path
-                            .as_deref()
-                            .map(|p| script_memory_check.is_skipped(p))
-                            .unwrap_or(false);
+                        let is_currently_skipped = match first_file_path.as_deref() {
+                            Some(p) => is_skipped(&migration_service, p).await,
+                            None => false,
+                        };
+
+                        let Some(service) = migration_service.as_ref() else {
+                            log::error!("MigrationService not available for skip toggle");
+                            return;
+                        };
 
                         // Now toggle all files in the directory
                         for path in paths {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
                                 let path_str = relative_path.to_string_lossy().to_string();
+                                let script_path =
+                                    ScriptPath::from_trusted(PathBuf::from(&path_str));
 
                                 // Toggle: if currently skipped, unmark; otherwise mark as skipped
                                 let result = if is_currently_skipped {
-                                    script_memory.unmark_skipped(path_str.clone())
+                                    service.unmark_skipped(&script_path).await
                                 } else {
-                                    script_memory.mark_skipped(path_str.clone())
+                                    service.mark_skipped(&script_path).await
                                 };
 
                                 if let Err(e) = result {
@@ -581,14 +613,20 @@ impl List {
         } else {
             // Toggle skip for single file
             let path = entry.relative_path.clone();
-            let script_memory = self.script_memory.clone();
+            let migration_service = self.migration_service.clone();
             let is_currently_skipped = entry.status == EntryStatus::Skipped;
 
             tokio::spawn(async move {
+                let Some(service) = migration_service.as_ref() else {
+                    log::error!("MigrationService not available for skip toggle");
+                    return;
+                };
+                let script_path = ScriptPath::from_trusted(PathBuf::from(&path));
+
                 let result = if is_currently_skipped {
-                    script_memory.unmark_skipped(path.clone())
+                    service.unmark_skipped(&script_path).await
                 } else {
-                    script_memory.mark_skipped(path.clone())
+                    service.mark_skipped(&script_path).await
                 };
 
                 if let Err(e) = result {

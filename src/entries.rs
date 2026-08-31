@@ -1,5 +1,4 @@
 use crate::domain::ScriptStatus;
-use crate::script_memory::ScriptResult;
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Hash)]
@@ -25,17 +24,6 @@ pub enum EntryStatus {
 impl Display for ListEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.name)
-    }
-}
-
-/// Convert from ScriptResult (database result) to EntryStatus (UI status)
-impl From<ScriptResult> for EntryStatus {
-    fn from(result: ScriptResult) -> Self {
-        match result {
-            ScriptResult::Success => EntryStatus::Finished(true),
-            ScriptResult::Error => EntryStatus::Finished(false),
-            ScriptResult::Skipped => EntryStatus::Skipped,
-        }
     }
 }
 
