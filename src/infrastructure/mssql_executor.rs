@@ -91,6 +91,11 @@ impl MssqlExecutor {
 
         snippet
     }
+
+    /// Strip a UTF-8 BOM if present
+    fn strip_bom(content: &str) -> &str {
+        content.strip_prefix('\u{feff}').unwrap_or(content)
+    }
 }
 
 #[async_trait]
@@ -98,11 +103,7 @@ impl ScriptExecutor for MssqlExecutor {
     async fn execute(&self, script: &MigrationScript) -> DomainResult<ExecutionResult> {
         let start = Instant::now();
 
-        // Remove BOM if present
-        let mut content = script.content.as_str();
-        if content.starts_with('\u{feff}') {
-            content = &content[3..];
-        }
+        let content = Self::strip_bom(script.content.as_str());
 
         // Execute the script
         let result = self.db.execute_script(content).await;
@@ -133,5 +134,20 @@ impl ScriptExecutor for MssqlExecutor {
             .map_err(|e| InfraError::DatabaseError(e.to_string()))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_bom_removes_leading_bom() {
+        assert_eq!(MssqlExecutor::strip_bom("\u{feff}SELECT 1"), "SELECT 1");
+    }
+
+    #[test]
+    fn strip_bom_leaves_content_without_bom_unchanged() {
+        assert_eq!(MssqlExecutor::strip_bom("SELECT 1"), "SELECT 1");
     }
 }
