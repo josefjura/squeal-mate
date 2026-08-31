@@ -29,7 +29,7 @@ use crossterm::style::Stylize;
 use crossterm::{execute, style::Print};
 use db::Database;
 use error::ArgumentsError;
-use infrastructure::{get_config_dir, get_data_dir, Settings};
+use infrastructure::{format_connection_error, get_config_dir, get_data_dir, Settings};
 use std::env;
 use std::io::{self, stdout};
 use std::path::Path;
@@ -116,7 +116,7 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
                 log::error!("Database connection failed: {}", e);
 
                 // Use detailed error formatting
-                let detailed_error = db::format_connection_error(&e.to_string(), &connection);
+                let detailed_error = format_connection_error(&e.to_string(), &connection);
                 eprintln!("{}", detailed_error);
 
                 if force {

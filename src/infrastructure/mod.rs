@@ -7,6 +7,7 @@
 //! - Configuration loading
 
 pub mod config;
+pub mod connection_diagnostics;
 pub mod error;
 pub mod file_explorer;
 pub mod filesystem_repository;
@@ -15,6 +16,7 @@ pub mod sqlite_tracker;
 
 // Re-export commonly used types
 pub use config::{get_config_dir, get_data_dir, get_script_database, Settings};
+pub use connection_diagnostics::format_connection_error;
 pub use file_explorer::FileExplorer;
 pub use filesystem_repository::FilesystemRepository;
 pub use mssql_executor::MssqlExecutor;
