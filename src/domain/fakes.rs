@@ -15,23 +15,16 @@ use std::sync::Mutex;
 
 /// In-memory fake for `MigrationRepository`.
 ///
-/// Scripts are pre-registered with `with_script` / `add_script`; `read_script`
-/// looks them up by path and errors with `ScriptNotFound` for anything else.
+/// Scripts are pre-registered with `add_script`; `read_script` looks them up
+/// by path and errors with `ScriptNotFound` for anything else.
 #[derive(Default)]
 pub struct FakeMigrationRepository {
     scripts: Mutex<HashMap<ScriptPath, MigrationScript>>,
 }
 
-#[allow(dead_code)] // Some helpers reserved for tests not yet written
 impl FakeMigrationRepository {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Builder-style helper to register a script before handing the fake to a service.
-    pub fn with_script(self, script: MigrationScript) -> Self {
-        self.add_script(script);
-        self
     }
 
     pub fn add_script(&self, script: MigrationScript) {
@@ -88,12 +81,10 @@ impl MigrationRepository for FakeMigrationRepository {
 /// In-memory fake for `ScriptExecutor`.
 ///
 /// Defaults to succeeding every execution with the script's own checksum.
-/// Use `set_result` to script a specific outcome and `executed_paths` to
-/// assert on what was actually run.
+/// Use `set_result` / `set_connection_result` to script a specific outcome.
 pub struct FakeScriptExecutor {
     result: Mutex<Option<ExecutionResult>>,
     connection_result: Mutex<DomainResult<()>>,
-    executed_paths: Mutex<Vec<ScriptPath>>,
 }
 
 impl Default for FakeScriptExecutor {
@@ -101,12 +92,10 @@ impl Default for FakeScriptExecutor {
         Self {
             result: Mutex::new(None),
             connection_result: Mutex::new(Ok(())),
-            executed_paths: Mutex::new(Vec::new()),
         }
     }
 }
 
-#[allow(dead_code)] // Some helpers reserved for tests not yet written
 impl FakeScriptExecutor {
     pub fn new() -> Self {
         Self::default()
@@ -121,18 +110,11 @@ impl FakeScriptExecutor {
     pub fn set_connection_result(&self, result: DomainResult<()>) {
         *self.connection_result.lock().unwrap() = result;
     }
-
-    /// Paths passed to `execute`, in call order.
-    pub fn executed_paths(&self) -> Vec<ScriptPath> {
-        self.executed_paths.lock().unwrap().clone()
-    }
 }
 
 #[async_trait]
 impl ScriptExecutor for FakeScriptExecutor {
     async fn execute(&self, script: &MigrationScript) -> DomainResult<ExecutionResult> {
-        self.executed_paths.lock().unwrap().push(script.path.clone());
-
         let result = self
             .result
             .lock()
@@ -163,7 +145,6 @@ pub struct FakeExecutionTracker {
     skipped: Mutex<HashSet<String>>,
 }
 
-#[allow(dead_code)] // Some helpers reserved for tests not yet written
 impl FakeExecutionTracker {
     pub fn new() -> Self {
         Self::default()
@@ -186,6 +167,15 @@ impl FakeExecutionTracker {
             .get(&path.to_string())
             .cloned()
     }
+
+    fn status_for(&self, path: &ScriptPath) -> ScriptStatus {
+        self.statuses
+            .lock()
+            .unwrap()
+            .get(&path.to_string())
+            .cloned()
+            .unwrap_or(ScriptStatus::NeverRun)
+    }
 }
 
 #[async_trait]
@@ -207,23 +197,11 @@ impl ExecutionTracker for FakeExecutionTracker {
         path: &ScriptPath,
         _current_checksum: Checksum,
     ) -> DomainResult<ScriptStatus> {
-        Ok(self
-            .statuses
-            .lock()
-            .unwrap()
-            .get(&path.to_string())
-            .cloned()
-            .unwrap_or(ScriptStatus::NeverRun))
+        Ok(self.status_for(path))
     }
 
     async fn get_database_status(&self, path: &ScriptPath) -> DomainResult<ScriptStatus> {
-        Ok(self
-            .statuses
-            .lock()
-            .unwrap()
-            .get(&path.to_string())
-            .cloned()
-            .unwrap_or(ScriptStatus::NeverRun))
+        Ok(self.status_for(path))
     }
 
     async fn is_skipped(&self, path: &ScriptPath) -> DomainResult<bool> {
