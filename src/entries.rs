@@ -19,7 +19,6 @@ pub enum EntryStatus {
     Changed,
     Unknown,
     Directory,
-    Loading, // New: file/directory is being processed
     Skipped, // Marked to be skipped (user-defined, persisted in DB)
 }
 
@@ -48,7 +47,6 @@ impl From<ScriptStatus> for EntryStatus {
             ScriptStatus::UpToDate => EntryStatus::Finished(true),
             ScriptStatus::Modified => EntryStatus::Changed,
             ScriptStatus::Failed { .. } => EntryStatus::Finished(false),
-            ScriptStatus::Running => EntryStatus::Unknown,
             ScriptStatus::Skipped => EntryStatus::Skipped,
         }
     }

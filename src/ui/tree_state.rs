@@ -29,15 +29,6 @@ impl TreeNode {
         }
     }
 
-    /// Count total files in this node and all children
-    pub fn count_files(&self) -> usize {
-        let mut count = if !self.entry.is_directory { 1 } else { 0 };
-        for child in &self.children {
-            count += child.count_files();
-        }
-        count
-    }
-
     /// Count selected files in this node and all children
     pub fn count_selected(&self) -> usize {
         let mut count = if self.entry.selected && !self.entry.is_directory {
@@ -67,42 +58,11 @@ impl TreeNode {
         false
     }
 
-    /// Recursively find and update selection by path
-    pub fn update_selection(&mut self, path: &str, selected: bool) -> bool {
-        if self.entry.relative_path == path {
-            self.entry.selected = selected;
-            return true;
-        }
-
-        for child in &mut self.children {
-            if child.update_selection(path, selected) {
-                return true;
-            }
-        }
-
-        false
-    }
-
     /// Toggle expanded state
     pub fn toggle_expanded(&mut self) {
         if self.entry.is_directory {
             self.expanded = !self.expanded;
         }
-    }
-
-    /// Recursively collect all files (not directories) with their paths and statuses
-    pub fn collect_all_files(&self) -> Vec<(String, EntryStatus)> {
-        let mut files = Vec::new();
-
-        if !self.entry.is_directory {
-            files.push((self.entry.relative_path.clone(), self.entry.status.clone()));
-        }
-
-        for child in &self.children {
-            files.extend(child.collect_all_files());
-        }
-
-        files
     }
 
     /// Expand this node and all parents to a specific path
@@ -204,10 +164,7 @@ impl TreeState {
 
         for entry in entries {
             let parent = self.get_parent_path(&entry.relative_path);
-            entries_by_parent
-                .entry(parent)
-                .or_insert_with(Vec::new)
-                .push(entry);
+            entries_by_parent.entry(parent).or_default().push(entry);
         }
 
         // Build tree recursively
@@ -439,13 +396,6 @@ impl TreeState {
         }
     }
 
-    /// Update selection
-    pub fn update_selection(&mut self, path: &str, selected: bool) {
-        if self.root.update_selection(path, selected) {
-            self.cache_dirty = true;
-        }
-    }
-
     /// Get all entries (for compatibility)
     pub fn entries(&mut self) -> Vec<&ListEntry> {
         self.flattened().iter().map(|n| &n.entry).collect()
@@ -509,11 +459,6 @@ impl TreeState {
         }
 
         false
-    }
-
-    /// Collect all files from the tree (recursively, regardless of expansion state)
-    pub fn collect_all_files(&self) -> Vec<(String, EntryStatus)> {
-        self.root.collect_all_files()
     }
 
     /// Expand all parent directories to make a path visible, then find its index in flattened view

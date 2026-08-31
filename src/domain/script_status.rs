@@ -15,9 +15,6 @@ pub enum ScriptStatus {
     /// Script has been modified since last execution
     Modified,
 
-    /// Script is currently running
-    Running,
-
     /// Script execution failed
     Failed { error: String },
 
@@ -43,18 +40,6 @@ impl ScriptStatus {
             },
         }
     }
-
-    /// Check if the script can be executed
-    pub fn can_execute(&self) -> bool {
-        matches!(self, Self::NeverRun | Self::Modified | Self::Failed { .. })
-        // Note: Skipped scripts should NOT be executable
-    }
-
-    /// Check if the script needs attention
-    pub fn needs_attention(&self) -> bool {
-        matches!(self, Self::NeverRun | Self::Modified | Self::Failed { .. })
-        // Note: Skipped scripts don't need attention (user explicitly marked them)
-    }
 }
 
 impl fmt::Display for ScriptStatus {
@@ -63,7 +48,6 @@ impl fmt::Display for ScriptStatus {
             Self::NeverRun => write!(f, "Never Run"),
             Self::UpToDate => write!(f, "Up to Date"),
             Self::Modified => write!(f, "Modified"),
-            Self::Running => write!(f, "Running"),
             Self::Failed { error } => write!(f, "Failed: {}", error),
             Self::Skipped => write!(f, "Skipped"),
         }
@@ -109,8 +93,6 @@ mod tests {
         let status = ScriptStatus::from_execution_history(false, false, checksum, None);
 
         assert_eq!(status, ScriptStatus::NeverRun);
-        assert!(status.can_execute());
-        assert!(status.needs_attention());
     }
 
     #[test]
@@ -119,8 +101,6 @@ mod tests {
         let status = ScriptStatus::from_execution_history(true, true, checksum, Some(checksum));
 
         assert_eq!(status, ScriptStatus::UpToDate);
-        assert!(!status.can_execute());
-        assert!(!status.needs_attention());
     }
 
     #[test]
@@ -131,8 +111,6 @@ mod tests {
             ScriptStatus::from_execution_history(true, true, new_checksum, Some(old_checksum));
 
         assert_eq!(status, ScriptStatus::Modified);
-        assert!(status.can_execute());
-        assert!(status.needs_attention());
     }
 
     #[test]
@@ -141,7 +119,5 @@ mod tests {
         let status = ScriptStatus::from_execution_history(true, false, checksum, Some(checksum));
 
         assert!(matches!(status, ScriptStatus::Failed { .. }));
-        assert!(status.can_execute());
-        assert!(status.needs_attention());
     }
 }

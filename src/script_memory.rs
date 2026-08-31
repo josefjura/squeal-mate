@@ -2,8 +2,7 @@ use crate::{entries::EntryStatus, infrastructure::get_script_database};
 use color_eyre::eyre::{self};
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{named_params, Connection};
-use std::path::PathBuf;
+use rusqlite::named_params;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicU32, Ordering};

@@ -439,7 +439,7 @@ impl List {
         });
     }
 
-    pub fn select_from_cursor_to_end(&mut self, state: &mut AppState) {
+    pub fn select_from_cursor_to_end(&mut self, _state: &mut AppState) {
         // OPTIMIZATION: Scan filesystem ONCE at the start, then filter in memory
         let flattened = self.tree_state.flattened().to_vec();
         let current_cursor = self.tree_state.cursor();
@@ -1171,8 +1171,6 @@ impl Component for List {
                     EntryStatus::Skipped => ("\u{2297}", Style::new().fg(Color::DarkGray)),
                     // (directory has blue background, no icon needed)
                     EntryStatus::Directory => (" ", Style::default().bg(Color::LightBlue)),
-                    // ⧗ Loading/calculating status
-                    EntryStatus::Loading => ("\u{29D7}", Style::new().fg(Color::Yellow)),
                 };
                 let selected = state
                     .selected

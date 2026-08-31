@@ -631,7 +631,7 @@ GO
 
     note(
         "Next Steps",
-        &format!(
+        format!(
             "1. Run the SQL script on your SQL Server:\n\
              →  sqlcmd -S localhost -i {}\n\
              \n\

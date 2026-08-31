@@ -25,7 +25,6 @@ struct LogEntry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LogLevel {
-    Info,
     Success,
     Error,
     Running,
@@ -88,7 +87,6 @@ impl ExecutionLog {
                     LogLevel::Success => ("✓", Color::Green),
                     LogLevel::Error => ("✗", Color::Red),
                     LogLevel::Running => ("▶", Color::Yellow),
-                    LogLevel::Info => ("•", Color::Blue),
                 };
 
                 let line = Line::from(vec![

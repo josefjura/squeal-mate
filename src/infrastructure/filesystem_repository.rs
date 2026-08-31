@@ -11,13 +11,11 @@ use std::path::{Path, PathBuf};
 /// Filesystem repository implementation
 pub struct FilesystemRepository {
     inner: Repository,
-    root_path: PathBuf, // Store owned path for returning references
 }
 
 impl FilesystemRepository {
     /// Create a new filesystem repository
     pub fn new(root: PathBuf) -> InfraResult<Self> {
-        let root_path = root.clone();
         let inner = Repository::new(root).map_err(|e| match e {
             crate::repository::RepositoryError::DoesNotExist => {
                 InfraError::RepositoryNotFound("Repository path does not exist".to_string())
@@ -28,7 +26,7 @@ impl FilesystemRepository {
             }
         })?;
 
-        Ok(Self { inner, root_path })
+        Ok(Self { inner })
     }
 }
 
