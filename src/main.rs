@@ -7,6 +7,7 @@ mod domain;
 mod entries;
 mod error;
 mod infrastructure;
+mod keymap;
 mod repository;
 mod screen;
 mod script_memory;
