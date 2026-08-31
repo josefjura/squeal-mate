@@ -1,12 +1,12 @@
 use crate::{
     action::{Action, PanelFocus},
     infrastructure::Settings,
+    keymap::key_to_action,
     screen::{Mode, Screen},
     tui,
 };
 
 use color_eyre::eyre;
-use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::prelude::Rect;
 use tokio::sync::mpsc;
 
@@ -187,165 +187,16 @@ impl App {
                     tui::Event::Render => action_tx.send(Action::Render)?,
                     tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
                     tui::Event::SwitchMode(mode) => action_tx.send(Action::SwitchMode(mode))?,
-                    tui::Event::Key(key) => match (self.current_screen, key.code) {
-                        (_, KeyCode::Char('z')) if key.modifiers == KeyModifiers::CONTROL => {
-                            action_tx.send(Action::Suspend)?
+                    tui::Event::Key(key) => {
+                        if let Some(action) = key_to_action(
+                            self.current_screen,
+                            self.focused_panel,
+                            key.code,
+                            key.modifiers,
+                        ) {
+                            action_tx.send(action)?
                         }
-                        (_, KeyCode::Char('c')) if key.modifiers == KeyModifiers::CONTROL => {
-                            action_tx.send(Action::Quit)?
-                        }
-                        // General (always available)
-                        (_, KeyCode::Char('q')) => action_tx.send(Action::Quit)?,
-                        (_, KeyCode::Char('?')) => action_tx.send(Action::ToggleHelp)?,
-
-                        // Navigation - only when FileTree is focused in Unified mode (or any panel in other modes)
-                        (Mode::Unified, KeyCode::Up | KeyCode::Char('k'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::CursorUp)?
-                        }
-                        (Mode::Unified, KeyCode::Down | KeyCode::Char('j'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::CursorDown)?
-                        }
-                        (Mode::Unified, KeyCode::Home)
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::CursorToTop)?
-                        }
-                        (Mode::Unified, KeyCode::End)
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::CursorToBottom)?
-                        }
-                        (Mode::Unified, KeyCode::Enter)
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::DirectoryOpenSelected)?
-                        }
-                        (Mode::Unified, KeyCode::Right)
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::DirectoryExpand)?
-                        }
-                        (Mode::Unified, KeyCode::Left)
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::DirectoryCollapse)?
-                        }
-                        (Mode::Unified, KeyCode::Char(' '))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::SelectCurrent)?
-                        }
-                        (Mode::Unified, KeyCode::Char('A'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::UnselectAll)?
-                        }
-                        (Mode::Unified, KeyCode::Char('x'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::ToggleSkip)?
-                        }
-                        (Mode::Unified, KeyCode::Char('n'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::JumpToNextNotRun)?
-                        }
-                        (Mode::Unified, KeyCode::Char('S'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::SelectFromCursorToEnd)?
-                        }
-                        (Mode::Unified, KeyCode::Char('r'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::ScriptRun(false))?
-                        }
-                        (Mode::Unified, KeyCode::Char('R'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::ScriptRun(true))?
-                        }
-
-                        // In other modes, all navigation/selection is available
-                        (
-                            Mode::FileChooser | Mode::ScriptRunner,
-                            KeyCode::Up | KeyCode::Char('k'),
-                        ) => action_tx.send(Action::CursorUp)?,
-                        (
-                            Mode::FileChooser | Mode::ScriptRunner,
-                            KeyCode::Down | KeyCode::Char('j'),
-                        ) => action_tx.send(Action::CursorDown)?,
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Home) => {
-                            action_tx.send(Action::CursorToTop)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::End) => {
-                            action_tx.send(Action::CursorToBottom)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Enter) => {
-                            action_tx.send(Action::DirectoryOpenSelected)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Right) => {
-                            action_tx.send(Action::DirectoryExpand)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Left) => {
-                            action_tx.send(Action::DirectoryCollapse)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char(' ')) => {
-                            action_tx.send(Action::SelectCurrent)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('A')) => {
-                            action_tx.send(Action::UnselectAll)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('x')) => {
-                            action_tx.send(Action::ToggleSkip)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('n')) => {
-                            action_tx.send(Action::JumpToNextNotRun)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('S')) => {
-                            action_tx.send(Action::SelectFromCursorToEnd)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('r')) => {
-                            action_tx.send(Action::ScriptRun(false))?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('R')) => {
-                            action_tx.send(Action::ScriptRun(true))?
-                        }
-
-                        // Clear output - available in FileTree and ExecutionLog panels
-                        (Mode::Unified, KeyCode::Char('c'))
-                            if matches!(
-                                self.focused_panel,
-                                PanelFocus::FileTree | PanelFocus::ExecutionLog
-                            ) =>
-                        {
-                            action_tx.send(Action::ClearOutput)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('c')) => {
-                            action_tx.send(Action::ClearOutput)?
-                        }
-                        // Check for changes (CRC check) - available in FileTree
-                        (Mode::Unified, KeyCode::Char('C'))
-                            if self.focused_panel == PanelFocus::FileTree =>
-                        {
-                            action_tx.send(Action::CheckForChanges)?
-                        }
-                        (Mode::FileChooser | Mode::ScriptRunner, KeyCode::Char('C')) => {
-                            action_tx.send(Action::CheckForChanges)?
-                        }
-                        (Mode::FileChooser, KeyCode::Tab) => {
-                            action_tx.send(Action::SwitchMode(Mode::ScriptRunner))?
-                        }
-                        (Mode::ScriptRunner, KeyCode::Tab) => {
-                            action_tx.send(Action::SwitchMode(Mode::FileChooser))?
-                        }
-                        (Mode::Unified, KeyCode::Tab) => action_tx.send(Action::FocusNextPanel)?,
-                        _ => {}
-                    },
+                    }
                     _ => {}
                 }
 
