@@ -9,14 +9,15 @@ impl BatchParser {
         let mut last_char = '\n'; // Initialize with a non-relevant character
         let mut string_skipping = false;
         let mut comment_skipping = false;
+        let mut line_comment_skipping = false;
         let mut go_detected = false;
 
         for (i, ch) in sql.chars().enumerate() {
-            if ch == '\'' && !comment_skipping {
+            if ch == '\'' && !comment_skipping && !line_comment_skipping {
                 string_skipping = !string_skipping;
             }
 
-            if !string_skipping {
+            if !string_skipping && !line_comment_skipping {
                 if last_char == '/' && ch == '*' {
                     comment_skipping = true;
                 }
@@ -27,6 +28,16 @@ impl BatchParser {
             }
 
             if !string_skipping && !comment_skipping {
+                if last_char == '-' && ch == '-' {
+                    line_comment_skipping = true;
+                }
+
+                if line_comment_skipping && ch == '\n' {
+                    line_comment_skipping = false;
+                }
+            }
+
+            if !string_skipping && !comment_skipping && !line_comment_skipping {
                 if last_char.is_whitespace() && ch == 'G' {
                     go_detected = true; // Potential start of "GO"
                 } else if go_detected
@@ -108,6 +119,23 @@ mod test {
 
         assert_eq!(1, parser.batches.len());
         assert_eq!(content, parser.batches[0]);
+    }
+
+    #[test]
+    fn negative_line_comment() {
+        let content = "SELECT * -- GO\n FROM Translation";
+        let parser = BatchParser::parse(content);
+
+        assert_eq!(1, parser.batches.len());
+        assert_eq!(content, parser.batches[0]);
+    }
+
+    #[test]
+    fn line_comment_with_quote_does_not_break_go_detection() {
+        let content = "-- normalize ' character\nSELECT 1\nGO\nSELECT 2";
+        let parser = BatchParser::parse(content);
+
+        assert_eq!(2, parser.batches.len());
     }
 
     #[test]
