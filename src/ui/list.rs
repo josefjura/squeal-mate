@@ -18,7 +18,6 @@ use crate::{
     services::{ActionDispatcher, MigrationService},
     tui::Frame,
     ui::tree_state::TreeState,
-    utils::send_through_channel,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
@@ -277,17 +276,7 @@ impl List {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
                                 let path_str = relative_path.to_string_lossy().to_string();
 
-                                // Check if script is skipped
-                                let is_skipped = script_memory
-                                    .get_script_record(&path_str)
-                                    .ok()
-                                    .flatten()
-                                    .map(|rec| {
-                                        rec.result == crate::script_memory::ScriptResult::Skipped
-                                    })
-                                    .unwrap_or(false);
-
-                                if !is_skipped {
+                                if !script_memory.is_skipped(&path_str) {
                                     items.push(path_str);
                                 }
                             }
@@ -486,37 +475,19 @@ impl List {
 
                     for file_path in &all_relative_paths {
                         // Check if file is in this directory (or subdirectories)
-                        if file_path.starts_with(&dir_prefix) || dir_prefix.is_empty() {
-                            // Check if script is skipped
-                            let is_skipped = script_memory
-                                .get_script_record(file_path)
-                                .ok()
-                                .flatten()
-                                .map(|rec| {
-                                    rec.result == crate::script_memory::ScriptResult::Skipped
-                                })
-                                .unwrap_or(false);
-
-                            if !is_skipped && !items.contains(file_path) {
-                                items.push(file_path.clone());
-                            }
+                        if (file_path.starts_with(&dir_prefix) || dir_prefix.is_empty())
+                            && !script_memory.is_skipped(file_path)
+                            && !items.contains(file_path)
+                        {
+                            items.push(file_path.clone());
                         }
                     }
                 } else {
                     // It's a file - check if it exists in our cached list
                     let path_str = &node.entry.relative_path;
-                    if all_relative_paths.contains(path_str) {
-                        // Check if script is skipped
-                        let is_skipped = script_memory
-                            .get_script_record(path_str)
-                            .ok()
-                            .flatten()
-                            .map(|rec| rec.result == crate::script_memory::ScriptResult::Skipped)
-                            .unwrap_or(false);
-
-                        if !is_skipped {
-                            items.push(path_str.clone());
-                        }
+                    if all_relative_paths.contains(path_str) && !script_memory.is_skipped(path_str)
+                    {
+                        items.push(path_str.clone());
                     }
                 }
             }
@@ -564,18 +535,10 @@ impl List {
                             .ok()
                             .map(|p| p.to_string_lossy().to_string());
 
-                        let is_currently_skipped = if let Some(ref first_path) = first_file_path {
-                            script_memory_check
-                                .get_script_record(first_path)
-                                .ok()
-                                .flatten()
-                                .map(|rec| {
-                                    rec.result == crate::script_memory::ScriptResult::Skipped
-                                })
-                                .unwrap_or(false)
-                        } else {
-                            false
-                        };
+                        let is_currently_skipped = first_file_path
+                            .as_deref()
+                            .map(|p| script_memory_check.is_skipped(p))
+                            .unwrap_or(false);
 
                         // Now toggle all files in the directory
                         for path in paths {
@@ -818,81 +781,36 @@ impl Component for List {
                 // TODO: Add crc_progress field to List struct for progress display
                 // For now, we'll just skip progress tracking
 
-                // Use MigrationService if available, otherwise fall back to legacy
-                if let (Some(migration_service), Some(dispatcher)) =
-                    (&self.migration_service, &self.dispatcher)
-                {
-                    use crate::domain::ScriptPath;
+                let Some(migration_service) = &self.migration_service else {
+                    log::error!("MigrationService not available in List component");
+                    return Ok(None);
+                };
+                let Some(dispatcher) = &self.dispatcher else {
+                    log::error!("ActionDispatcher not available in List component");
+                    return Ok(None);
+                };
 
-                    // Convert entries to ScriptPaths (only files, not directories)
-                    let script_paths: Vec<ScriptPath> = entries
-                        .iter()
-                        .filter(|e| !e.is_directory)
-                        .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
-                        .collect();
+                use crate::domain::ScriptPath;
 
-                    // Dispatch directory statuses immediately
-                    for entry in &entries {
-                        if entry.is_directory {
-                            dispatcher.dispatch(Action::EntryStatusChanged(
-                                entry.relative_path.clone(),
-                                EntryStatus::Directory,
-                            ));
-                        }
+                // Convert entries to ScriptPaths (only files, not directories)
+                let script_paths: Vec<ScriptPath> = entries
+                    .iter()
+                    .filter(|e| !e.is_directory)
+                    .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
+                    .collect();
+
+                // Dispatch directory statuses immediately
+                for entry in &entries {
+                    if entry.is_directory {
+                        dispatcher.dispatch(Action::EntryStatusChanged(
+                            entry.relative_path.clone(),
+                            EntryStatus::Directory,
+                        ));
                     }
-
-                    // Use service to calculate file statuses asynchronously
-                    migration_service.calculate_statuses(script_paths, dispatcher);
-                } else {
-                    // Legacy fallback (old implementation) - now also database-only
-                    log::warn!("MigrationService not available, using legacy status calculation");
-                    let channel: Option<UnboundedSender<Action>> = self.command_tx.clone();
-                    let memory = self.script_memory.clone();
-                    let entries: Vec<_> = entries.iter().map(|e| (*e).clone()).collect();
-                    tokio::spawn(async move {
-                        for entry in entries {
-                            if entry.is_directory {
-                                send_through_channel(
-                                    &channel,
-                                    Action::EntryStatusChanged(
-                                        entry.relative_path,
-                                        EntryStatus::Directory,
-                                    ),
-                                );
-                                continue;
-                            }
-
-                            // Get database-only status (no file reading, no CRC)
-                            match memory.get_script_record(&entry.relative_path) {
-                                Ok(Some(record)) => {
-                                    // Convert ScriptResult to EntryStatus (using From trait)
-                                    let status = EntryStatus::from(record.result);
-                                    send_through_channel(
-                                        &channel,
-                                        Action::EntryStatusChanged(entry.relative_path, status),
-                                    );
-                                }
-                                Ok(None) => {
-                                    // Never executed
-                                    send_through_channel(
-                                        &channel,
-                                        Action::EntryStatusChanged(
-                                            entry.relative_path,
-                                            EntryStatus::NeverStarted,
-                                        ),
-                                    );
-                                }
-                                Err(e) => {
-                                    log::error!(
-                                        "Error getting status for {} : {}",
-                                        entry.relative_path,
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    });
                 }
+
+                // Use service to calculate file statuses asynchronously
+                migration_service.calculate_statuses(script_paths, dispatcher);
 
                 return Ok(None);
             }

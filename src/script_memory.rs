@@ -83,6 +83,17 @@ impl ScriptDatabase {
         Ok(())
     }
 
+    /// Whether a script is currently marked as skipped.
+    /// Returns false (rather than erroring) on lookup failure, since callers
+    /// treat "unknown" and "not skipped" the same way.
+    pub fn is_skipped(&self, file_path: &str) -> bool {
+        self.get_script_record(file_path)
+            .ok()
+            .flatten()
+            .map(|record| record.result == ScriptResult::Skipped)
+            .unwrap_or(false)
+    }
+
     // pub fn find_many(&self, files: Vec<ListEntry>) -> eyre::Result<Vec<ListEntry>> {
     //     let names: Vec<String> = files
     //         .iter()
@@ -372,6 +383,30 @@ mod tests {
         assert!(matches!(status, EntryStatus::Changed));
 
         // Cleanup
+    }
+
+    #[tokio::test]
+    async fn test_is_skipped_true_for_skipped_script() {
+        let db = ScriptDatabase::new_test().unwrap();
+        db.mark_skipped("skipped.sql".to_string()).unwrap();
+
+        assert!(db.is_skipped("skipped.sql"));
+    }
+
+    #[tokio::test]
+    async fn test_is_skipped_false_for_non_skipped_script() {
+        let db = ScriptDatabase::new_test().unwrap();
+        db.insert("run.sql".to_string(), 12345, ScriptResult::Success)
+            .unwrap();
+
+        assert!(!db.is_skipped("run.sql"));
+    }
+
+    #[tokio::test]
+    async fn test_is_skipped_false_for_unknown_script() {
+        let db = ScriptDatabase::new_test().unwrap();
+
+        assert!(!db.is_skipped("never_seen.sql"));
     }
 
     #[tokio::test]
