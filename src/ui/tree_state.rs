@@ -42,20 +42,45 @@ impl TreeNode {
         count
     }
 
-    /// Recursively find and update an entry by path
-    pub fn update_entry_status(&mut self, path: &str, status: EntryStatus) -> bool {
+    /// Find a node by path, searching this node and its descendants
+    pub fn find(&self, path: &str) -> Option<&TreeNode> {
         if self.entry.relative_path == path {
-            self.entry.status = status.clone();
-            return true;
+            return Some(self);
         }
 
-        for child in &mut self.children {
-            if child.update_entry_status(path, status.clone()) {
-                return true;
+        for child in &self.children {
+            if let Some(found) = child.find(path) {
+                return Some(found);
             }
         }
 
-        false
+        None
+    }
+
+    /// Find a node by path, searching this node and its descendants
+    pub fn find_mut(&mut self, path: &str) -> Option<&mut TreeNode> {
+        if self.entry.relative_path == path {
+            return Some(self);
+        }
+
+        for child in &mut self.children {
+            if let Some(found) = child.find_mut(path) {
+                return Some(found);
+            }
+        }
+
+        None
+    }
+
+    /// Find and update an entry's status by path
+    pub fn update_entry_status(&mut self, path: &str, status: EntryStatus) -> bool {
+        match self.find_mut(path) {
+            Some(node) => {
+                node.entry.status = status;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Toggle expanded state
@@ -335,58 +360,33 @@ impl TreeState {
     }
 
     fn expand_node_by_path(&mut self, path: &str) -> bool {
-        Self::expand_node_recursive_static(&mut self.root, path)
-    }
-
-    fn expand_node_recursive_static(node: &mut TreeNode, path: &str) -> bool {
-        if node.entry.relative_path == path {
-            node.expanded = true;
-            return true;
-        }
-
-        for child in &mut node.children {
-            if Self::expand_node_recursive_static(child, path) {
-                return true;
+        match self.root.find_mut(path) {
+            Some(node) => {
+                node.expanded = true;
+                true
             }
+            None => false,
         }
-        false
     }
 
     fn collapse_node_by_path(&mut self, path: &str) -> bool {
-        Self::collapse_node_recursive_static(&mut self.root, path)
-    }
-
-    fn collapse_node_recursive_static(node: &mut TreeNode, path: &str) -> bool {
-        if node.entry.relative_path == path {
-            node.expanded = false;
-            return true;
-        }
-
-        for child in &mut node.children {
-            if Self::collapse_node_recursive_static(child, path) {
-                return true;
+        match self.root.find_mut(path) {
+            Some(node) => {
+                node.expanded = false;
+                true
             }
+            None => false,
         }
-        false
     }
 
     fn toggle_node_by_path(&mut self, path: &str) -> bool {
-        Self::toggle_node_recursive_static(&mut self.root, path)
-    }
-
-    fn toggle_node_recursive_static(node: &mut TreeNode, path: &str) -> bool {
-        if node.entry.relative_path == path {
-            node.toggle_expanded();
-            return true;
-        }
-
-        for child in &mut node.children {
-            if Self::toggle_node_recursive_static(child, path) {
-                return true;
+        match self.root.find_mut(path) {
+            Some(node) => {
+                node.toggle_expanded();
+                true
             }
+            None => false,
         }
-
-        false
     }
 
     /// Update entry status
@@ -403,22 +403,10 @@ impl TreeState {
 
     /// Add children to a specific directory node
     pub fn add_children_to_directory(&mut self, parent_path: &str, children: Vec<ListEntry>) {
-        if Self::add_children_recursive(&mut self.root, parent_path, children) {
-            self.cache_dirty = true;
-        }
-    }
-
-    fn add_children_recursive(
-        node: &mut TreeNode,
-        parent_path: &str,
-        children: Vec<ListEntry>,
-    ) -> bool {
-        if node.entry.relative_path == parent_path {
-            // Found the parent - add children
+        if let Some(node) = self.root.find_mut(parent_path) {
+            let child_depth = node.depth + 1;
             for child_entry in children {
-                let child_depth = node.depth + 1;
-                let child = TreeNode::new(child_entry, child_depth);
-                node.children.push(child);
+                node.children.push(TreeNode::new(child_entry, child_depth));
             }
 
             // Sort children: directories first, then files, alphabetically
@@ -429,36 +417,15 @@ impl TreeState {
                     _ => a.entry.name.cmp(&b.entry.name),
                 });
 
-            return true;
+            self.cache_dirty = true;
         }
-
-        // Search children
-        for child in &mut node.children {
-            if Self::add_children_recursive(child, parent_path, children.clone()) {
-                return true;
-            }
-        }
-
-        false
     }
 
     /// Check if a directory path has children loaded
     pub fn has_children_loaded(&self, path: &str) -> bool {
-        Self::has_children_loaded_recursive(&self.root, path)
-    }
-
-    fn has_children_loaded_recursive(node: &TreeNode, path: &str) -> bool {
-        if node.entry.relative_path == path {
-            return !node.children.is_empty();
-        }
-
-        for child in &node.children {
-            if Self::has_children_loaded_recursive(child, path) {
-                return true;
-            }
-        }
-
-        false
+        self.root
+            .find(path)
+            .is_some_and(|node| !node.children.is_empty())
     }
 
     /// Expand all parent directories to make a path visible, then find its index in flattened view
@@ -475,5 +442,231 @@ impl TreeState {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(relative_path: &str, name: &str, is_directory: bool) -> ListEntry {
+        ListEntry {
+            relative_path: relative_path.to_string(),
+            name: name.to_string(),
+            selected: false,
+            is_directory,
+            status: if is_directory {
+                EntryStatus::Directory
+            } else {
+                EntryStatus::Unknown
+            },
+        }
+    }
+
+    fn sample_entries() -> Vec<ListEntry> {
+        vec![
+            entry("dir_a", "dir_a", true),
+            entry("dir_a/script1.sql", "script1.sql", false),
+            entry("dir_a/script2.sql", "script2.sql", false),
+            entry("dir_b", "dir_b", true),
+            entry("dir_b/script3.sql", "script3.sql", false),
+            entry("root.sql", "root.sql", false),
+        ]
+    }
+
+    fn state_with_sample_tree() -> TreeState {
+        let mut state = TreeState::new(PathBuf::from("base"));
+        state.build_from_entries(sample_entries());
+        state
+    }
+
+    #[test]
+    fn find_mut_locates_nested_node_by_path() {
+        let mut state = state_with_sample_tree();
+
+        let node = state.root.find_mut("dir_a/script1.sql");
+
+        assert!(node.is_some());
+        assert_eq!(node.unwrap().entry.name, "script1.sql");
+    }
+
+    #[test]
+    fn find_mut_returns_none_for_missing_path() {
+        let mut state = state_with_sample_tree();
+
+        assert!(state.root.find_mut("does/not/exist").is_none());
+    }
+
+    #[test]
+    fn find_locates_root_by_dot_path() {
+        let state = state_with_sample_tree();
+
+        let node = state.root.find(".");
+
+        assert!(node.is_some());
+    }
+
+    #[test]
+    fn flatten_only_shows_top_level_when_collapsed() {
+        let mut state = state_with_sample_tree();
+
+        let flattened = state.flattened();
+
+        // Root is always shown; dir_a and dir_b start collapsed, so their
+        // children are not included, but root.sql is a direct child.
+        let paths: Vec<&str> = flattened
+            .iter()
+            .map(|n| n.entry.relative_path.as_str())
+            .collect();
+        assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
+    }
+
+    #[test]
+    fn toggle_current_expansion_reveals_children() {
+        let mut state = state_with_sample_tree();
+        // Cursor starts at 0 (root); move to dir_a at index 1.
+        state.set_cursor(1);
+
+        let toggled = state.toggle_current_expansion();
+
+        assert!(toggled);
+        let paths: Vec<&str> = state
+            .flattened()
+            .iter()
+            .map(|n| n.entry.relative_path.as_str())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                ".",
+                "dir_a",
+                "dir_a/script1.sql",
+                "dir_a/script2.sql",
+                "dir_b",
+                "root.sql"
+            ]
+        );
+    }
+
+    #[test]
+    fn expand_current_only_expands_does_not_collapse() {
+        let mut state = state_with_sample_tree();
+        state.set_cursor(1);
+
+        let (expanded_once, _) = state.expand_current();
+        assert!(expanded_once);
+
+        let (expanded_twice, _) = state.expand_current();
+        assert!(!expanded_twice);
+    }
+
+    #[test]
+    fn collapse_current_or_goto_parent_collapses_expanded_dir() {
+        let mut state = state_with_sample_tree();
+        state.set_cursor(1);
+        state.toggle_current_expansion();
+
+        let (collapsed, parent) = state.collapse_current_or_goto_parent();
+
+        assert!(collapsed);
+        assert_eq!(parent, None);
+        let paths: Vec<&str> = state
+            .flattened()
+            .iter()
+            .map(|n| n.entry.relative_path.as_str())
+            .collect();
+        assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
+    }
+
+    #[test]
+    fn collapse_current_or_goto_parent_navigates_to_parent_for_file() {
+        let mut state = state_with_sample_tree();
+        state.set_cursor(1);
+        state.toggle_current_expansion(); // expand dir_a
+                                          // Flattened: [".", "dir_a", "dir_a/script1.sql", "dir_a/script2.sql", "dir_b", "root.sql"]
+        state.set_cursor(2); // dir_a/script1.sql
+
+        let (collapsed, parent) = state.collapse_current_or_goto_parent();
+
+        assert!(!collapsed);
+        assert_eq!(parent, Some(1)); // index of dir_a
+    }
+
+    #[test]
+    fn cursor_movement_respects_bounds() {
+        let mut state = state_with_sample_tree();
+        let max = state.flattened().len();
+
+        state.cursor_up();
+        assert_eq!(state.cursor(), 0);
+
+        state.cursor_to_bottom(max);
+        assert_eq!(state.cursor(), max - 1);
+
+        state.cursor_down(max);
+        assert_eq!(state.cursor(), max - 1);
+
+        state.cursor_to_top();
+        assert_eq!(state.cursor(), 0);
+    }
+
+    #[test]
+    fn has_children_loaded_reflects_populated_children() {
+        let state = state_with_sample_tree();
+
+        assert!(state.has_children_loaded("dir_a"));
+        assert!(!state.has_children_loaded("dir_b_that_does_not_exist"));
+    }
+
+    #[test]
+    fn add_children_to_directory_appends_and_sorts_children() {
+        let mut state = TreeState::new(PathBuf::from("base"));
+        state.build_from_entries(vec![entry("dir_a", "dir_a", true)]);
+
+        state.add_children_to_directory(
+            "dir_a",
+            vec![
+                entry("dir_a/z.sql", "z.sql", false),
+                entry("dir_a/a.sql", "a.sql", false),
+            ],
+        );
+
+        assert!(state.has_children_loaded("dir_a"));
+        state.expand_node_by_path("dir_a");
+        let paths: Vec<&str> = state
+            .flattened()
+            .iter()
+            .map(|n| n.entry.relative_path.as_str())
+            .collect();
+        assert_eq!(paths, vec![".", "dir_a", "dir_a/a.sql", "dir_a/z.sql"]);
+    }
+
+    #[test]
+    fn expand_and_find_path_expands_ancestors_and_returns_index() {
+        let mut state = state_with_sample_tree();
+
+        let index = state.expand_and_find_path("dir_a/script2.sql");
+
+        assert_eq!(
+            index,
+            Some(3),
+            "expected dir_a/script2.sql to be found after expanding ancestors"
+        );
+        let paths: Vec<&str> = state
+            .flattened()
+            .iter()
+            .map(|n| n.entry.relative_path.as_str())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                ".",
+                "dir_a",
+                "dir_a/script1.sql",
+                "dir_a/script2.sql",
+                "dir_b",
+                "root.sql"
+            ]
+        );
     }
 }
