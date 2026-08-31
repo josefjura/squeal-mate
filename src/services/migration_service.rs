@@ -194,7 +194,10 @@ mod tests {
         MigrationService::new(Arc::new(repository), Arc::new(executor), Arc::new(tracker))
     }
 
-    fn dispatcher() -> (ActionDispatcher, tokio::sync::mpsc::UnboundedReceiver<Action>) {
+    fn dispatcher() -> (
+        ActionDispatcher,
+        tokio::sync::mpsc::UnboundedReceiver<Action>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (ActionDispatcher::new(tx), rx)
     }
@@ -323,9 +326,7 @@ mod tests {
         let mut changed_paths = Vec::new();
         for _ in 0..3 {
             match rx.recv().await.unwrap() {
-                Action::EntryStatusChanged(path, EntryStatus::Changed) => {
-                    changed_paths.push(path)
-                }
+                Action::EntryStatusChanged(path, EntryStatus::Changed) => changed_paths.push(path),
                 Action::EntryStatusChanged(path, other) => {
                     panic!("unexpected status {other:?} for {path}")
                 }
