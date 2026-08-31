@@ -1,4 +1,7 @@
-use std::{fs::read_dir, path::PathBuf};
+use std::{
+    fs::read_dir,
+    path::{Path, PathBuf},
+};
 
 use color_eyre::eyre;
 use walkdir::{DirEntry, WalkDir};
@@ -74,26 +77,56 @@ impl Repository {
     }
 
     pub fn read_files_in_directory(&self) -> eyre::Result<Vec<String>> {
-        let current = self.current_as_path_buf();
+        let entries = self
+            .list_sql_file_entries(&self.current_as_path_buf())?
+            .into_iter()
+            .map(|(relative_path, _file_name)| relative_path)
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// List `.sql` files directly inside `dir` (non-recursive), skipping hidden
+    /// (`.`/`_`-prefixed) entries and subdirectories. `dir` should be relative
+    /// to the repository root (matching `get_children`'s convention) - it is
+    /// joined onto the root before reading. Results are relative to the root.
+    pub fn list_sql_files_in_directory(&self, dir: &Path) -> eyre::Result<Vec<String>> {
+        let target = self.base_as_path_buf().join(dir);
+        let entries = self
+            .list_sql_file_entries(&target)?
+            .into_iter()
+            .map(|(relative_path, _file_name)| relative_path)
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// Shared "what counts as a listable SQL script" rule: non-recursive,
+    /// skips hidden (`.`/`_`-prefixed) entries and subdirectories, requires a
+    /// `.sql` extension. Returns each match's path (relative to the
+    /// repository root) paired with its file name, in directory-entry order.
+    fn list_sql_file_entries(&self, dir: &Path) -> eyre::Result<Vec<(String, String)>> {
         let base = self.base_as_path_buf();
-        let entries = read_dir(current)?
+        let entries = read_dir(dir)?
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
                 let path_str = String::from(path.to_str().unwrap());
-                let file_name = path.file_name()?.to_str()?;
+                let file_name = path.file_name()?.to_str()?.to_string();
 
                 if file_name.starts_with('_') || file_name.starts_with('.') || path.is_dir() {
                     return None;
                 }
-                if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
-                    let relative_path = path_str.replace(base.to_str().unwrap(), "");
-                    let fixed = relative_path.trim_start_matches(std::path::MAIN_SEPARATOR);
-
-                    Some(fixed.into())
-                } else {
-                    None
+                if path.extension().and_then(|ext| ext.to_str()) != Some("sql") {
+                    return None;
                 }
+
+                let relative_path = path_str.replace(base.to_str().unwrap(), "");
+                let fixed = relative_path
+                    .trim_start_matches(std::path::MAIN_SEPARATOR)
+                    .to_string();
+
+                Some((fixed, file_name))
             })
             .collect();
 
@@ -147,30 +180,11 @@ impl Repository {
 
     pub fn read_files_after_in_directory(&self, from: &str) -> eyre::Result<Vec<String>> {
         let current = self.current_as_path_buf();
-        let base = self.base_as_path_buf();
-        let entries = read_dir(current)?
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                let path = entry.path();
-                let path_str = String::from(path.to_str().unwrap());
-                let file_name = path.file_name()?.to_str()?;
-
-                if file_name.starts_with('_') || file_name.starts_with('.') || path.is_dir() {
-                    return None;
-                }
-
-                if path.extension().and_then(|ext| ext.to_str()) == Some("sql") {
-                    let relative_path = path_str.replace(base.to_str().unwrap(), "");
-                    let fixed = relative_path
-                        .trim_start_matches(std::path::MAIN_SEPARATOR)
-                        .to_owned();
-                    Some((fixed, file_name.to_owned()))
-                } else {
-                    None
-                }
-            })
-            .skip_while(|path| path.1 != from)
-            .map(|path| path.0)
+        let entries = self
+            .list_sql_file_entries(&current)?
+            .into_iter()
+            .skip_while(|(_relative_path, file_name)| file_name != from)
+            .map(|(relative_path, _file_name)| relative_path)
             .collect();
 
         Ok(entries)
@@ -293,6 +307,88 @@ mod test {
 
         let children = repository.read_files_after("dir2/file2.sql");
         assert_eq!(6, children.len());
+    }
+
+    #[test]
+    fn repository_list_sql_files_in_directory_matches_read_files_in_directory() {
+        let path = ".tests/repository/dir1";
+        let repository = Repository::new(PathBuf::from(path)).unwrap();
+
+        let mut via_current = repository.read_files_in_directory().unwrap();
+        let mut via_arbitrary_dir = repository
+            .list_sql_files_in_directory(Path::new(""))
+            .unwrap();
+
+        via_current.sort();
+        via_arbitrary_dir.sort();
+
+        assert_eq!(via_current, via_arbitrary_dir);
+        assert_eq!(via_current, vec!["file1.sql".to_string()]);
+    }
+
+    #[test]
+    fn repository_list_sql_files_in_directory_skips_hidden_and_non_sql() {
+        let path = ".tests/repository/dir1";
+        let repository = Repository::new(PathBuf::from(path)).unwrap();
+
+        let mut files = repository
+            .list_sql_files_in_directory(Path::new("dir3"))
+            .unwrap();
+        files.sort();
+
+        // dir3 has file3.sql..file6.sql plus a file.notsql - only .sql files should show up
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(
+            files,
+            vec![
+                format!("dir3{sep}file3.sql"),
+                format!("dir3{sep}file4.sql"),
+                format!("dir3{sep}file5.sql"),
+                format!("dir3{sep}file6.sql"),
+            ]
+        );
+    }
+
+    #[test]
+    fn repository_list_sql_files_in_directory_propagates_read_dir_errors() {
+        let path = ".tests/repository/dir1";
+        let repository = Repository::new(PathBuf::from(path)).unwrap();
+
+        let result = repository.list_sql_files_in_directory(Path::new("does-not-exist"));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn repository_read_files_after_in_directory_skips_up_to_but_keeps_from() {
+        let path = ".tests/repository/dir1/dir3";
+        let repository = Repository::new(PathBuf::from(path)).unwrap();
+
+        let files = repository
+            .read_files_after_in_directory("file4.sql")
+            .unwrap();
+
+        assert_eq!(
+            files,
+            vec![
+                "file4.sql".to_string(),
+                "file5.sql".to_string(),
+                "file6.sql".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn repository_read_files_after_in_directory_skips_hidden_and_non_sql() {
+        let path = ".tests/repository/dir1";
+        let repository = Repository::new(PathBuf::from(path)).unwrap();
+
+        // "from" not found among dir1's direct .sql files (file1.sql only) -> empty
+        let files = repository
+            .read_files_after_in_directory("nonexistent.sql")
+            .unwrap();
+
+        assert!(files.is_empty());
     }
 
     #[test]

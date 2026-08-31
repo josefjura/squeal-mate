@@ -33,24 +33,10 @@ impl FilesystemRepository {
 #[async_trait]
 impl MigrationRepository for FilesystemRepository {
     async fn list_scripts(&self, directory: &Path) -> DomainResult<Vec<ScriptPath>> {
-        // Read SQL files from the specified directory
-        let mut paths = Vec::new();
-
-        if let Ok(entries) = std::fs::read_dir(directory) {
-            for entry in entries.flatten() {
-                if let Ok(path) = entry.path().canonicalize() {
-                    // Only include .sql files
-                    if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("sql") {
-                        // Skip hidden files
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            if !name.starts_with('.') && !name.starts_with('_') {
-                                paths.push(path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let paths = self
+            .inner
+            .list_sql_files_in_directory(directory)
+            .map_err(|e| InfraError::IoError(std::io::Error::other(e.to_string())))?;
 
         let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
@@ -127,5 +113,46 @@ impl MigrationRepository for FilesystemRepository {
         let script_paths: Result<Vec<_>, _> = paths.into_iter().map(ScriptPath::new).collect();
 
         script_paths
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn list_scripts_returns_sql_files_and_skips_hidden() {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+
+        std::fs::write(root.join("001_init.sql"), "SELECT 1;").unwrap();
+        std::fs::write(root.join("readme.txt"), "not sql").unwrap();
+        std::fs::write(root.join(".hidden.sql"), "SELECT 2;").unwrap();
+        std::fs::write(root.join("_ignored.sql"), "SELECT 3;").unwrap();
+        std::fs::create_dir(root.join("subdir")).unwrap();
+
+        let repo = FilesystemRepository::new(root.to_path_buf()).unwrap();
+
+        let mut scripts: Vec<String> = repo
+            .list_scripts(Path::new(""))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| p.to_string())
+            .collect();
+        scripts.sort();
+
+        assert_eq!(scripts, vec!["001_init.sql".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn list_scripts_propagates_read_dir_error_instead_of_empty_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let repo = FilesystemRepository::new(temp_dir.path().to_path_buf()).unwrap();
+
+        let result = repo.list_scripts(Path::new("does-not-exist")).await;
+
+        assert!(result.is_err());
     }
 }
