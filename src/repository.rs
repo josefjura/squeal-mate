@@ -203,6 +203,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
 mod test {
     use super::*;
     use std::ffi::OsString;
+    use tempfile::TempDir;
 
     #[cfg(unix)]
     fn non_utf8_os_string() -> OsString {
@@ -359,23 +360,22 @@ mod test {
         assert!(result.is_err());
     }
 
+    // `read_files_after_in_directory` walks `read_dir`'s raw (unspecified,
+    // platform-dependent) entry order, so a directory with several files can't
+    // assert a stable "skips these, keeps those" list across OSes. A
+    // single-entry directory sidesteps the ordering question entirely while
+    // still locking down that the matching file itself is kept, not skipped.
     #[test]
-    fn repository_read_files_after_in_directory_skips_up_to_but_keeps_from() {
-        let path = ".tests/repository/dir1/dir3";
-        let repository = Repository::new(PathBuf::from(path)).unwrap();
+    fn repository_read_files_after_in_directory_keeps_the_matching_file() {
+        let temp_dir = TempDir::new().unwrap();
+        std::fs::write(temp_dir.path().join("target.sql"), "SELECT 1;").unwrap();
+        let repository = Repository::new(temp_dir.path().to_path_buf()).unwrap();
 
         let files = repository
-            .read_files_after_in_directory("file4.sql")
+            .read_files_after_in_directory("target.sql")
             .unwrap();
 
-        assert_eq!(
-            files,
-            vec![
-                "file4.sql".to_string(),
-                "file5.sql".to_string(),
-                "file6.sql".to_string(),
-            ]
-        );
+        assert_eq!(files, vec!["target.sql".to_string()]);
     }
 
     #[test]
