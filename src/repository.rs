@@ -261,7 +261,20 @@ fn is_hidden(entry: &DirEntry) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    use std::ffi::OsString;
+
+    #[cfg(unix)]
+    fn non_utf8_os_string() -> OsString {
+        use std::os::unix::ffi::OsStringExt;
+        OsString::from_vec(vec![0xff, 0xff, 0xff])
+    }
+
+    #[cfg(windows)]
+    fn non_utf8_os_string() -> OsString {
+        use std::os::windows::ffi::OsStringExt;
+        // An unpaired surrogate is not representable in UTF-8.
+        OsString::from_wide(&[0xD800])
+    }
 
     #[test]
     fn repository_path_success() {
@@ -285,9 +298,7 @@ mod test {
 
     #[test]
     fn repository_path_is_not_utf8() {
-        let non_utf8_bytes = vec![0xff, 0xff, 0xff];
-        let non_utf8_os_string = OsString::from_vec(non_utf8_bytes);
-        let non_utf8_path = PathBuf::from(non_utf8_os_string);
+        let non_utf8_path = PathBuf::from(non_utf8_os_string());
 
         let r = Repository::new(non_utf8_path);
 
@@ -337,7 +348,8 @@ mod test {
 
         repository.open_directory("dir2");
 
-        assert_eq!("/dir2", repository.current_relative_as_str())
+        let expected = format!("{}dir2", std::path::MAIN_SEPARATOR);
+        assert_eq!(expected, repository.current_relative_as_str())
     }
 
     #[test]
