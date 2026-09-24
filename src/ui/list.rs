@@ -405,7 +405,7 @@ impl List {
             let mut not_run_files: Vec<String> = Vec::new();
             for path in paths {
                 if let Ok(relative_path) = path.strip_prefix(&root_dir) {
-                    let path_str = relative_path.to_string_lossy().to_string();
+                    let path_str = normalize_separators(&relative_path.to_string_lossy());
                     if !executed_scripts.contains(&path_str) {
                         not_run_files.push(path_str);
                     }
