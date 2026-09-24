@@ -16,7 +16,7 @@ pub struct ScriptPath(PathBuf);
 impl ScriptPath {
     /// Create a new ScriptPath, validating it's a .sql file
     pub fn new(path: impl Into<PathBuf>) -> DomainResult<Self> {
-        let path = path.into();
+        let path = Self::normalise(path.into());
 
         // Must have .sql extension
         if path.extension().and_then(|s| s.to_str()) != Some("sql") {
@@ -41,7 +41,29 @@ impl ScriptPath {
 
     /// Create from a trusted path (skips validation - use only for internal conversions)
     pub(crate) fn from_trusted(path: PathBuf) -> Self {
-        Self(path)
+        Self(Self::normalise(path))
+    }
+
+    /// Rewrite platform separators to `/` so paths built on Windows and Unix compare equal
+    fn normalise(path: PathBuf) -> PathBuf {
+        match path.to_str() {
+            Some(s) if s.contains('\\') => PathBuf::from(s.replace('\\', "/")),
+            _ => path,
+        }
+    }
+
+    /// Path segments (directories then filename), split on the normalised separator
+    pub fn segments(&self) -> impl Iterator<Item = &str> {
+        self.0
+            .to_str()
+            .unwrap_or_default()
+            .split('/')
+            .filter(|s| !s.is_empty() && *s != ".")
+    }
+
+    /// The containing directory, or None if the script has no directory component
+    pub fn parent(&self) -> Option<&Path> {
+        self.0.parent().filter(|p| !p.as_os_str().is_empty())
     }
 
     /// Get the underlying path
@@ -144,6 +166,21 @@ impl MigrationScript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn segments_agree_across_separator_conventions() {
+        let unix = ScriptPath::new("a/b/c.sql").unwrap();
+        let windows = ScriptPath::new("a\\b\\c.sql").unwrap();
+        assert_eq!(unix, windows);
+        assert_eq!(windows.segments().collect::<Vec<_>>(), ["a", "b", "c.sql"]);
+    }
+
+    #[test]
+    fn parent_uses_one_separator_rule() {
+        let windows = ScriptPath::new("a\\b\\c.sql").unwrap();
+        assert_eq!(windows.parent(), Some(Path::new("a/b")));
+        assert_eq!(ScriptPath::new("c.sql").unwrap().parent(), None);
+    }
 
     #[test]
     fn script_path_valid() {
