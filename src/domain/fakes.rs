@@ -10,7 +10,6 @@ use crate::domain::script_status::{ExecutionResult, ScriptStatus};
 use crate::domain::tracker::ExecutionTracker;
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Mutex;
 
 /// In-memory fake for `MigrationRepository`.
@@ -37,10 +36,6 @@ impl FakeMigrationRepository {
 
 #[async_trait]
 impl MigrationRepository for FakeMigrationRepository {
-    async fn list_scripts(&self, _directory: &Path) -> DomainResult<Vec<ScriptPath>> {
-        Ok(self.scripts.lock().unwrap().keys().cloned().collect())
-    }
-
     async fn read_script(&self, path: &ScriptPath) -> DomainResult<MigrationScript> {
         self.scripts
             .lock()
@@ -48,33 +43,6 @@ impl MigrationRepository for FakeMigrationRepository {
             .get(path)
             .cloned()
             .ok_or_else(|| DomainError::ScriptNotFound(path.as_path().to_path_buf()))
-    }
-
-    async fn get_children(&self, _directory_path: &Path) -> DomainResult<Vec<ScriptPath>> {
-        Ok(Vec::new())
-    }
-
-    async fn get_scripts_after(
-        &self,
-        _directory: &Path,
-        _after: &ScriptPath,
-    ) -> DomainResult<Vec<ScriptPath>> {
-        Ok(Vec::new())
-    }
-
-    async fn get_scripts_after_in_current(
-        &self,
-        _after_name: &str,
-    ) -> DomainResult<Vec<ScriptPath>> {
-        Ok(Vec::new())
-    }
-
-    async fn get_scripts_in_current(&self) -> DomainResult<Vec<ScriptPath>> {
-        Ok(Vec::new())
-    }
-
-    async fn get_scripts_after_global(&self, _after_name: &str) -> DomainResult<Vec<ScriptPath>> {
-        Ok(Vec::new())
     }
 }
 

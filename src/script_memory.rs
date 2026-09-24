@@ -1,5 +1,6 @@
-use crate::{entries::EntryStatus, infrastructure::get_script_database};
-use color_eyre::eyre::{self};
+use crate::infrastructure::get_script_database;
+#[cfg(test)]
+use color_eyre::eyre;
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::named_params;
@@ -222,51 +223,6 @@ impl ScriptDatabase {
         Ok(scripts)
     }
 
-    #[allow(dead_code)]
-    pub fn get_file_status(&self, file_path: &str, crc: &u32) -> eyre::Result<EntryStatus> {
-        let conn = self.pool.get()?;
-
-        // Prepare the query to fetch the matching record for a single file
-        let query = "SELECT name, crc, result FROM scripts WHERE name = ?";
-
-        // Prepare the statement and query the database for the matching record
-        let mut stmt = conn.prepare(query)?;
-        let mut rows = stmt.query_map([file_path], |row| {
-            let result_value = row.get::<_, i32>(2)?;
-            let result = match result_value {
-                1 => ScriptResult::Success,
-                0 => ScriptResult::Error,
-                -1 => ScriptResult::Skipped,
-                _ => ScriptResult::Error,
-            };
-            Ok(ScriptDatabaseRecord {
-                crc: row.get::<_, u32>(1)?,
-                result,
-            })
-        })?;
-
-        // Process the results (assuming one record is returned at most)
-        match rows.next() {
-            Some(record) => match record {
-                Ok(record) => {
-                    if record.result == ScriptResult::Skipped {
-                        Ok(EntryStatus::Skipped)
-                    } else if record.crc == *crc {
-                        let success = record.result == ScriptResult::Success;
-                        Ok(EntryStatus::Finished(success))
-                    } else {
-                        Ok(EntryStatus::Changed)
-                    }
-                }
-                Err(e) => {
-                    log::error!("Error while processing record: {}", e);
-                    Ok(EntryStatus::Unknown)
-                }
-            },
-            None => Ok(EntryStatus::NeverStarted),
-        }
-    }
-
     #[cfg(test)]
     pub fn new_test() -> eyre::Result<Self> {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -361,62 +317,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_file_status_never_started() {
-        let db = ScriptDatabase::new_test().unwrap();
-
-        // Query for non-existent file
-        let status = db.get_file_status("nonexistent.sql", &12345).unwrap();
-        assert!(matches!(status, EntryStatus::NeverStarted));
-
-        // Cleanup
-    }
-
-    #[tokio::test]
-    async fn test_get_file_status_finished_success() {
-        let db = ScriptDatabase::new_test().unwrap();
-
-        // Insert a successful script
-        db.insert("success.sql".to_string(), 12345, ScriptResult::Success)
-            .unwrap();
-
-        // Query with matching CRC
-        let status = db.get_file_status("success.sql", &12345).unwrap();
-        assert!(matches!(status, EntryStatus::Finished(true)));
-
-        // Cleanup
-    }
-
-    #[tokio::test]
-    async fn test_get_file_status_finished_error() {
-        let db = ScriptDatabase::new_test().unwrap();
-
-        // Insert a failed script
-        db.insert("failed.sql".to_string(), 12345, ScriptResult::Error)
-            .unwrap();
-
-        // Query with matching CRC
-        let status = db.get_file_status("failed.sql", &12345).unwrap();
-        assert!(matches!(status, EntryStatus::Finished(false)));
-
-        // Cleanup
-    }
-
-    #[tokio::test]
-    async fn test_get_file_status_changed() {
-        let db = ScriptDatabase::new_test().unwrap();
-
-        // Insert with original CRC
-        db.insert("changed.sql".to_string(), 12345, ScriptResult::Success)
-            .unwrap();
-
-        // Query with different CRC
-        let status = db.get_file_status("changed.sql", &67890).unwrap();
-        assert!(matches!(status, EntryStatus::Changed));
-
-        // Cleanup
-    }
-
-    #[tokio::test]
     async fn test_is_skipped_true_for_skipped_script() {
         let db = ScriptDatabase::new_test().unwrap();
         db.mark_skipped("skipped.sql".to_string()).unwrap();
@@ -438,29 +338,5 @@ mod tests {
         let db = ScriptDatabase::new_test().unwrap();
 
         assert!(!db.is_skipped("never_seen.sql"));
-    }
-
-    #[tokio::test]
-    async fn test_multiple_scripts() {
-        let db = ScriptDatabase::new_test().unwrap();
-
-        // Insert multiple scripts
-        db.insert("script1.sql".to_string(), 111, ScriptResult::Success)
-            .unwrap();
-        db.insert("script2.sql".to_string(), 222, ScriptResult::Error)
-            .unwrap();
-        db.insert("script3.sql".to_string(), 333, ScriptResult::Success)
-            .unwrap();
-
-        // Verify all are stored correctly
-        let status1 = db.get_file_status("script1.sql", &111).unwrap();
-        let status2 = db.get_file_status("script2.sql", &222).unwrap();
-        let status3 = db.get_file_status("script3.sql", &333).unwrap();
-
-        assert!(matches!(status1, EntryStatus::Finished(true)));
-        assert!(matches!(status2, EntryStatus::Finished(false)));
-        assert!(matches!(status3, EntryStatus::Finished(true)));
-
-        // Cleanup
     }
 }

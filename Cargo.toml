@@ -42,7 +42,6 @@ directories = "6.0.0"
 
 # Utilities
 crc = "3.2.1"
-walkdir = "2"
 chrono = "0.4.38"
 strip-ansi-escapes = "0.2.0"
 rand = "0.8"

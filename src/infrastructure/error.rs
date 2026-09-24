@@ -22,9 +22,6 @@ pub enum InfraError {
     #[error("Script database error: {0}")]
     ScriptDatabaseError(#[from] crate::script_memory::ScriptDatabaseError),
 
-    #[error("Configuration error: {0}")]
-    ConfigError(String),
-
     #[error("Invalid UTF-8 path")]
     InvalidUtf8Path,
 
@@ -43,7 +40,6 @@ impl From<InfraError> for DomainError {
             InfraError::TiberiusError(e) => DomainError::ExecutionFailed(e.to_string()),
             InfraError::SqliteError(e) => DomainError::ExecutionFailed(e.to_string()),
             InfraError::ScriptDatabaseError(e) => DomainError::ExecutionFailed(e.to_string()),
-            InfraError::ConfigError(e) => DomainError::InvalidScriptContent(e),
             InfraError::InvalidUtf8Path => {
                 DomainError::InvalidScriptPath("Path contains invalid UTF-8".to_string())
             }
