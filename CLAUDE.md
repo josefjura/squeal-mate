@@ -190,3 +190,17 @@ The `BatchParser` splits SQL scripts on `GO` statements while correctly handling
 - **Architecture:** Clean separation of Domain → Infrastructure → Service → UI layers
 - **State Management:** Reducer pattern in ComponentState for predictable state transitions
 - **Testing:** 48 unit tests covering domain logic, infrastructure, services, and UI state
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `josefjura/squeal-mate`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, used verbatim as label strings. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
