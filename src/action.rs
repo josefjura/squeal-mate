@@ -19,7 +19,7 @@ pub enum Action {
     CursorToTop,
     CursorToBottom,
     JumpToNextNotRun, // Jump to next Not Run script (skipping Success/Error/Skipped)
-    JumpToPath(String, usize), // Jump to a specific path (path, retry_count)
+    JumpToPath(crate::domain::ScriptPath, usize), // Jump to a specific path (path, retry_count)
     SelectFromCursorToEnd, // Select all scripts from cursor to end
 
     // Directory actions
@@ -40,7 +40,7 @@ pub enum Action {
     // Async loading actions
     EntriesLoading, // Signal that entries are being loaded
     EntriesLoaded(Vec<crate::entries::ListEntry>), // Entries loaded from async task
-    DirectoryChildrenLoaded(String, Vec<crate::entries::ListEntry>), // (parent_path, children) loaded from async task
+    DirectoryChildrenLoaded(crate::domain::ScriptPath, Vec<crate::entries::ListEntry>), // (parent_path, children) loaded from async task
     StatusCalculationProgress(usize, usize), // (current, total) for CRC calculation progress
     SearchingForNextNotRun(bool),            // (is_searching) - show/hide searching indicator
 

@@ -1,3 +1,4 @@
+use crate::domain::ScriptPath;
 use crate::entries::{EntryStatus, ListEntry};
 use std::path::PathBuf;
 
@@ -43,8 +44,8 @@ impl TreeNode {
     }
 
     /// Find a node by path, searching this node and its descendants
-    pub fn find(&self, path: &str) -> Option<&TreeNode> {
-        if self.entry.relative_path == path {
+    pub fn find(&self, path: &ScriptPath) -> Option<&TreeNode> {
+        if &self.entry.path == path {
             return Some(self);
         }
 
@@ -58,8 +59,8 @@ impl TreeNode {
     }
 
     /// Find a node by path, searching this node and its descendants
-    pub fn find_mut(&mut self, path: &str) -> Option<&mut TreeNode> {
-        if self.entry.relative_path == path {
+    pub fn find_mut(&mut self, path: &ScriptPath) -> Option<&mut TreeNode> {
+        if &self.entry.path == path {
             return Some(self);
         }
 
@@ -73,7 +74,7 @@ impl TreeNode {
     }
 
     /// Find and update an entry's status by path
-    pub fn update_entry_status(&mut self, path: &str, status: EntryStatus) -> bool {
+    pub fn update_entry_status(&mut self, path: &ScriptPath, status: EntryStatus) -> bool {
         match self.find_mut(path) {
             Some(node) => {
                 node.entry.status = status;
@@ -91,14 +92,14 @@ impl TreeNode {
     }
 
     /// Expand this node and all parents to a specific path
-    pub fn expand_path_to(&mut self, target_path: &str) -> bool {
+    pub fn expand_path_to(&mut self, target_path: &ScriptPath) -> bool {
         // If this is the target, we're done
-        if self.entry.relative_path == target_path {
+        if &self.entry.path == target_path {
             return true;
         }
 
-        // If the target path starts with this node's path, search children
-        if target_path.starts_with(&self.entry.relative_path) || self.entry.relative_path == "." {
+        // If the target lives under this node's path, search children
+        if target_path.is_under(&self.entry.path) {
             for child in &mut self.children {
                 if child.expand_path_to(target_path) {
                     // Found it in a child, so expand this node
@@ -164,7 +165,7 @@ impl TreeState {
                 .and_then(|n| n.to_str())
                 .unwrap_or("root")
                 .to_string(),
-            relative_path: String::from("."),
+            path: ScriptPath::root(),
             selected: false,
             is_directory: true,
             status: EntryStatus::Unknown,
@@ -184,24 +185,31 @@ impl TreeState {
         self.root.children.clear();
 
         // Group entries by parent directory
-        let mut entries_by_parent: std::collections::HashMap<String, Vec<ListEntry>> =
+        let mut entries_by_parent: std::collections::HashMap<ScriptPath, Vec<ListEntry>> =
             std::collections::HashMap::new();
 
         for entry in entries {
-            let parent = self.get_parent_path(&entry.relative_path);
-            entries_by_parent.entry(parent).or_default().push(entry);
+            entries_by_parent
+                .entry(entry.path.parent_dir())
+                .or_default()
+                .push(entry);
         }
 
         // Build tree recursively
         let root_depth = self.root.depth;
-        Self::build_subtree_static(&mut self.root, &entries_by_parent, ".", root_depth);
+        Self::build_subtree_static(
+            &mut self.root,
+            &entries_by_parent,
+            &ScriptPath::root(),
+            root_depth,
+        );
         self.cache_dirty = true;
     }
 
     fn build_subtree_static(
         node: &mut TreeNode,
-        entries_by_parent: &std::collections::HashMap<String, Vec<ListEntry>>,
-        current_path: &str,
+        entries_by_parent: &std::collections::HashMap<ScriptPath, Vec<ListEntry>>,
+        current_path: &ScriptPath,
         _parent_depth: usize,
     ) {
         if let Some(children_entries) = entries_by_parent.get(current_path) {
@@ -214,7 +222,7 @@ impl TreeState {
                     Self::build_subtree_static(
                         &mut child,
                         entries_by_parent,
-                        &entry.relative_path,
+                        &entry.path,
                         child_depth,
                     );
                 }
@@ -229,19 +237,6 @@ impl TreeState {
                     (false, true) => std::cmp::Ordering::Greater,
                     _ => a.entry.name.cmp(&b.entry.name),
                 });
-        }
-    }
-
-    fn get_parent_path(&self, path: &str) -> String {
-        if path == "." || !path.contains('/') {
-            return ".".to_string();
-        }
-
-        let parts: Vec<&str> = path.rsplitn(2, '/').collect();
-        if parts.len() == 2 {
-            parts[1].to_string()
-        } else {
-            ".".to_string()
         }
     }
 
@@ -306,7 +301,7 @@ impl TreeState {
             // (children will be loaded on-demand)
             if node.entry.is_directory {
                 // Find and toggle the actual node
-                self.toggle_node_by_path(&node.entry.relative_path);
+                self.toggle_node_by_path(&node.entry.path);
                 self.cache_dirty = true;
                 return true;
             }
@@ -325,7 +320,7 @@ impl TreeState {
 
                 if !was_expanded {
                     // Expand the node
-                    self.expand_node_by_path(&node.entry.relative_path);
+                    self.expand_node_by_path(&node.entry.path);
                     self.cache_dirty = true;
                     return (true, !has_children);
                 }
@@ -341,7 +336,7 @@ impl TreeState {
         if let Some(node) = flattened.get(self.cursor) {
             if node.entry.is_directory && node.expanded {
                 // Directory is expanded - collapse it
-                self.collapse_node_by_path(&node.entry.relative_path);
+                self.collapse_node_by_path(&node.entry.path);
                 self.cache_dirty = true;
                 return (true, None);
             } else {
@@ -359,7 +354,7 @@ impl TreeState {
         (false, None)
     }
 
-    fn expand_node_by_path(&mut self, path: &str) -> bool {
+    fn expand_node_by_path(&mut self, path: &ScriptPath) -> bool {
         match self.root.find_mut(path) {
             Some(node) => {
                 node.expanded = true;
@@ -369,7 +364,7 @@ impl TreeState {
         }
     }
 
-    fn collapse_node_by_path(&mut self, path: &str) -> bool {
+    fn collapse_node_by_path(&mut self, path: &ScriptPath) -> bool {
         match self.root.find_mut(path) {
             Some(node) => {
                 node.expanded = false;
@@ -379,7 +374,7 @@ impl TreeState {
         }
     }
 
-    fn toggle_node_by_path(&mut self, path: &str) -> bool {
+    fn toggle_node_by_path(&mut self, path: &ScriptPath) -> bool {
         match self.root.find_mut(path) {
             Some(node) => {
                 node.toggle_expanded();
@@ -390,7 +385,7 @@ impl TreeState {
     }
 
     /// Update entry status
-    pub fn update_entry_status(&mut self, path: &str, status: EntryStatus) {
+    pub fn update_entry_status(&mut self, path: &ScriptPath, status: EntryStatus) {
         if self.root.update_entry_status(path, status) {
             self.cache_dirty = true;
         }
@@ -402,7 +397,11 @@ impl TreeState {
     }
 
     /// Add children to a specific directory node
-    pub fn add_children_to_directory(&mut self, parent_path: &str, children: Vec<ListEntry>) {
+    pub fn add_children_to_directory(
+        &mut self,
+        parent_path: &ScriptPath,
+        children: Vec<ListEntry>,
+    ) {
         if let Some(node) = self.root.find_mut(parent_path) {
             let child_depth = node.depth + 1;
             for child_entry in children {
@@ -422,14 +421,14 @@ impl TreeState {
     }
 
     /// Check if a directory path has children loaded
-    pub fn has_children_loaded(&self, path: &str) -> bool {
+    pub fn has_children_loaded(&self, path: &ScriptPath) -> bool {
         self.root
             .find(path)
             .is_some_and(|node| !node.children.is_empty())
     }
 
     /// Expand all parent directories to make a path visible, then find its index in flattened view
-    pub fn expand_and_find_path(&mut self, target_path: &str) -> Option<usize> {
+    pub fn expand_and_find_path(&mut self, target_path: &ScriptPath) -> Option<usize> {
         // Expand the path
         if self.root.expand_path_to(target_path) {
             self.cache_dirty = true;
@@ -438,7 +437,7 @@ impl TreeState {
             // Find the index
             flattened
                 .iter()
-                .position(|node| node.entry.relative_path == target_path)
+                .position(|node| &node.entry.path == target_path)
         } else {
             None
         }
@@ -449,9 +448,13 @@ impl TreeState {
 mod tests {
     use super::*;
 
+    fn path(s: &str) -> ScriptPath {
+        ScriptPath::from_trusted(PathBuf::from(s))
+    }
+
     fn entry(relative_path: &str, name: &str, is_directory: bool) -> ListEntry {
         ListEntry {
-            relative_path: relative_path.to_string(),
+            path: path(relative_path),
             name: name.to_string(),
             selected: false,
             is_directory,
@@ -484,7 +487,7 @@ mod tests {
     fn find_mut_locates_nested_node_by_path() {
         let mut state = state_with_sample_tree();
 
-        let node = state.root.find_mut("dir_a/script1.sql");
+        let node = state.root.find_mut(&path("dir_a/script1.sql"));
 
         assert!(node.is_some());
         assert_eq!(node.unwrap().entry.name, "script1.sql");
@@ -494,14 +497,14 @@ mod tests {
     fn find_mut_returns_none_for_missing_path() {
         let mut state = state_with_sample_tree();
 
-        assert!(state.root.find_mut("does/not/exist").is_none());
+        assert!(state.root.find_mut(&path("does/not/exist")).is_none());
     }
 
     #[test]
     fn find_locates_root_by_dot_path() {
         let state = state_with_sample_tree();
 
-        let node = state.root.find(".");
+        let node = state.root.find(&ScriptPath::root());
 
         assert!(node.is_some());
     }
@@ -516,7 +519,7 @@ mod tests {
         // children are not included, but root.sql is a direct child.
         let paths: Vec<&str> = flattened
             .iter()
-            .map(|n| n.entry.relative_path.as_str())
+            .map(|n| n.entry.path.as_str().unwrap())
             .collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
     }
@@ -533,7 +536,7 @@ mod tests {
         let paths: Vec<&str> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.relative_path.as_str())
+            .map(|n| n.entry.path.as_str().unwrap())
             .collect();
         assert_eq!(
             paths,
@@ -573,7 +576,7 @@ mod tests {
         let paths: Vec<&str> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.relative_path.as_str())
+            .map(|n| n.entry.path.as_str().unwrap())
             .collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
     }
@@ -614,8 +617,8 @@ mod tests {
     fn has_children_loaded_reflects_populated_children() {
         let state = state_with_sample_tree();
 
-        assert!(state.has_children_loaded("dir_a"));
-        assert!(!state.has_children_loaded("dir_b_that_does_not_exist"));
+        assert!(state.has_children_loaded(&path("dir_a")));
+        assert!(!state.has_children_loaded(&path("dir_b_that_does_not_exist")));
     }
 
     #[test]
@@ -624,28 +627,56 @@ mod tests {
         state.build_from_entries(vec![entry("dir_a", "dir_a", true)]);
 
         state.add_children_to_directory(
-            "dir_a",
+            &path("dir_a"),
             vec![
                 entry("dir_a/z.sql", "z.sql", false),
                 entry("dir_a/a.sql", "a.sql", false),
             ],
         );
 
-        assert!(state.has_children_loaded("dir_a"));
-        state.expand_node_by_path("dir_a");
+        assert!(state.has_children_loaded(&path("dir_a")));
+        state.expand_node_by_path(&path("dir_a"));
         let paths: Vec<&str> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.relative_path.as_str())
+            .map(|n| n.entry.path.as_str().unwrap())
             .collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_a/a.sql", "dir_a/z.sql"]);
     }
 
+    fn jump_target_index(entry_path: &str, target: &str) -> Option<usize> {
+        let mut state = TreeState::new(PathBuf::from("base"));
+        state.build_from_entries(vec![
+            entry("dir_a", "dir_a", true),
+            entry(entry_path, "script1.sql", false),
+        ]);
+        state.expand_and_find_path(&ScriptPath::new(target).unwrap())
+    }
+
+    #[test]
+    fn jump_finds_script_from_unix_separators() {
+        assert_eq!(
+            jump_target_index("dir_a/script1.sql", "dir_a/script1.sql"),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn jump_finds_script_from_windows_separators() {
+        assert_eq!(
+            jump_target_index("dir_a/script1.sql", r"dir_a\script1.sql"),
+            Some(2)
+        );
+        assert_eq!(
+            jump_target_index(r"dir_a\script1.sql", "dir_a/script1.sql"),
+            Some(2)
+        );
+    }
     #[test]
     fn expand_and_find_path_expands_ancestors_and_returns_index() {
         let mut state = state_with_sample_tree();
 
-        let index = state.expand_and_find_path("dir_a/script2.sql");
+        let index = state.expand_and_find_path(&path("dir_a/script2.sql"));
 
         assert_eq!(
             index,
@@ -655,7 +686,7 @@ mod tests {
         let paths: Vec<&str> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.relative_path.as_str())
+            .map(|n| n.entry.path.as_str().unwrap())
             .collect();
         assert_eq!(
             paths,

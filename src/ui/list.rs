@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use color_eyre::eyre::{self, Result};
 
@@ -10,27 +10,33 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
 use crate::{
-    action::Action, domain::ScriptPath, entries::EntryStatus, infrastructure::FileExplorer,
-    infrastructure::Settings, services::MigrationService, tui::Frame, ui::tree_state::TreeState,
+    action::Action,
+    domain::ScriptPath,
+    entries::EntryStatus,
+    infrastructure::FileExplorer,
+    infrastructure::{Entry, Settings},
+    services::MigrationService,
+    tui::Frame,
+    ui::tree_state::TreeState,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
 
 /// Whether a script is marked to be skipped, via the migration service.
 ///
-/// `path_str` must come from a trusted source (e.g. `FileExplorer`'s already
-/// filtered `.sql` listing) since it is converted with `ScriptPath::from_trusted`.
 /// Treats an unavailable service as "not skipped"; logs and treats a tracker
 /// error the same way, since callers only use this to filter selections.
-async fn is_skipped(migration_service: &Option<Arc<MigrationService>>, path_str: &str) -> bool {
+async fn is_skipped(
+    migration_service: &Option<Arc<MigrationService>>,
+    script_path: &ScriptPath,
+) -> bool {
     let Some(service) = migration_service else {
         return false;
     };
-    let script_path = ScriptPath::from_trusted(PathBuf::from(path_str));
-    match service.is_skipped(&script_path).await {
+    match service.is_skipped(script_path).await {
         Ok(skipped) => skipped,
         Err(e) => {
-            log::error!("Failed to check skip status for {}: {}", path_str, e);
+            log::error!("Failed to check skip status for {}: {}", script_path, e);
             false
         }
     }
@@ -90,21 +96,7 @@ impl List {
                     // Convert to ListEntry format
                     explorer_entries
                         .into_iter()
-                        .map(|entry| {
-                            let relative_path = entry
-                                .path
-                                .strip_prefix(&root_dir)
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|_| entry.name.clone());
-
-                            ListEntry {
-                                name: entry.name.clone(),
-                                relative_path,
-                                selected: false,
-                                is_directory: entry.is_directory,
-                                status: EntryStatus::Unknown,
-                            }
-                        })
+                        .map(|entry| list_entry(&root_dir, entry))
                         .collect()
                 }
                 Err(e) => {
@@ -125,12 +117,12 @@ impl List {
     }
 
     /// Load children of a specific directory (on-demand when expanded)
-    fn load_directory_children(&mut self, dir_path: &str) -> eyre::Result<()> {
-        let full_path = self.base.join(dir_path);
+    fn load_directory_children(&mut self, dir_path: &ScriptPath) -> eyre::Result<()> {
+        let full_path = self.base.join(dir_path.as_path());
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
         let tx = self.command_tx.clone();
-        let dir_path_owned = dir_path.to_string();
+        let dir_path_owned = dir_path.clone();
 
         tokio::spawn(async move {
             let result = file_explorer.list_directory(&full_path).await;
@@ -140,21 +132,7 @@ impl List {
                     // Convert to ListEntry format
                     explorer_entries
                         .into_iter()
-                        .map(|entry| {
-                            let relative_path = entry
-                                .path
-                                .strip_prefix(&root_dir)
-                                .map(|p| p.to_string_lossy().to_string())
-                                .unwrap_or_else(|_| entry.name.clone());
-
-                            ListEntry {
-                                name: entry.name.clone(),
-                                relative_path,
-                                selected: false,
-                                is_directory: entry.is_directory,
-                                status: EntryStatus::Unknown,
-                            }
-                        })
+                        .map(|entry| list_entry(&root_dir, entry))
                         .collect()
                 }
                 Err(e) => {
@@ -165,9 +143,7 @@ impl List {
 
             // Send results back via action with parent path
             if let Some(tx) = tx {
-                if let Err(e) =
-                    tx.send(Action::DirectoryChildrenLoaded(dir_path_owned, entries))
-                {
+                if let Err(e) = tx.send(Action::DirectoryChildrenLoaded(dir_path_owned, entries)) {
                     log::error!("Action channel closed: {}", e);
                 }
             }
@@ -209,7 +185,7 @@ impl List {
 
         if let Some(node) = selected_node {
             if node.entry.is_directory {
-                let dir_path = node.entry.relative_path.clone();
+                let dir_path = node.entry.path.clone();
                 let was_expanded = node.expanded;
                 let has_children = node.has_children;
 
@@ -239,7 +215,7 @@ impl List {
             // Load children if needed
             if needs_load {
                 if let Some(node) = self.tree_state.selected_node() {
-                    let dir_path = node.entry.relative_path.clone();
+                    let dir_path = node.entry.path.clone();
                     self.load_directory_children(&dir_path)?;
                 }
             }
@@ -276,12 +252,12 @@ impl List {
         if entry.is_directory {
             // Spawn async task to get directory children (recursively)
             let repo_base = self.base.clone();
-            let rel_path = repo_base.join(&entry.relative_path);
+            let rel_path = repo_base.join(entry.path.as_path());
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
             let migration_service = self.migration_service.clone();
             let tx = self.command_tx.clone();
-            let entry_path = entry.relative_path.clone();
+            let entry_path = entry.path.clone();
 
             tokio::spawn(async move {
                 match file_explorer.list_sql_files_recursive(&rel_path).await {
@@ -290,10 +266,11 @@ impl List {
                         let mut items: Vec<String> = Vec::new();
                         for path in paths {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
-                                let path_str = relative_path.to_string_lossy().to_string();
+                                let script_path =
+                                    ScriptPath::from_trusted(relative_path.to_path_buf());
 
-                                if !is_skipped(&migration_service, &path_str).await {
-                                    items.push(path_str);
+                                if !is_skipped(&migration_service, &script_path).await {
+                                    items.push(script_path.to_string());
                                 }
                             }
                         }
@@ -316,7 +293,7 @@ impl List {
         } else {
             // For single files, only toggle if not skipped
             if entry.status != EntryStatus::Skipped {
-                state.toggle(entry.relative_path);
+                state.toggle(entry.path.to_string());
             }
         }
     }
@@ -332,10 +309,7 @@ impl List {
         let migration_service = self.migration_service.clone();
         let tx = self.command_tx.clone();
 
-        let current_path = self
-            .tree_state
-            .selected_node()
-            .map(|n| n.entry.relative_path);
+        let current_path = self.tree_state.selected_node().map(|n| n.entry.path);
 
         // Show searching indicator
         if let Some(ref tx) = tx {
@@ -402,12 +376,12 @@ impl List {
 
             // Step 3: Build list of Not Run files (not in database)
             log::info!("Filtering for Not Run scripts...");
-            let mut not_run_files: Vec<String> = Vec::new();
+            let mut not_run_files: Vec<ScriptPath> = Vec::new();
             for path in paths {
                 if let Ok(relative_path) = path.strip_prefix(&root_dir) {
-                    let path_str = normalize_separators(&relative_path.to_string_lossy());
-                    if !executed_scripts.contains(&path_str) {
-                        not_run_files.push(path_str);
+                    let script_path = ScriptPath::from_trusted(relative_path.to_path_buf());
+                    if !executed_scripts.contains(&script_path.to_string()) {
+                        not_run_files.push(script_path);
                     }
                 }
             }
@@ -504,32 +478,23 @@ impl List {
             };
 
             // Step 2: Convert to relative paths and build a HashSet for O(1) lookup
-            let all_relative_paths: std::collections::HashSet<String> = all_files
+            let all_script_paths: std::collections::HashSet<ScriptPath> = all_files
                 .iter()
-                .filter_map(|p| {
-                    p.strip_prefix(&root_dir)
-                        .ok()
-                        .map(|rp| rp.to_string_lossy().to_string())
-                })
+                .filter_map(|p| p.strip_prefix(&root_dir).ok())
+                .map(|rp| ScriptPath::from_trusted(rp.to_path_buf()))
                 .collect();
 
-            log::debug!("Found {} total SQL files", all_relative_paths.len());
+            log::debug!("Found {} total SQL files", all_script_paths.len());
 
             // Step 3: Process entries from cursor to end using cached file list
-            let mut items: Vec<String> = Vec::new();
+            let mut items: Vec<ScriptPath> = Vec::new();
 
             for node in flattened.iter().skip(current_cursor) {
+                let node_path = &node.entry.path;
                 if node.entry.is_directory {
-                    // Filter cached files that belong to this directory
-                    let dir_prefix = if node.entry.relative_path.is_empty() {
-                        String::new()
-                    } else {
-                        format!("{}/", node.entry.relative_path)
-                    };
-
-                    for file_path in &all_relative_paths {
-                        // Check if file is in this directory (or subdirectories)
-                        if (file_path.starts_with(&dir_prefix) || dir_prefix.is_empty())
+                    // Filter cached files that belong to this directory (or subdirectories)
+                    for file_path in &all_script_paths {
+                        if (file_path.is_under(node_path))
                             && !is_skipped(&migration_service, file_path).await
                             && !items.contains(file_path)
                         {
@@ -538,19 +503,19 @@ impl List {
                     }
                 } else {
                     // It's a file - check if it exists in our cached list
-                    let path_str = &node.entry.relative_path;
-                    if all_relative_paths.contains(path_str)
-                        && !is_skipped(&migration_service, path_str).await
+                    if all_script_paths.contains(node_path)
+                        && !is_skipped(&migration_service, node_path).await
                     {
-                        items.push(path_str.clone());
+                        items.push(node_path.clone());
                     }
                 }
             }
-
             log::debug!("Selected {} files from cursor to end", items.len());
 
             if let Some(tx) = tx {
-                if let Err(e) = tx.send(Action::ToggleSelection(items)) {
+                if let Err(e) = tx.send(Action::ToggleSelection(
+                    items.iter().map(ScriptPath::to_string).collect(),
+                )) {
                     log::error!("Action channel closed: {}", e);
                 }
             }
@@ -572,11 +537,11 @@ impl List {
             // For directories, we need to check if any file inside is currently skipped
             // to determine whether to skip or unskip the whole directory
             let repo_base = self.base.clone();
-            let rel_path = repo_base.join(&entry.relative_path);
+            let rel_path = repo_base.join(entry.path.as_path());
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
             let migration_service = self.migration_service.clone();
-            let entry_path = entry.relative_path.clone();
+            let entry_path = entry.path.clone();
 
             tokio::spawn(async move {
                 match file_explorer.list_sql_files_recursive(&rel_path).await {
@@ -589,9 +554,9 @@ impl List {
                         let first_file_path = paths[0]
                             .strip_prefix(&root_dir)
                             .ok()
-                            .map(|p| p.to_string_lossy().to_string());
+                            .map(|p| ScriptPath::from_trusted(p.to_path_buf()));
 
-                        let is_currently_skipped = match first_file_path.as_deref() {
+                        let is_currently_skipped = match first_file_path.as_ref() {
                             Some(p) => is_skipped(&migration_service, p).await,
                             None => false,
                         };
@@ -604,9 +569,8 @@ impl List {
                         // Now toggle all files in the directory
                         for path in paths {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
-                                let path_str = relative_path.to_string_lossy().to_string();
                                 let script_path =
-                                    ScriptPath::from_trusted(PathBuf::from(&path_str));
+                                    ScriptPath::from_trusted(relative_path.to_path_buf());
 
                                 // Toggle: if currently skipped, unmark; otherwise mark as skipped
                                 let result = if is_currently_skipped {
@@ -625,8 +589,10 @@ impl List {
                                         EntryStatus::Skipped
                                     };
                                     if let Some(ref tx) = command_tx {
-                                        let _ = tx
-                                            .send(Action::EntryStatusChanged(path_str, new_status));
+                                        let _ = tx.send(Action::EntryStatusChanged(
+                                            script_path.to_string(),
+                                            new_status,
+                                        ));
                                     }
                                 }
                             }
@@ -643,7 +609,7 @@ impl List {
             });
         } else {
             // Toggle skip for single file
-            let path = entry.relative_path.clone();
+            let script_path = entry.path.clone();
             let migration_service = self.migration_service.clone();
             let is_currently_skipped = entry.status == EntryStatus::Skipped;
 
@@ -652,7 +618,6 @@ impl List {
                     log::error!("MigrationService not available for skip toggle");
                     return;
                 };
-                let script_path = ScriptPath::from_trusted(PathBuf::from(&path));
 
                 let result = if is_currently_skipped {
                     service.unmark_skipped(&script_path).await
@@ -670,7 +635,10 @@ impl List {
                         EntryStatus::Skipped
                     };
                     if let Some(ref tx) = command_tx {
-                        let _ = tx.send(Action::EntryStatusChanged(path, new_status));
+                        let _ = tx.send(Action::EntryStatusChanged(
+                            script_path.to_string(),
+                            new_status,
+                        ));
                     }
                 }
             });
@@ -694,7 +662,7 @@ impl List {
         let script = if let Some(existing) = state
             .selected
             .iter()
-            .find(|s| s.relative_path == entry.relative_path)
+            .find(|s| s.relative_path == entry.path.to_string())
         {
             // Use existing script with execution state from current session
             existing.clone()
@@ -708,7 +676,7 @@ impl List {
 
             // Create new script entry for preview with persisted state
             Script {
-                relative_path: entry.relative_path.clone(),
+                relative_path: entry.path.to_string(),
                 state: script_state,
                 error: None,
                 elapsed: None,
@@ -788,12 +756,8 @@ impl Component for List {
             Action::JumpToPath(path, retry_count) => {
                 const MAX_RETRIES: usize = 10;
 
-                // Tree keys use '/', but the path may carry the platform separator
-                let path = normalize_separators(&path);
-
                 // Load all parent directories if they haven't been loaded yet
-                for parent_path in ancestor_dirs(&path) {
-
+                for parent_path in path.ancestor_dirs() {
                     // Only load if this directory doesn't have children yet
                     if !self.tree_state.has_children_loaded(&parent_path) {
                         log::info!("Loading parent directory: {}", parent_path);
@@ -866,14 +830,14 @@ impl Component for List {
                 let script_paths: Vec<ScriptPath> = entries
                     .iter()
                     .filter(|e| !e.is_directory)
-                    .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
+                    .map(|e| e.path.clone())
                     .collect();
 
                 // Dispatch directory statuses immediately
                 for entry in &entries {
                     if entry.is_directory {
                         tx.send(Action::EntryStatusChanged(
-                            entry.relative_path.clone(),
+                            entry.path.to_string(),
                             EntryStatus::Directory,
                         ))?;
                     }
@@ -899,7 +863,7 @@ impl Component for List {
                     let script_paths: Vec<ScriptPath> = entries
                         .iter()
                         .filter(|e| !e.is_directory)
-                        .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
+                        .map(|e| e.path.clone())
                         .collect();
 
                     // Use service to check for changes asynchronously
@@ -909,7 +873,8 @@ impl Component for List {
                 return Ok(None);
             }
             Action::EntryStatusChanged(path, status) => {
-                self.tree_state.update_entry_status(&path, status);
+                self.tree_state
+                    .update_entry_status(&ScriptPath::from_trusted(PathBuf::from(path)), status);
                 return Ok(None);
             }
             Action::EntriesLoaded(entries) => {
@@ -938,7 +903,7 @@ impl Component for List {
                     for child in &children {
                         if child.is_directory {
                             tx.send(Action::EntryStatusChanged(
-                                child.relative_path.clone(),
+                                child.path.to_string(),
                                 EntryStatus::Directory,
                             ))?;
                         }
@@ -948,7 +913,7 @@ impl Component for List {
                     let script_paths: Vec<ScriptPath> = children
                         .iter()
                         .filter(|e| !e.is_directory)
-                        .filter_map(|e| ScriptPath::new(e.relative_path.clone()).ok())
+                        .map(|e| e.path.clone())
                         .collect();
 
                     // Calculate statuses only for the new children
@@ -1034,11 +999,9 @@ impl Component for List {
                     let content = match tokio::fs::read_to_string(&full_path).await {
                         Ok(c) => c,
                         Err(err) => {
-                            if let Err(e) = tx.send(Action::ScriptError(
-                                script_path,
-                                err.to_string(),
-                                None,
-                            )) {
+                            if let Err(e) =
+                                tx.send(Action::ScriptError(script_path, err.to_string(), None))
+                            {
                                 log::error!("Action channel closed: {}", e);
                                 return;
                             }
@@ -1173,7 +1136,7 @@ impl Component for List {
                 let selected = state
                     .selected
                     .iter()
-                    .any(|s| s.relative_path == entry.relative_path);
+                    .any(|s| s.relative_path == entry.path.to_string());
 
                 let style = match (selected, entry.is_directory) {
                     (_, true) => Style::new().light_blue(),
@@ -1256,39 +1219,19 @@ impl Component for List {
     }
 }
 
-/// Rewrite platform separators to the `/` the tree keys use
-fn normalize_separators(path: &str) -> String {
-    path.replace('\\', "/")
-}
+/// Build a tree entry from a filesystem entry, keyed by its path relative to the repository root
+fn list_entry(root_dir: &Path, entry: Entry) -> ListEntry {
+    let relative = entry
+        .path
+        .strip_prefix(root_dir)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|_| PathBuf::from(&entry.name));
 
-/// Directories leading to `path`, outermost first (`a/b/c.sql` -> `a`, `a/b`)
-fn ancestor_dirs(path: &str) -> Vec<String> {
-    let normalized = normalize_separators(path);
-    let parts: Vec<&str> = normalized.split('/').collect();
-    (1..parts.len()).map(|i| parts[..i].join("/")).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ancestor_dirs_splits_forward_slashes() {
-        assert_eq!(ancestor_dirs("a/b/c.sql"), vec!["a", "a/b"]);
-    }
-
-    #[test]
-    fn ancestor_dirs_splits_backslashes() {
-        assert_eq!(ancestor_dirs("a\\b\\c.sql"), vec!["a", "a/b"]);
-    }
-
-    #[test]
-    fn ancestor_dirs_of_root_script_is_empty() {
-        assert!(ancestor_dirs("c.sql").is_empty());
-    }
-
-    #[test]
-    fn normalize_separators_converts_backslashes() {
-        assert_eq!(normalize_separators("a\\b/c.sql"), "a/b/c.sql");
+    ListEntry {
+        name: entry.name,
+        path: ScriptPath::from_trusted(relative),
+        selected: false,
+        is_directory: entry.is_directory,
+        status: EntryStatus::Unknown,
     }
 }

@@ -76,6 +76,37 @@ impl ScriptPath {
         self.0.parent().filter(|p| !p.as_os_str().is_empty())
     }
 
+    /// The repository root, the parent of every top-level entry
+    pub fn root() -> Self {
+        Self(PathBuf::from("."))
+    }
+
+    /// Whether this is the repository root
+    pub fn is_root(&self) -> bool {
+        self.0.as_os_str() == "."
+    }
+
+    /// Whether this path is `dir` itself or lies beneath it (the root contains everything)
+    pub fn is_under(&self, dir: &ScriptPath) -> bool {
+        dir.is_root() || self.0.starts_with(&dir.0)
+    }
+
+    /// The containing directory, or the root for a top-level entry
+    pub fn parent_dir(&self) -> ScriptPath {
+        match self.parent() {
+            Some(parent) => Self(parent.to_path_buf()),
+            None => Self::root(),
+        }
+    }
+
+    /// Directories leading to this path, outermost first (`a/b/c.sql` -> `a`, `a/b`)
+    pub fn ancestor_dirs(&self) -> Vec<ScriptPath> {
+        let segments: Vec<&str> = self.segments().collect();
+        (1..segments.len())
+            .map(|i| Self(PathBuf::from(segments[..i].join("/"))))
+            .collect()
+    }
+
     /// Get the underlying path
     pub fn as_path(&self) -> &Path {
         &self.0
@@ -190,6 +221,28 @@ mod tests {
         let windows = ScriptPath::new("a\\b\\c.sql").unwrap();
         assert_eq!(windows.parent(), Some(Path::new("a/b")));
         assert_eq!(ScriptPath::new("c.sql").unwrap().parent(), None);
+    }
+
+    #[test]
+    fn ancestor_dirs_lists_directories_outermost_first() {
+        let windows = ScriptPath::new("a\\b\\c.sql").unwrap();
+        let unix = ScriptPath::new("a/b/c.sql").unwrap();
+        let expected = vec![
+            ScriptPath::from_trusted(PathBuf::from("a")),
+            ScriptPath::from_trusted(PathBuf::from("a/b")),
+        ];
+        assert_eq!(windows.ancestor_dirs(), expected);
+        assert_eq!(unix.ancestor_dirs(), expected);
+        assert!(ScriptPath::new("c.sql").unwrap().ancestor_dirs().is_empty());
+    }
+
+    #[test]
+    fn parent_dir_falls_back_to_root() {
+        assert_eq!(
+            ScriptPath::new("a\\c.sql").unwrap().parent_dir(),
+            ScriptPath::from_trusted(PathBuf::from("a"))
+        );
+        assert!(ScriptPath::new("c.sql").unwrap().parent_dir().is_root());
     }
 
     #[test]

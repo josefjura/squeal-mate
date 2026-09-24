@@ -1,10 +1,10 @@
-use crate::domain::ScriptStatus;
+use crate::domain::{ScriptPath, ScriptStatus};
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone, Hash)]
 
 pub struct ListEntry {
-    pub relative_path: String,
+    pub path: ScriptPath,
     pub name: String,
     pub selected: bool,
     pub is_directory: bool,
