@@ -18,8 +18,7 @@ impl ScriptPath {
     pub fn new(path: impl Into<PathBuf>) -> DomainResult<Self> {
         let path = Self::normalise(path.into());
 
-        // Must have .sql extension
-        if path.extension().and_then(|s| s.to_str()) != Some("sql") {
+        if !Self::has_script_extension(&path) {
             return Err(DomainError::InvalidScriptPath(format!(
                 "Script must have .sql extension: {}",
                 path.display()
@@ -28,7 +27,7 @@ impl ScriptPath {
 
         // Must not be hidden (start with . or _)
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with('.') || name.starts_with('_') {
+            if Self::is_hidden_name(name) {
                 return Err(DomainError::InvalidScriptPath(format!(
                     "Script filename cannot start with . or _: {}",
                     name
@@ -110,11 +109,6 @@ impl ScriptPath {
     /// Get the underlying path
     pub fn as_path(&self) -> &Path {
         &self.0
-    }
-
-    /// Get the path as a string slice (if valid UTF-8)
-    pub fn as_str(&self) -> Option<&str> {
-        self.0.to_str()
     }
 
     /// Get the filename as a string

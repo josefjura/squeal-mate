@@ -133,12 +133,17 @@ impl ExecutionTracker for SqliteTracker {
         Ok(())
     }
 
-    async fn get_all_executed_scripts(&self) -> DomainResult<std::collections::HashSet<String>> {
+    async fn get_all_executed_scripts(
+        &self,
+    ) -> DomainResult<std::collections::HashSet<ScriptPath>> {
         let scripts = self
             .db
             .get_all_executed_scripts()
             .map_err(InfraError::from)?;
-        Ok(scripts)
+        Ok(scripts
+            .into_iter()
+            .map(|s| ScriptPath::from_trusted(s.into()))
+            .collect())
     }
 }
 
@@ -205,7 +210,7 @@ mod tests {
 
         let executed = tracker.get_all_executed_scripts().await.unwrap();
 
-        assert!(executed.contains("skipped.sql"));
-        assert!(executed.contains("run.sql"));
+        assert!(executed.contains(&skipped));
+        assert!(executed.contains(&run));
     }
 }

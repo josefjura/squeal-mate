@@ -380,7 +380,7 @@ impl List {
             for path in paths {
                 if let Ok(relative_path) = path.strip_prefix(&root_dir) {
                     let script_path = ScriptPath::from_trusted(relative_path.to_path_buf());
-                    if !executed_scripts.contains(&script_path.to_string()) {
+                    if !executed_scripts.contains(&script_path) {
                         not_run_files.push(script_path);
                     }
                 }

@@ -6,6 +6,7 @@ use crate::domain::DomainError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum InfraError {
     #[error("File system error: {0}")]
     IoError(#[from] std::io::Error),
