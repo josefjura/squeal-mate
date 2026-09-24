@@ -788,12 +788,11 @@ impl Component for List {
             Action::JumpToPath(path, retry_count) => {
                 const MAX_RETRIES: usize = 10;
 
-                // First, ensure all parent directories are loaded into the tree
-                let path_parts: Vec<&str> = path.split('/').collect();
+                // Tree keys use '/', but the path may carry the platform separator
+                let path = normalize_separators(&path);
 
                 // Load all parent directories if they haven't been loaded yet
-                for i in 1..path_parts.len() {
-                    let parent_path = path_parts[..i].join("/");
+                for parent_path in ancestor_dirs(&path) {
 
                     // Only load if this directory doesn't have children yet
                     if !self.tree_state.has_children_loaded(&parent_path) {
@@ -1254,5 +1253,42 @@ impl Component for List {
         f.render_stateful_widget(list_draw, rects[1], &mut self.widget_state);
 
         Ok(())
+    }
+}
+
+/// Rewrite platform separators to the `/` the tree keys use
+fn normalize_separators(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+/// Directories leading to `path`, outermost first (`a/b/c.sql` -> `a`, `a/b`)
+fn ancestor_dirs(path: &str) -> Vec<String> {
+    let normalized = normalize_separators(path);
+    let parts: Vec<&str> = normalized.split('/').collect();
+    (1..parts.len()).map(|i| parts[..i].join("/")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ancestor_dirs_splits_forward_slashes() {
+        assert_eq!(ancestor_dirs("a/b/c.sql"), vec!["a", "a/b"]);
+    }
+
+    #[test]
+    fn ancestor_dirs_splits_backslashes() {
+        assert_eq!(ancestor_dirs("a\\b\\c.sql"), vec!["a", "a/b"]);
+    }
+
+    #[test]
+    fn ancestor_dirs_of_root_script_is_empty() {
+        assert!(ancestor_dirs("c.sql").is_empty());
+    }
+
+    #[test]
+    fn normalize_separators_converts_backslashes() {
+        assert_eq!(normalize_separators("a\\b/c.sql"), "a/b/c.sql");
     }
 }
