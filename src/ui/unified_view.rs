@@ -177,22 +177,23 @@ impl Component for UnifiedView {
         }
 
         // Update all components (they filter actions they care about)
-        let mut result_action = None;
+        let mut responses = Vec::new();
+        responses.extend(self.file_tree.update(state, action.clone())?);
+        responses.extend(self.script_preview.update(state, action.clone())?);
+        responses.extend(self.execution_log.update(state, action.clone())?);
+        responses.extend(self.command_bar.update(state, action)?);
 
-        if let Some(action) = self.file_tree.update(state, action.clone())? {
-            result_action = Some(action);
+        // `update` can return only one action, so queue every response
+        // on the channel to keep panels from overwriting each other.
+        match &self.command_tx {
+            Some(tx) => {
+                for response in responses {
+                    tx.send(response)?;
+                }
+                Ok(None)
+            }
+            None => Ok(responses.pop()),
         }
-        if let Some(action) = self.script_preview.update(state, action.clone())? {
-            result_action = Some(action);
-        }
-        if let Some(action) = self.execution_log.update(state, action.clone())? {
-            result_action = Some(action);
-        }
-        if let Some(action) = self.command_bar.update(state, action)? {
-            result_action = Some(action);
-        }
-
-        Ok(result_action)
     }
 
     fn draw(&mut self, f: &mut Frame<'_>, area: Rect, state: &AppState) -> Result<()> {
@@ -244,5 +245,55 @@ impl Component for UnifiedView {
         self.command_bar.draw(f, cmd_area, state)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    struct Responder(Option<Action>);
+
+    impl Component for Responder {
+        fn update(&mut self, _state: &mut AppState, _action: Action) -> Result<Option<Action>> {
+            Ok(self.0.clone())
+        }
+
+        fn draw(&mut self, _f: &mut Frame<'_>, _area: Rect, _state: &AppState) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn view(responses: [Option<Action>; 4]) -> UnifiedView {
+        let [a, b, c, d] = responses;
+        UnifiedView::new(
+            Box::new(Responder(a)),
+            Box::new(Responder(b)),
+            Box::new(Responder(c)),
+            Box::new(Responder(d)),
+        )
+    }
+
+    #[test]
+    fn delivers_every_panel_response_in_order() {
+        let mut view = view([
+            Some(Action::Refresh),
+            Some(Action::Render),
+            None,
+            Some(Action::Quit),
+        ]);
+        let (tx, mut rx) = unbounded_channel();
+        view.register_action_handler(tx).unwrap();
+
+        let returned = view
+            .update(&mut AppState::new(), Action::CursorDown)
+            .unwrap();
+
+        assert_eq!(returned, None);
+        assert_eq!(rx.try_recv(), Ok(Action::Refresh));
+        assert_eq!(rx.try_recv(), Ok(Action::Render));
+        assert_eq!(rx.try_recv(), Ok(Action::Quit));
+        assert!(rx.try_recv().is_err());
     }
 }
