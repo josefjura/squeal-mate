@@ -517,9 +517,9 @@ mod tests {
 
         // Root is always shown; dir_a and dir_b start collapsed, so their
         // children are not included, but root.sql is a direct child.
-        let paths: Vec<&str> = flattened
+        let paths: Vec<String> = flattened
             .iter()
-            .map(|n| n.entry.path.as_str().unwrap())
+            .map(|n| n.entry.path.to_string())
             .collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
     }
@@ -533,10 +533,10 @@ mod tests {
         let toggled = state.toggle_current_expansion();
 
         assert!(toggled);
-        let paths: Vec<&str> = state
+        let paths: Vec<String> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.path.as_str().unwrap())
+            .map(|n| n.entry.path.to_string())
             .collect();
         assert_eq!(
             paths,
@@ -573,10 +573,10 @@ mod tests {
 
         assert!(collapsed);
         assert_eq!(parent, None);
-        let paths: Vec<&str> = state
+        let paths: Vec<String> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.path.as_str().unwrap())
+            .map(|n| n.entry.path.to_string())
             .collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
     }
@@ -636,10 +636,10 @@ mod tests {
 
         assert!(state.has_children_loaded(&path("dir_a")));
         state.expand_node_by_path(&path("dir_a"));
-        let paths: Vec<&str> = state
+        let paths: Vec<String> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.path.as_str().unwrap())
+            .map(|n| n.entry.path.to_string())
             .collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_a/a.sql", "dir_a/z.sql"]);
     }
@@ -683,10 +683,10 @@ mod tests {
             Some(3),
             "expected dir_a/script2.sql to be found after expanding ancestors"
         );
-        let paths: Vec<&str> = state
+        let paths: Vec<String> = state
             .flattened()
             .iter()
-            .map(|n| n.entry.path.as_str().unwrap())
+            .map(|n| n.entry.path.to_string())
             .collect();
         assert_eq!(
             paths,

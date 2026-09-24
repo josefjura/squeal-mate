@@ -189,7 +189,7 @@ impl MigrationService {
     /// Get the relative paths of all scripts that have execution history
     pub async fn get_all_executed_scripts(
         &self,
-    ) -> DomainResult<std::collections::HashSet<String>> {
+    ) -> DomainResult<std::collections::HashSet<ScriptPath>> {
         self.tracker.get_all_executed_scripts().await
     }
 }

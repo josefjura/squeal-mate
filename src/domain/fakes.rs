@@ -151,13 +151,13 @@ impl ExecutionTracker for FakeExecutionTracker {
         Ok(())
     }
 
-    async fn get_all_executed_scripts(&self) -> DomainResult<HashSet<String>> {
+    async fn get_all_executed_scripts(&self) -> DomainResult<HashSet<ScriptPath>> {
         Ok(self
             .recorded_executions
             .lock()
             .unwrap()
             .keys()
-            .cloned()
+            .map(|s| ScriptPath::from_trusted(s.into()))
             .collect())
     }
 }

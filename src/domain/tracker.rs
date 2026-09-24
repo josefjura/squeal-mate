@@ -37,5 +37,5 @@ pub trait ExecutionTracker: Send + Sync {
 
     /// Get the relative paths of all scripts that have execution history
     /// (Success, Error, or Skipped)
-    async fn get_all_executed_scripts(&self) -> DomainResult<std::collections::HashSet<String>>;
+    async fn get_all_executed_scripts(&self) -> DomainResult<std::collections::HashSet<ScriptPath>>;
 }
