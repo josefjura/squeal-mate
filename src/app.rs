@@ -2,12 +2,16 @@ use crate::{
     action::{Action, PanelFocus},
     infrastructure::Settings,
     keymap::key_to_action,
-    tui,
+    tui::{self, Frame},
     ui::Component,
 };
 
 use color_eyre::eyre;
-use ratatui::prelude::Rect;
+use ratatui::{
+    prelude::Rect,
+    style::{Color, Style},
+    widgets::{Clear, Paragraph},
+};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
@@ -116,6 +120,34 @@ impl AppState {
 
 type Root = Box<dyn Component + Send + Sync>;
 
+/// Draws the root component, then overlays the current error banner (if any).
+/// A draw failure is reported as `Action::Error`; a closed channel is ignored
+/// because panicking inside the draw closure would leave the terminal broken.
+fn draw_frame(
+    root: &mut (dyn Component + Send + Sync),
+    state: &AppState,
+    error: Option<&str>,
+    action_tx: &UnboundedSender<Action>,
+    f: &mut Frame<'_>,
+) {
+    if let Err(e) = root.draw(f, f.area(), state) {
+        let _ = action_tx.send(Action::Error(format!("Failed to draw: {:?}", e)));
+    }
+
+    if let Some(message) = error {
+        let area = f.area();
+        if area.height == 0 {
+            return;
+        }
+        let banner = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+        f.render_widget(Clear, banner);
+        f.render_widget(
+            Paragraph::new(message).style(Style::default().fg(Color::White).bg(Color::Red)),
+            banner,
+        );
+    }
+}
+
 pub struct App {
     pub exit: bool,
     pub suspend: bool,
@@ -125,6 +157,8 @@ pub struct App {
     pub config: Settings,
     pub state: AppState,
     pub focused_panel: PanelFocus,
+    /// Last error reported via `Action::Error`, shown until a key is pressed.
+    pub error: Option<String>,
 }
 
 impl App {
@@ -138,6 +172,7 @@ impl App {
             config,
             state: AppState::new(),
             focused_panel: PanelFocus::FileTree,
+            error: None,
         }
     }
 
@@ -147,11 +182,13 @@ impl App {
         action_tx: &UnboundedSender<Action>,
     ) -> eyre::Result<()> {
         tui.draw(|f| {
-            if let Err(e) = self.root.draw(f, f.area(), &self.state) {
-                action_tx
-                    .send(Action::Error(format!("Failed to draw: {:?}", e)))
-                    .unwrap();
-            }
+            draw_frame(
+                self.root.as_mut(),
+                &self.state,
+                self.error.as_deref(),
+                action_tx,
+                f,
+            )
         })?;
         Ok(())
     }
@@ -177,6 +214,7 @@ impl App {
                     tui::Event::Render => action_tx.send(Action::Render)?,
                     tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
                     tui::Event::Key(key) => {
+                        self.error = None;
                         if let Some(action) =
                             key_to_action(self.focused_panel, key.code, key.modifiers)
                         {
@@ -197,6 +235,7 @@ impl App {
                     Action::Suspend => self.suspend = true,
                     Action::Resume => self.suspend = false,
                     Action::PanelFocusChanged(focus) => self.focused_panel = focus,
+                    Action::Error(ref message) => self.error = Some(message.clone()),
                     Action::Resize(w, h) => {
                         tui.resize(Rect::new(0, 0, w, h))?;
                         self.draw(&mut tui, &action_tx)?;
@@ -227,5 +266,74 @@ impl App {
         }
         tui.exit()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    struct FailingRoot;
+
+    impl Component for FailingRoot {
+        fn draw(&mut self, _: &mut Frame<'_>, _: Rect, _: &AppState) -> eyre::Result<()> {
+            Err(eyre::eyre!("boom"))
+        }
+    }
+
+    struct BlankRoot;
+
+    impl Component for BlankRoot {
+        fn draw(&mut self, _: &mut Frame<'_>, _: Rect, _: &AppState) -> eyre::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn render(
+        root: &mut (dyn Component + Send + Sync),
+        error: Option<&str>,
+        tx: &UnboundedSender<Action>,
+    ) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(40, 3)).unwrap();
+        terminal
+            .draw(|f| draw_frame(root, &AppState::new(), error, tx, f))
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        (0..3)
+            .map(|y| (0..40).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn draw_failure_is_reported_as_error_action() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        render(&mut FailingRoot, None, &tx);
+        match rx.try_recv() {
+            Ok(Action::Error(msg)) => assert!(msg.contains("boom")),
+            other => panic!("expected Action::Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn draw_failure_with_closed_channel_does_not_panic() {
+        let (tx, rx) = mpsc::unbounded_channel();
+        drop(rx);
+        render(&mut FailingRoot, None, &tx);
+    }
+
+    #[test]
+    fn error_banner_is_shown_on_last_line() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let screen = render(&mut BlankRoot, Some("Failed to draw: boom"), &tx);
+        assert!(screen.lines().last().unwrap().contains("Failed to draw: boom"));
+    }
+
+    #[test]
+    fn no_banner_without_error() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let screen = render(&mut BlankRoot, None, &tx);
+        assert!(screen.trim().is_empty());
     }
 }
