@@ -8,7 +8,6 @@ mod entries;
 mod error;
 mod infrastructure;
 mod keymap;
-mod repository;
 mod script_memory;
 mod services;
 mod tui;
@@ -69,16 +68,13 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
     {
         // Start scope for infrastructure setup
         // Create infrastructure layer instances
-        use infrastructure::{FilesystemRepository, MssqlExecutor, SqliteTracker};
+        use infrastructure::{FileExplorer, MssqlExecutor, SqliteTracker};
         use services::MigrationService;
         use std::sync::Arc;
 
         eprintln!("🔧 Initializing infrastructure...");
 
-        let fs_repo = Arc::new(
-            FilesystemRepository::new(path.clone())
-                .map_err(|e| eyre::eyre!("Failed to create filesystem repository: {}", e))?,
-        );
+        let explorer = Arc::new(FileExplorer::new(path.clone())?);
         let executor = Arc::new(MssqlExecutor::new(connection.clone()));
         let tracker = Arc::new(
             SqliteTracker::new()
@@ -88,7 +84,7 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
 
         // Create service layer
         let migration_service = Arc::new(MigrationService::new(
-            fs_repo.clone(),
+            explorer.clone(),
             executor.clone(),
             tracker.clone(),
         ));

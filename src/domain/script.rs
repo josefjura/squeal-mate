@@ -39,6 +39,16 @@ impl ScriptPath {
         Ok(Self(path))
     }
 
+    /// Whether a file or directory name is hidden (starts with `.` or `_`)
+    pub fn is_hidden_name(name: &str) -> bool {
+        name.starts_with('.') || name.starts_with('_')
+    }
+
+    /// Whether a path has the `.sql` extension
+    pub fn has_script_extension(path: &Path) -> bool {
+        path.extension().and_then(|s| s.to_str()) == Some("sql")
+    }
+
     /// Create from a trusted path (skips validation - use only for internal conversions)
     pub(crate) fn from_trusted(path: PathBuf) -> Self {
         Self(Self::normalise(path))

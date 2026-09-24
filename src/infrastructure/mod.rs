@@ -1,7 +1,7 @@
 //! Infrastructure layer - External system implementations
 //!
 //! This module contains implementations that interact with external systems:
-//! - File system (repository, file explorer)
+//! - File system (file explorer)
 //! - SQLite (execution tracking)
 //! - SQL Server (script execution)
 //! - Configuration loading
@@ -10,7 +10,6 @@ pub mod config;
 pub mod connection_diagnostics;
 pub mod error;
 pub mod file_explorer;
-pub mod filesystem_repository;
 pub mod mssql_executor;
 pub mod sqlite_tracker;
 
@@ -18,6 +17,5 @@ pub mod sqlite_tracker;
 pub use config::{get_config_dir, get_data_dir, get_script_database, Settings};
 pub use connection_diagnostics::format_connection_error;
 pub use file_explorer::FileExplorer;
-pub use filesystem_repository::FilesystemRepository;
 pub use mssql_executor::MssqlExecutor;
 pub use sqlite_tracker::SqliteTracker;

@@ -69,15 +69,13 @@ The application follows a component-based TUI architecture with:
 **Domain Layer** (Business logic, zero external dependencies):
 - **src/domain/script.rs**: ScriptPath, MigrationScript, Checksum value objects
 - **src/domain/script_status.rs**: ScriptStatus enum and status calculation
-- **src/domain/repository.rs**: MigrationRepository trait (abstraction)
 - **src/domain/executor.rs**: ScriptExecutor trait (abstraction)
 - **src/domain/tracker.rs**: ExecutionTracker trait (abstraction)
 - **src/domain/error.rs**: Domain-specific error types
 
 **Infrastructure Layer** (External systems):
 - **src/infrastructure/config.rs**: Configuration loading from TOML/environment
-- **src/infrastructure/file_explorer.rs**: Simple filesystem operations for UI
-- **src/infrastructure/filesystem_repository.rs**: File-based MigrationRepository implementation
+- **src/infrastructure/file_explorer.rs**: Filesystem walker shared by the tree and MigrationService; owns reading scripts
 - **src/infrastructure/sqlite_tracker.rs**: SQLite-based execution tracking
 - **src/infrastructure/mssql_executor.rs**: SQL Server script executor
 - **src/infrastructure/error.rs**: Infrastructure error types

@@ -7,7 +7,6 @@ pub mod error;
 pub mod executor;
 #[cfg(test)]
 pub mod fakes;
-pub mod repository;
 pub mod script;
 pub mod script_status;
 pub mod tracker;
@@ -15,7 +14,6 @@ pub mod tracker;
 // Re-export commonly used types
 pub use error::{DomainError, DomainResult};
 pub use executor::ScriptExecutor;
-pub use repository::MigrationRepository;
 pub use script::{Checksum, MigrationScript, ScriptPath};
 pub use script_status::{ExecutionResult, ScriptStatus};
 pub use tracker::ExecutionTracker;

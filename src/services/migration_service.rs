@@ -2,9 +2,10 @@
 
 use crate::action::Action;
 use crate::domain::{
-    DomainError, DomainResult, ExecutionTracker, MigrationRepository, MigrationScript,
-    ScriptExecutor, ScriptPath, ScriptStatus,
+    DomainError, DomainResult, ExecutionTracker, MigrationScript, ScriptExecutor, ScriptPath,
+    ScriptStatus,
 };
+use crate::infrastructure::FileExplorer;
 use std::sync::Arc;
 use tokio::sync::mpsc::{error::SendError, UnboundedSender};
 
@@ -16,7 +17,7 @@ impl From<SendError<Action>> for DomainError {
 
 /// Service for managing migration operations
 pub struct MigrationService {
-    repository: Arc<dyn MigrationRepository>,
+    explorer: Arc<FileExplorer>,
     executor: Arc<dyn ScriptExecutor>,
     tracker: Arc<dyn ExecutionTracker>,
 }
@@ -24,12 +25,12 @@ pub struct MigrationService {
 impl MigrationService {
     /// Create a new migration service
     pub fn new(
-        repository: Arc<dyn MigrationRepository>,
+        explorer: Arc<FileExplorer>,
         executor: Arc<dyn ScriptExecutor>,
         tracker: Arc<dyn ExecutionTracker>,
     ) -> Self {
         Self {
-            repository,
+            explorer,
             executor,
             tracker,
         }
@@ -124,7 +125,7 @@ impl MigrationService {
     /// Only checks scripts that have been executed before (not NeverRun or Skipped)
     pub fn check_for_changes(&self, scripts: Vec<ScriptPath>, tx: &UnboundedSender<Action>) {
         let tracker = self.tracker.clone();
-        let repo = self.repository.clone();
+        let explorer = self.explorer.clone();
         let tx = tx.clone();
         let total = scripts.len();
 
@@ -137,7 +138,7 @@ impl MigrationService {
                 }
 
                 // Read the script to get its current checksum
-                match repo.read_script(script_path).await {
+                match explorer.read_script(script_path).await {
                     Ok(script) => {
                         match tracker.get_status(script_path, script.checksum).await {
                             Ok(status) => {
@@ -196,20 +197,41 @@ impl MigrationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::fakes::{FakeExecutionTracker, FakeMigrationRepository, FakeScriptExecutor};
+    use crate::domain::fakes::{FakeExecutionTracker, FakeScriptExecutor};
     use crate::domain::Checksum;
     use crate::entries::EntryStatus;
+
+    /// A temp directory holding real script files, read through a real `FileExplorer`
+    struct TestRepository {
+        dir: tempfile::TempDir,
+    }
+
+    impl TestRepository {
+        fn new() -> Self {
+            Self {
+                dir: tempfile::tempdir().unwrap(),
+            }
+        }
+
+        fn add_script(&self, script: MigrationScript) {
+            std::fs::write(self.dir.path().join(script.path.as_path()), &script.content).unwrap();
+        }
+
+        fn explorer(&self) -> Arc<FileExplorer> {
+            Arc::new(FileExplorer::new(self.dir.path().to_path_buf()).unwrap())
+        }
+    }
 
     fn script(path: &str, content: &str) -> MigrationScript {
         MigrationScript::new(ScriptPath::new(path).unwrap(), content.to_string())
     }
 
     fn service(
-        repository: FakeMigrationRepository,
+        repository: &TestRepository,
         executor: FakeScriptExecutor,
         tracker: FakeExecutionTracker,
     ) -> MigrationService {
-        MigrationService::new(Arc::new(repository), Arc::new(executor), Arc::new(tracker))
+        MigrationService::new(repository.explorer(), Arc::new(executor), Arc::new(tracker))
     }
 
     fn channel() -> (
@@ -223,7 +245,7 @@ mod tests {
     async fn execute_script_success_dispatches_running_then_finished() {
         let executor = FakeScriptExecutor::new();
         let tracker = FakeExecutionTracker::new();
-        let svc = service(FakeMigrationRepository::new(), executor, tracker);
+        let svc = service(&TestRepository::new(), executor, tracker);
         let (tx, mut rx) = channel();
         let script = script("migration.sql", "SELECT 1;");
 
@@ -248,7 +270,7 @@ mod tests {
     async fn execute_script_records_result_with_tracker() {
         let tracker = Arc::new(FakeExecutionTracker::new());
         let svc = MigrationService::new(
-            Arc::new(FakeMigrationRepository::new()),
+            TestRepository::new().explorer(),
             Arc::new(FakeScriptExecutor::new()),
             tracker.clone(),
         );
@@ -272,7 +294,7 @@ mod tests {
             checksum,
         ));
         let tracker = FakeExecutionTracker::new();
-        let svc = service(FakeMigrationRepository::new(), executor, tracker);
+        let svc = service(&TestRepository::new(), executor, tracker);
         let (tx, mut rx) = channel();
         let script = script("migration.sql", "SELECT 1;");
 
@@ -295,11 +317,7 @@ mod tests {
         let path_b = ScriptPath::new("b.sql").unwrap();
         tracker.set_status(&path_a, ScriptStatus::UpToDate);
         tracker.set_status(&path_b, ScriptStatus::NeverRun);
-        let svc = service(
-            FakeMigrationRepository::new(),
-            FakeScriptExecutor::new(),
-            tracker,
-        );
+        let svc = service(&TestRepository::new(), FakeScriptExecutor::new(), tracker);
         let (tx, mut rx) = channel();
 
         svc.calculate_statuses(vec![path_a, path_b], &tx);
@@ -324,7 +342,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_for_changes_only_flags_modified_scripts() {
-        let repository = FakeMigrationRepository::new();
+        let repository = TestRepository::new();
         let unchanged = script("unchanged.sql", "SELECT 1;");
         let changed = script("changed.sql", "SELECT 2;");
         repository.add_script(unchanged.clone());
@@ -335,7 +353,7 @@ mod tests {
         tracker.set_status(&unchanged.path, ScriptStatus::UpToDate);
         tracker.set_status(&changed.path, ScriptStatus::Modified);
 
-        let svc = service(repository, FakeScriptExecutor::new(), tracker);
+        let svc = service(&repository, FakeScriptExecutor::new(), tracker);
         let (tx, mut rx) = channel();
 
         svc.check_for_changes(vec![unchanged.path.clone(), changed.path.clone()], &tx);
@@ -358,11 +376,7 @@ mod tests {
     #[tokio::test]
     async fn skip_lifecycle_round_trips_through_tracker() {
         let tracker = FakeExecutionTracker::new();
-        let svc = service(
-            FakeMigrationRepository::new(),
-            FakeScriptExecutor::new(),
-            tracker,
-        );
+        let svc = service(&TestRepository::new(), FakeScriptExecutor::new(), tracker);
         let path = ScriptPath::new("migration.sql").unwrap();
 
         assert!(!svc.is_skipped(&path).await.unwrap());
@@ -381,7 +395,7 @@ mod tests {
             "unreachable".to_string(),
         )));
         let svc = service(
-            FakeMigrationRepository::new(),
+            &TestRepository::new(),
             executor,
             FakeExecutionTracker::new(),
         );
@@ -394,7 +408,7 @@ mod tests {
     #[tokio::test]
     async fn execute_script_reports_closed_action_channel() {
         let svc = service(
-            FakeMigrationRepository::new(),
+            &TestRepository::new(),
             FakeScriptExecutor::new(),
             FakeExecutionTracker::new(),
         );

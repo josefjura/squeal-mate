@@ -3,6 +3,8 @@
 //! This provides a lightweight interface for browsing SQL files and directories,
 //! without the heavyweight domain abstractions needed for script execution.
 
+use crate::domain::{DomainResult, MigrationScript, ScriptPath};
+use crate::infrastructure::error::InfraError;
 use color_eyre::eyre::Result;
 use std::path::{Path, PathBuf};
 
@@ -55,7 +57,7 @@ impl FileExplorer {
                 let name = entry.file_name().to_string_lossy().to_string();
 
                 // Skip hidden files/directories (starting with . or _)
-                if name.starts_with('.') || name.starts_with('_') {
+                if ScriptPath::is_hidden_name(&name) {
                     continue;
                 }
 
@@ -67,9 +69,7 @@ impl FileExplorer {
                         path,
                         is_directory: true,
                     });
-                } else if metadata.is_file()
-                    && path.extension().and_then(|s| s.to_str()) == Some("sql")
-                {
+                } else if metadata.is_file() && ScriptPath::has_script_extension(&path) {
                     // Only include .sql files
                     entries.push(Entry {
                         name,
@@ -87,44 +87,6 @@ impl FileExplorer {
             });
 
             Ok(entries)
-        })
-        .await?
-    }
-
-    /// List only SQL files in a directory (no directories, non-recursive)
-    #[allow(dead_code)]
-    pub async fn list_sql_files(&self, dir: &Path) -> Result<Vec<PathBuf>> {
-        let dir = dir.to_path_buf();
-
-        tokio::task::spawn_blocking(move || {
-            let mut files = Vec::new();
-
-            let read_dir = std::fs::read_dir(&dir).map_err(|e| {
-                color_eyre::eyre::eyre!("Failed to read directory {}: {}", dir.display(), e)
-            })?;
-
-            for entry_result in read_dir {
-                let entry = entry_result?;
-                let path = entry.path();
-
-                if path.is_file() {
-                    if let Some(ext) = path.extension() {
-                        if ext == "sql" {
-                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-                            // Skip hidden files
-                            if !name.starts_with('.') && !name.starts_with('_') {
-                                files.push(path);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Sort by name
-            files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
-
-            Ok(files)
         })
         .await?
     }
@@ -157,31 +119,31 @@ impl FileExplorer {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             // Skip hidden files/directories
-            if name.starts_with('.') || name.starts_with('_') {
+            if ScriptPath::is_hidden_name(name) {
                 continue;
             }
 
             if path.is_dir() {
                 // Recurse into subdirectory
                 Self::collect_sql_files(&path, files)?;
-            } else if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == "sql" {
-                        files.push(path);
-                    }
-                }
+            } else if path.is_file() && ScriptPath::has_script_extension(&path) {
+                files.push(path);
             }
         }
 
         Ok(())
     }
 
-    /// Read the contents of a SQL file
-    #[allow(dead_code)]
-    pub async fn read_file(&self, path: &Path) -> Result<String> {
-        tokio::fs::read_to_string(path)
+    /// Read a script (path relative to the root) and validate it
+    pub async fn read_script(&self, path: &ScriptPath) -> DomainResult<MigrationScript> {
+        let content = tokio::fs::read_to_string(self.root.join(path.as_path()))
             .await
-            .map_err(|e| color_eyre::eyre::eyre!("Failed to read file {}: {}", path.display(), e))
+            .map_err(InfraError::IoError)?;
+
+        let script = MigrationScript::new(path.clone(), content);
+        script.validate()?;
+
+        Ok(script)
     }
 
     /// Get the root directory
@@ -229,25 +191,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_sql_files_only() {
-        let temp_dir = TempDir::new().unwrap();
-        let root = temp_dir.path();
-
-        fs::write(root.join("001_test.sql"), "SELECT 1;").unwrap();
-        fs::write(root.join("002_test.sql"), "SELECT 2;").unwrap();
-        fs::create_dir(root.join("subdir")).unwrap();
-
-        let explorer = FileExplorer::new(root.to_path_buf()).unwrap();
-        let files = explorer.list_sql_files(root).await.unwrap();
-
-        // Should only have SQL files, not directories
-        assert_eq!(files.len(), 2);
-        assert!(files[0].ends_with("001_test.sql"));
-        assert!(files[1].ends_with("002_test.sql"));
-    }
-
-    #[tokio::test]
-    async fn test_read_file() {
+    async fn test_read_script() {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
         let file_path = root.join("test.sql");
@@ -256,9 +200,12 @@ mod tests {
         fs::write(&file_path, content).unwrap();
 
         let explorer = FileExplorer::new(root.to_path_buf()).unwrap();
-        let read_content = explorer.read_file(&file_path).await.unwrap();
+        let script = explorer
+            .read_script(&ScriptPath::new("test.sql").unwrap())
+            .await
+            .unwrap();
 
-        assert_eq!(read_content, content);
+        assert_eq!(script.content, content);
     }
 
     #[test]

@@ -21,15 +21,7 @@ pub enum InfraError {
 
     #[error("Script database error: {0}")]
     ScriptDatabaseError(#[from] crate::script_memory::ScriptDatabaseError),
-
-    #[error("Invalid UTF-8 path")]
-    InvalidUtf8Path,
-
-    #[error("Repository path does not exist: {0}")]
-    RepositoryNotFound(String),
 }
-
-pub type InfraResult<T> = Result<T, InfraError>;
 
 // Convert infrastructure errors to domain errors where appropriate
 impl From<InfraError> for DomainError {
@@ -40,12 +32,6 @@ impl From<InfraError> for DomainError {
             InfraError::TiberiusError(e) => DomainError::ExecutionFailed(e.to_string()),
             InfraError::SqliteError(e) => DomainError::ExecutionFailed(e.to_string()),
             InfraError::ScriptDatabaseError(e) => DomainError::ExecutionFailed(e.to_string()),
-            InfraError::InvalidUtf8Path => {
-                DomainError::InvalidScriptPath("Path contains invalid UTF-8".to_string())
-            }
-            InfraError::RepositoryNotFound(path) => {
-                DomainError::ScriptNotFound(std::path::PathBuf::from(path))
-            }
         }
     }
 }

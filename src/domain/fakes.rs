@@ -4,47 +4,12 @@
 
 use crate::domain::error::{DomainError, DomainResult};
 use crate::domain::executor::ScriptExecutor;
-use crate::domain::repository::MigrationRepository;
 use crate::domain::script::{Checksum, MigrationScript, ScriptPath};
 use crate::domain::script_status::{ExecutionResult, ScriptStatus};
 use crate::domain::tracker::ExecutionTracker;
 use async_trait::async_trait;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-
-/// In-memory fake for `MigrationRepository`.
-///
-/// Scripts are pre-registered with `add_script`; `read_script` looks them up
-/// by path and errors with `ScriptNotFound` for anything else.
-#[derive(Default)]
-pub struct FakeMigrationRepository {
-    scripts: Mutex<HashMap<ScriptPath, MigrationScript>>,
-}
-
-impl FakeMigrationRepository {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn add_script(&self, script: MigrationScript) {
-        self.scripts
-            .lock()
-            .unwrap()
-            .insert(script.path.clone(), script);
-    }
-}
-
-#[async_trait]
-impl MigrationRepository for FakeMigrationRepository {
-    async fn read_script(&self, path: &ScriptPath) -> DomainResult<MigrationScript> {
-        self.scripts
-            .lock()
-            .unwrap()
-            .get(path)
-            .cloned()
-            .ok_or_else(|| DomainError::ScriptNotFound(path.as_path().to_path_buf()))
-    }
-}
 
 /// In-memory fake for `ScriptExecutor`.
 ///
