@@ -1,3 +1,4 @@
+use crate::domain::ScriptPath;
 use color_eyre::eyre::Result;
 use ratatui::{
     layout::Size,
@@ -44,9 +45,9 @@ impl ScriptPreview {
     }
 
     /// Load file content asynchronously
-    fn load_file_content(&mut self, script_path: &str) {
-        let full_path = self.repository_base.join(script_path);
-        let script_path_owned = script_path.to_string();
+    fn load_file_content(&mut self, script_path: &ScriptPath) {
+        let full_path = self.repository_base.join(script_path.as_path());
+        let script_path_owned = script_path.clone();
         let command_tx = self.command_tx.clone();
 
         tokio::spawn(async move {
@@ -138,7 +139,10 @@ impl ScriptPreview {
             Line::from(vec![
                 Span::styled("Path: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    Self::truncate_str(&script.relative_path, max_width.saturating_sub(6)),
+                    Self::truncate_str(
+                        &script.relative_path.to_string(),
+                        max_width.saturating_sub(6),
+                    ),
                     Style::default().fg(Color::White),
                 ),
             ]),

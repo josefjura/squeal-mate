@@ -263,14 +263,14 @@ impl List {
                 match file_explorer.list_sql_files_recursive(&rel_path).await {
                     Ok(paths) => {
                         // Filter out skipped scripts
-                        let mut items: Vec<String> = Vec::new();
+                        let mut items: Vec<ScriptPath> = Vec::new();
                         for path in paths {
                             if let Ok(relative_path) = path.strip_prefix(&root_dir) {
                                 let script_path =
                                     ScriptPath::from_trusted(relative_path.to_path_buf());
 
                                 if !is_skipped(&migration_service, &script_path).await {
-                                    items.push(script_path.to_string());
+                                    items.push(script_path);
                                 }
                             }
                         }
@@ -293,7 +293,7 @@ impl List {
         } else {
             // For single files, only toggle if not skipped
             if entry.status != EntryStatus::Skipped {
-                state.toggle(entry.path.to_string());
+                state.toggle(entry.path.clone());
             }
         }
     }
@@ -513,9 +513,7 @@ impl List {
             log::debug!("Selected {} files from cursor to end", items.len());
 
             if let Some(tx) = tx {
-                if let Err(e) = tx.send(Action::ToggleSelection(
-                    items.iter().map(ScriptPath::to_string).collect(),
-                )) {
+                if let Err(e) = tx.send(Action::ToggleSelection(items)) {
                     log::error!("Action channel closed: {}", e);
                 }
             }
@@ -590,7 +588,7 @@ impl List {
                                     };
                                     if let Some(ref tx) = command_tx {
                                         let _ = tx.send(Action::EntryStatusChanged(
-                                            script_path.to_string(),
+                                            script_path.clone(),
                                             new_status,
                                         ));
                                     }
@@ -635,10 +633,8 @@ impl List {
                         EntryStatus::Skipped
                     };
                     if let Some(ref tx) = command_tx {
-                        let _ = tx.send(Action::EntryStatusChanged(
-                            script_path.to_string(),
-                            new_status,
-                        ));
+                        let _ =
+                            tx.send(Action::EntryStatusChanged(script_path.clone(), new_status));
                     }
                 }
             });
@@ -662,7 +658,7 @@ impl List {
         let script = if let Some(existing) = state
             .selected
             .iter()
-            .find(|s| s.relative_path == entry.path.to_string())
+            .find(|s| s.relative_path == entry.path)
         {
             // Use existing script with execution state from current session
             existing.clone()
@@ -676,7 +672,7 @@ impl List {
 
             // Create new script entry for preview with persisted state
             Script {
-                relative_path: entry.path.to_string(),
+                relative_path: entry.path.clone(),
                 state: script_state,
                 error: None,
                 elapsed: None,
@@ -837,7 +833,7 @@ impl Component for List {
                 for entry in &entries {
                     if entry.is_directory {
                         tx.send(Action::EntryStatusChanged(
-                            entry.path.to_string(),
+                            entry.path.clone(),
                             EntryStatus::Directory,
                         ))?;
                     }
@@ -873,8 +869,7 @@ impl Component for List {
                 return Ok(None);
             }
             Action::EntryStatusChanged(path, status) => {
-                self.tree_state
-                    .update_entry_status(&ScriptPath::from_trusted(PathBuf::from(path)), status);
+                self.tree_state.update_entry_status(&path, status);
                 return Ok(None);
             }
             Action::EntriesLoaded(entries) => {
@@ -903,7 +898,7 @@ impl Component for List {
                     for child in &children {
                         if child.is_directory {
                             tx.send(Action::EntryStatusChanged(
-                                child.path.to_string(),
+                                child.path.clone(),
                                 EntryStatus::Directory,
                             ))?;
                         }
@@ -988,12 +983,12 @@ impl Component for List {
                     }
                 };
 
-                let full_path = self.base.join(&entry.relative_path);
+                let full_path = self.base.join(entry.relative_path.as_path());
                 let script_path = entry.relative_path.clone();
 
                 // Spawn async execution using service layer
                 tokio::spawn(async move {
-                    use crate::domain::{MigrationScript, ScriptPath};
+                    use crate::domain::MigrationScript;
 
                     // Read the script file
                     let content = match tokio::fs::read_to_string(&full_path).await {
@@ -1008,24 +1003,7 @@ impl Component for List {
                             return;
                         }
                     };
-
-                    // Create domain objects
-                    let path = match ScriptPath::new(script_path.clone()) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            if let Err(e) = tx.send(Action::ScriptError(
-                                script_path,
-                                format!("Invalid script path: {}", e),
-                                None,
-                            )) {
-                                log::error!("Action channel closed: {}", e);
-                                return;
-                            }
-                            return;
-                        }
-                    };
-
-                    let script = MigrationScript::new(path, content);
+                    let script = MigrationScript::new(script_path, content);
 
                     // Use the service to execute
                     match migration_service.execute_script(&script, &tx).await {
@@ -1133,10 +1111,7 @@ impl Component for List {
                     // (directory has blue background, no icon needed)
                     EntryStatus::Directory => (" ", Style::default().bg(Color::LightBlue)),
                 };
-                let selected = state
-                    .selected
-                    .iter()
-                    .any(|s| s.relative_path == entry.path.to_string());
+                let selected = state.selected.iter().any(|s| s.relative_path == entry.path);
 
                 let style = match (selected, entry.is_directory) {
                     (_, true) => Style::new().light_blue(),

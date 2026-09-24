@@ -43,7 +43,7 @@ impl MigrationService {
         tx: &UnboundedSender<Action>,
     ) -> DomainResult<()> {
         // Notify that execution is starting
-        tx.send(Action::ScriptRunning(script.path.to_string()))?;
+        tx.send(Action::ScriptRunning(script.path.clone()))?;
 
         // Execute the script
         let result = self.executor.execute(script).await?;
@@ -62,20 +62,20 @@ impl MigrationService {
 
         // Update the entry status in the UI
         tx.send(Action::EntryStatusChanged(
-            script.path.to_string(),
+            script.path.clone(),
             entry_status,
         ))?;
 
         // Notify completion (for execution log)
         if result.success {
             tx.send(Action::ScriptFinished(
-                script.path.to_string(),
+                script.path.clone(),
                 result.elapsed_ms,
                 result.checksum.value(),
             ))?;
         } else {
             tx.send(Action::ScriptError(
-                script.path.to_string(),
+                script.path.clone(),
                 result.error.unwrap_or_else(|| "Unknown error".to_string()),
                 Some(result.checksum.value()),
             ))?;
@@ -106,7 +106,7 @@ impl MigrationService {
                         let entry_status = crate::entries::EntryStatus::from(status);
 
                         if let Err(e) = tx.send(Action::EntryStatusChanged(
-                            script_path.to_string(),
+                            script_path.clone(),
                             entry_status,
                         )) {
                             log::error!("Action channel closed: {}", e);
@@ -145,7 +145,7 @@ impl MigrationService {
                                 // Only update if status is Modified
                                 if status == ScriptStatus::Modified {
                                     if let Err(e) = tx.send(Action::EntryStatusChanged(
-                                        script_path.to_string(),
+                                        script_path.clone(),
                                         crate::entries::EntryStatus::Changed,
                                     )) {
                                         log::error!("Action channel closed: {}", e);
@@ -222,6 +222,10 @@ mod tests {
         }
     }
 
+    fn path(p: &str) -> ScriptPath {
+        ScriptPath::new(p).unwrap()
+    }
+
     fn script(path: &str, content: &str) -> MigrationScript {
         MigrationScript::new(ScriptPath::new(path).unwrap(), content.to_string())
     }
@@ -253,16 +257,16 @@ mod tests {
 
         assert!(matches!(
             rx.recv().await,
-            Some(Action::ScriptRunning(p)) if p == "migration.sql"
+            Some(Action::ScriptRunning(p)) if p == path("migration.sql")
         ));
         assert!(matches!(
             rx.recv().await,
-            Some(Action::EntryStatusChanged(p, EntryStatus::NeverStarted)) if p == "migration.sql"
+            Some(Action::EntryStatusChanged(p, EntryStatus::NeverStarted)) if p == path("migration.sql")
         ));
         assert!(matches!(
             rx.recv().await,
             Some(Action::ScriptFinished(p, _, checksum))
-                if p == "migration.sql" && checksum == script.checksum.value()
+                if p == path("migration.sql") && checksum == script.checksum.value()
         ));
     }
 
@@ -306,7 +310,7 @@ mod tests {
         assert!(matches!(
             finished,
             Some(Action::ScriptError(p, msg, Some(c)))
-                if p == "migration.sql" && msg == "syntax error" && c == checksum.value()
+                if p == path("migration.sql") && msg == "syntax error" && c == checksum.value()
         ));
     }
 
@@ -334,8 +338,8 @@ mod tests {
         assert_eq!(
             statuses,
             vec![
-                ("a.sql".to_string(), EntryStatus::Finished(true)),
-                ("b.sql".to_string(), EntryStatus::NeverStarted),
+                (path("a.sql"), EntryStatus::Finished(true)),
+                (path("b.sql"), EntryStatus::NeverStarted),
             ]
         );
     }
@@ -370,7 +374,7 @@ mod tests {
             }
         }
 
-        assert_eq!(changed_paths, vec!["changed.sql".to_string()]);
+        assert_eq!(changed_paths, vec![path("changed.sql")]);
     }
 
     #[tokio::test]

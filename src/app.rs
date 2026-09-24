@@ -1,5 +1,6 @@
 use crate::{
     action::{Action, PanelFocus},
+    domain::ScriptPath,
     infrastructure::Settings,
     keymap::key_to_action,
     tui::{self, Frame},
@@ -24,37 +25,37 @@ pub enum ScriptState {
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
 pub struct Script {
-    pub relative_path: String,
+    pub relative_path: ScriptPath,
     pub state: ScriptState,
     pub error: Option<String>,
     pub elapsed: Option<u128>,
 }
 
 impl Script {
-    pub fn none(path: &str) -> Self {
+    pub fn none(path: &ScriptPath) -> Self {
         Self {
             error: None,
-            relative_path: path.into(),
+            relative_path: path.clone(),
             state: ScriptState::None,
             elapsed: None,
         }
     }
 
     #[allow(dead_code)]
-    pub fn error(path: &str, error: String) -> Self {
+    pub fn error(path: &ScriptPath, error: String) -> Self {
         Self {
             error: Some(error),
-            relative_path: path.into(),
+            relative_path: path.clone(),
             state: ScriptState::Error,
             elapsed: None,
         }
     }
 
     #[allow(dead_code)]
-    pub fn finished(path: &str, elapsed: u128) -> Self {
+    pub fn finished(path: &ScriptPath, elapsed: u128) -> Self {
         Self {
             error: None,
-            relative_path: path.into(),
+            relative_path: path.clone(),
             state: ScriptState::Finished,
             elapsed: Some(elapsed),
         }
@@ -70,19 +71,19 @@ impl AppState {
         Self { selected: vec![] }
     }
 
-    pub fn add(&mut self, script: String) {
+    pub fn add(&mut self, script: ScriptPath) {
         if !self.selected.iter().any(|s| s.relative_path == script) {
             self.selected.push(Script::none(&script));
             self.selected.sort()
         }
     }
 
-    pub fn remove_many(&mut self, script: &[String]) {
+    pub fn remove_many(&mut self, script: &[ScriptPath]) {
         self.selected.retain(|s| !script.contains(&s.relative_path));
         self.selected.sort()
     }
 
-    pub fn toggle(&mut self, scripts: String) {
+    pub fn toggle(&mut self, scripts: ScriptPath) {
         if self.selected.iter().any(|s| s.relative_path == scripts) {
             self.selected.retain(|s| s.relative_path != scripts);
         } else {
@@ -91,7 +92,7 @@ impl AppState {
         self.selected.sort()
     }
 
-    pub fn toggle_many(&mut self, scripts: &[String]) {
+    pub fn toggle_many(&mut self, scripts: &[ScriptPath]) {
         if self
             .selected
             .iter()
@@ -106,7 +107,7 @@ impl AppState {
         self.selected.sort()
     }
 
-    pub fn add_many(&mut self, scripts: &[String]) {
+    pub fn add_many(&mut self, scripts: &[ScriptPath]) {
         let new_items: Vec<Script> = scripts
             .iter()
             .filter(|s| !self.selected.iter().any(|r| r.relative_path == **s))
@@ -274,6 +275,23 @@ mod tests {
     use super::*;
     use ratatui::{backend::TestBackend, Terminal};
 
+    fn path(p: &str) -> ScriptPath {
+        ScriptPath::new(p).unwrap()
+    }
+
+    #[test]
+    fn selection_toggles_and_sorts_by_script_path() {
+        let mut state = AppState::new();
+        state.add_many(&[path("b/2.sql"), path("a/1.sql")]);
+        assert_eq!(state.selected[0].relative_path, path("a/1.sql"));
+
+        state.toggle(path("a/1.sql"));
+        assert_eq!(state.selected.len(), 1);
+
+        state.remove_many(&[path("b/2.sql")]);
+        assert!(state.selected.is_empty());
+    }
+
     struct FailingRoot;
 
     impl Component for FailingRoot {
@@ -327,7 +345,11 @@ mod tests {
     fn error_banner_is_shown_on_last_line() {
         let (tx, _rx) = mpsc::unbounded_channel();
         let screen = render(&mut BlankRoot, Some("Failed to draw: boom"), &tx);
-        assert!(screen.lines().last().unwrap().contains("Failed to draw: boom"));
+        assert!(screen
+            .lines()
+            .last()
+            .unwrap()
+            .contains("Failed to draw: boom"));
     }
 
     #[test]

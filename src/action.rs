@@ -29,13 +29,13 @@ pub enum Action {
 
     // Async actions
     ScriptRun(bool),
-    ScriptRunning(String),
-    ScriptFinished(String, u128, u32),
-    ScriptError(String, String, Option<u32>),
+    ScriptRunning(crate::domain::ScriptPath),
+    ScriptFinished(crate::domain::ScriptPath, u128, u32),
+    ScriptError(crate::domain::ScriptPath, String, Option<u32>),
     ClearOutput, // Clear execution output
     CalculateEntryStatus,
     CheckForChanges, // Check for file modifications (CRC check)
-    EntryStatusChanged(String, EntryStatus),
+    EntryStatusChanged(crate::domain::ScriptPath, EntryStatus),
 
     // Async loading actions
     EntriesLoading, // Signal that entries are being loaded
@@ -48,12 +48,12 @@ pub enum Action {
     SelectCurrent,
     UnselectAll,
     ToggleSkip, // Toggle skip status on current script/folder
-    AddSelection(Vec<String>),
-    RemoveSelection(Vec<String>),
-    ToggleSelection(Vec<String>),
-    SelectionChanged(Vec<String>),
+    AddSelection(Vec<crate::domain::ScriptPath>),
+    RemoveSelection(Vec<crate::domain::ScriptPath>),
+    ToggleSelection(Vec<crate::domain::ScriptPath>),
+    SelectionChanged(Vec<crate::domain::ScriptPath>),
     ScriptHighlighted(Option<Script>),
-    FileContentLoaded(String, Vec<String>, usize, u64), // (path, preview_lines, line_count, file_size)
+    FileContentLoaded(crate::domain::ScriptPath, Vec<String>, usize, u64), // (path, preview_lines, line_count, file_size)
 
     // Panel navigation (for unified view)
     FocusNextPanel,
