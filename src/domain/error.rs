@@ -29,6 +29,9 @@ pub enum DomainError {
 
     #[error("Invalid migration state transition: {0}")]
     InvalidStateTransition(String),
+
+    #[error("Action channel closed; the UI is no longer receiving updates")]
+    ActionChannelClosed,
 }
 
 pub type DomainResult<T> = Result<T, DomainError>;

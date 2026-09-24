@@ -10,14 +10,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
 use crate::{
-    action::Action,
-    domain::ScriptPath,
-    entries::EntryStatus,
-    infrastructure::FileExplorer,
-    infrastructure::Settings,
-    services::{ActionDispatcher, MigrationService},
-    tui::Frame,
-    ui::tree_state::TreeState,
+    action::Action, domain::ScriptPath, entries::EntryStatus, infrastructure::FileExplorer,
+    infrastructure::Settings, services::MigrationService, tui::Frame, ui::tree_state::TreeState,
 };
 use crate::{app::AppState, entries::ListEntry};
 use std::sync::Arc;
@@ -45,7 +39,6 @@ async fn is_skipped(migration_service: &Option<Arc<MigrationService>>, path_str:
 pub struct List {
     base: PathBuf,
     command_tx: Option<UnboundedSender<Action>>,
-    dispatcher: Option<ActionDispatcher>,
     migration_service: Option<Arc<MigrationService>>,
     config: Settings,
     widget_state: ListState,          // Ratatui widget state (for scrolling)
@@ -62,7 +55,6 @@ impl List {
         Ok(Self {
             widget_state: ListState::default().with_selected(Some(0)),
             command_tx: None,
-            dispatcher: None,
             migration_service: None,
             config: Settings::default(),
             file_explorer,
@@ -80,14 +72,14 @@ impl List {
     /// Subdirectories are loaded on-demand when expanded
     pub fn refresh_entries(&mut self) -> eyre::Result<()> {
         // Dispatch loading action
-        if let Some(ref dispatcher) = self.dispatcher {
-            dispatcher.dispatch(Action::EntriesLoading);
+        if let Some(ref tx) = self.command_tx {
+            tx.send(Action::EntriesLoading)?;
         }
 
         // Spawn async task to load ONLY root directory entries (non-recursive)
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
-        let dispatcher = self.dispatcher.clone();
+        let tx = self.command_tx.clone();
 
         tokio::spawn(async move {
             // Only load immediate children, not recursive
@@ -122,8 +114,10 @@ impl List {
             };
 
             // Send results back via action
-            if let Some(dispatcher) = dispatcher {
-                dispatcher.dispatch(Action::EntriesLoaded(entries));
+            if let Some(tx) = tx {
+                if let Err(e) = tx.send(Action::EntriesLoaded(entries)) {
+                    log::error!("Action channel closed: {}", e);
+                }
             }
         });
 
@@ -135,7 +129,7 @@ impl List {
         let full_path = self.base.join(dir_path);
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
-        let dispatcher = self.dispatcher.clone();
+        let tx = self.command_tx.clone();
         let dir_path_owned = dir_path.to_string();
 
         tokio::spawn(async move {
@@ -170,8 +164,12 @@ impl List {
             };
 
             // Send results back via action with parent path
-            if let Some(dispatcher) = dispatcher {
-                dispatcher.dispatch(Action::DirectoryChildrenLoaded(dir_path_owned, entries));
+            if let Some(tx) = tx {
+                if let Err(e) =
+                    tx.send(Action::DirectoryChildrenLoaded(dir_path_owned, entries))
+                {
+                    log::error!("Action channel closed: {}", e);
+                }
             }
         });
 
@@ -282,7 +280,7 @@ impl List {
             let root_dir = self.base.clone();
             let file_explorer = self.file_explorer.clone();
             let migration_service = self.migration_service.clone();
-            let dispatcher = self.dispatcher.clone();
+            let tx = self.command_tx.clone();
             let entry_path = entry.relative_path.clone();
 
             tokio::spawn(async move {
@@ -300,8 +298,10 @@ impl List {
                             }
                         }
 
-                        if let Some(dispatcher) = dispatcher {
-                            dispatcher.dispatch(Action::ToggleSelection(items));
+                        if let Some(tx) = tx {
+                            if let Err(e) = tx.send(Action::ToggleSelection(items)) {
+                                log::error!("Action channel closed: {}", e);
+                            }
                         }
                     }
                     Err(e) => {
@@ -330,7 +330,7 @@ impl List {
         let root_dir = self.base.clone();
         let file_explorer = self.file_explorer.clone();
         let migration_service = self.migration_service.clone();
-        let dispatcher = self.dispatcher.clone();
+        let tx = self.command_tx.clone();
 
         let current_path = self
             .tree_state
@@ -338,8 +338,11 @@ impl List {
             .map(|n| n.entry.relative_path);
 
         // Show searching indicator
-        if let Some(ref disp) = dispatcher {
-            disp.dispatch(Action::SearchingForNextNotRun(true));
+        if let Some(ref tx) = tx {
+            if let Err(e) = tx.send(Action::SearchingForNextNotRun(true)) {
+                log::error!("Action channel closed: {}", e);
+                return;
+            }
         }
 
         // Spawn async search
@@ -350,8 +353,11 @@ impl List {
             log::info!("Querying database for executed scripts...");
             let Some(service) = migration_service.as_ref() else {
                 log::error!("MigrationService not available for search");
-                if let Some(ref disp) = dispatcher {
-                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                if let Some(ref tx) = tx {
+                    if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                        log::error!("Action channel closed: {}", e);
+                        return;
+                    }
                 }
                 return;
             };
@@ -362,8 +368,11 @@ impl List {
                 }
                 Err(e) => {
                     log::error!("Failed to query executed scripts: {}", e);
-                    if let Some(ref disp) = dispatcher {
-                        disp.dispatch(Action::SearchingForNextNotRun(false));
+                    if let Some(ref tx) = tx {
+                        if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                            log::error!("Action channel closed: {}", e);
+                            return;
+                        }
                     }
                     return;
                 }
@@ -381,8 +390,11 @@ impl List {
                 }
                 Err(e) => {
                     log::error!("Failed to list files: {}", e);
-                    if let Some(ref disp) = dispatcher {
-                        disp.dispatch(Action::SearchingForNextNotRun(false));
+                    if let Some(ref tx) = tx {
+                        if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                            log::error!("Action channel closed: {}", e);
+                            return;
+                        }
                     }
                     return;
                 }
@@ -404,8 +416,11 @@ impl List {
 
             if not_run_files.is_empty() {
                 log::warn!("No Not Run scripts found");
-                if let Some(ref disp) = dispatcher {
-                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                if let Some(ref tx) = tx {
+                    if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                        log::error!("Action channel closed: {}", e);
+                        return;
+                    }
                 }
                 return;
             }
@@ -427,9 +442,15 @@ impl List {
             if start_index < not_run_files.len() {
                 let path = &not_run_files[start_index];
                 log::info!("Found next Not Run script: {}", path);
-                if let Some(ref disp) = dispatcher {
-                    disp.dispatch(Action::JumpToPath(path.clone(), 0));
-                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                if let Some(ref tx) = tx {
+                    if let Err(e) = tx.send(Action::JumpToPath(path.clone(), 0)) {
+                        log::error!("Action channel closed: {}", e);
+                        return;
+                    }
+                    if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                        log::error!("Action channel closed: {}", e);
+                        return;
+                    }
                 }
                 return;
             }
@@ -438,17 +459,25 @@ impl List {
             if !not_run_files.is_empty() {
                 let path = &not_run_files[0];
                 log::info!("Wrapping around to first Not Run script: {}", path);
-                if let Some(ref disp) = dispatcher {
-                    disp.dispatch(Action::JumpToPath(path.clone(), 0));
-                    disp.dispatch(Action::SearchingForNextNotRun(false));
+                if let Some(ref tx) = tx {
+                    if let Err(e) = tx.send(Action::JumpToPath(path.clone(), 0)) {
+                        log::error!("Action channel closed: {}", e);
+                        return;
+                    }
+                    if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                        log::error!("Action channel closed: {}", e);
+                        return;
+                    }
                 }
                 return;
             }
 
             // No Not Run script found (shouldn't happen since we checked empty above)
             log::warn!("Unexpected: checked for empty but no scripts to jump to");
-            if let Some(ref disp) = dispatcher {
-                disp.dispatch(Action::SearchingForNextNotRun(false));
+            if let Some(ref tx) = tx {
+                if let Err(e) = tx.send(Action::SearchingForNextNotRun(false)) {
+                    log::error!("Action channel closed: {}", e);
+                }
             }
         });
     }
@@ -460,7 +489,7 @@ impl List {
 
         let root_dir = self.base.clone();
         let migration_service = self.migration_service.clone();
-        let dispatcher = self.dispatcher.clone();
+        let tx = self.command_tx.clone();
         let file_explorer = self.file_explorer.clone();
 
         tokio::spawn(async move {
@@ -520,8 +549,10 @@ impl List {
 
             log::debug!("Selected {} files from cursor to end", items.len());
 
-            if let Some(dispatcher) = dispatcher {
-                dispatcher.dispatch(Action::ToggleSelection(items));
+            if let Some(tx) = tx {
+                if let Err(e) = tx.send(Action::ToggleSelection(items)) {
+                    log::error!("Action channel closed: {}", e);
+                }
             }
         });
     }
@@ -690,8 +721,6 @@ impl List {
 
 impl Component for List {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-        let dispatcher = ActionDispatcher::new(tx.clone());
-        self.dispatcher = Some(dispatcher);
         self.command_tx = Some(tx);
         Ok(())
     }
@@ -702,7 +731,7 @@ impl Component for List {
     }
 
     fn init(&mut self, _area: ratatui::prelude::Size) -> Result<()> {
-        // Load entries now that dispatcher is set up
+        // Load entries now that tx is set up
         self.refresh_entries()?;
         Ok(())
     }
@@ -793,13 +822,17 @@ impl Component for List {
                         path,
                         retry_count
                     );
-                    if let Some(ref disp) = self.dispatcher {
+                    if let Some(ref tx) = self.command_tx {
                         let path_clone = path.clone();
-                        let disp_clone = disp.clone();
+                        let tx_clone = tx.clone();
                         let next_retry = retry_count + 1;
                         tokio::spawn(async move {
                             tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-                            disp_clone.dispatch(Action::JumpToPath(path_clone, next_retry));
+                            if let Err(e) =
+                                tx_clone.send(Action::JumpToPath(path_clone, next_retry))
+                            {
+                                log::error!("Action channel closed: {}", e);
+                            }
                         });
                     }
                 } else {
@@ -823,8 +856,8 @@ impl Component for List {
                     log::error!("MigrationService not available in List component");
                     return Ok(None);
                 };
-                let Some(dispatcher) = &self.dispatcher else {
-                    log::error!("ActionDispatcher not available in List component");
+                let Some(tx) = &self.command_tx else {
+                    log::error!("Action channel not available in List component");
                     return Ok(None);
                 };
 
@@ -840,15 +873,15 @@ impl Component for List {
                 // Dispatch directory statuses immediately
                 for entry in &entries {
                     if entry.is_directory {
-                        dispatcher.dispatch(Action::EntryStatusChanged(
+                        tx.send(Action::EntryStatusChanged(
                             entry.relative_path.clone(),
                             EntryStatus::Directory,
-                        ));
+                        ))?;
                     }
                 }
 
                 // Use service to calculate file statuses asynchronously
-                migration_service.calculate_statuses(script_paths, dispatcher);
+                migration_service.calculate_statuses(script_paths, tx);
 
                 return Ok(None);
             }
@@ -858,8 +891,8 @@ impl Component for List {
                 let entries = self.tree_state.entries();
 
                 // Use MigrationService if available
-                if let (Some(migration_service), Some(dispatcher)) =
-                    (&self.migration_service, &self.dispatcher)
+                if let (Some(migration_service), Some(tx)) =
+                    (&self.migration_service, &self.command_tx)
                 {
                     use crate::domain::ScriptPath;
 
@@ -871,7 +904,7 @@ impl Component for List {
                         .collect();
 
                     // Use service to check for changes asynchronously
-                    migration_service.check_for_changes(script_paths, dispatcher);
+                    migration_service.check_for_changes(script_paths, tx);
                 }
 
                 return Ok(None);
@@ -888,8 +921,8 @@ impl Component for List {
                 self.widget_state.select(Some(self.tree_state.cursor()));
 
                 // Now that entries are loaded, calculate their statuses
-                if let Some(ref dispatcher) = self.dispatcher {
-                    dispatcher.dispatch(Action::CalculateEntryStatus);
+                if let Some(ref tx) = self.command_tx {
+                    tx.send(Action::CalculateEntryStatus)?;
                 }
 
                 // Highlight the first entry for the preview panel
@@ -897,18 +930,18 @@ impl Component for List {
             }
             Action::DirectoryChildrenLoaded(parent_path, children) => {
                 // Calculate statuses for ONLY the new children (before adding to tree)
-                if let (Some(migration_service), Some(dispatcher)) =
-                    (&self.migration_service, &self.dispatcher)
+                if let (Some(migration_service), Some(tx)) =
+                    (&self.migration_service, &self.command_tx)
                 {
                     use crate::domain::ScriptPath;
 
                     // Dispatch directory statuses immediately
                     for child in &children {
                         if child.is_directory {
-                            dispatcher.dispatch(Action::EntryStatusChanged(
+                            tx.send(Action::EntryStatusChanged(
                                 child.relative_path.clone(),
                                 EntryStatus::Directory,
-                            ));
+                            ))?;
                         }
                     }
 
@@ -921,7 +954,7 @@ impl Component for List {
 
                     // Calculate statuses only for the new children
                     if !script_paths.is_empty() {
-                        migration_service.calculate_statuses(script_paths, dispatcher);
+                        migration_service.calculate_statuses(script_paths, tx);
                     }
                 }
 
@@ -974,7 +1007,7 @@ impl Component for List {
                 }
                 let entry = first_not_run_entry.unwrap();
 
-                // Get the migration service and dispatcher
+                // Get the migration service and tx
                 let migration_service = match &self.migration_service {
                     Some(svc) => svc.clone(),
                     None => {
@@ -983,10 +1016,10 @@ impl Component for List {
                     }
                 };
 
-                let dispatcher = match &self.dispatcher {
+                let tx = match &self.command_tx {
                     Some(d) => d.clone(),
                     None => {
-                        log::error!("ActionDispatcher not available in List component");
+                        log::error!("Action channel not available in List component");
                         return Ok(None);
                     }
                 };
@@ -1002,11 +1035,14 @@ impl Component for List {
                     let content = match tokio::fs::read_to_string(&full_path).await {
                         Ok(c) => c,
                         Err(err) => {
-                            dispatcher.dispatch(Action::ScriptError(
+                            if let Err(e) = tx.send(Action::ScriptError(
                                 script_path,
                                 err.to_string(),
                                 None,
-                            ));
+                            )) {
+                                log::error!("Action channel closed: {}", e);
+                                return;
+                            }
                             return;
                         }
                     };
@@ -1015,11 +1051,14 @@ impl Component for List {
                     let path = match ScriptPath::new(script_path.clone()) {
                         Ok(p) => p,
                         Err(e) => {
-                            dispatcher.dispatch(Action::ScriptError(
+                            if let Err(e) = tx.send(Action::ScriptError(
                                 script_path,
                                 format!("Invalid script path: {}", e),
                                 None,
-                            ));
+                            )) {
+                                log::error!("Action channel closed: {}", e);
+                                return;
+                            }
                             return;
                         }
                     };
@@ -1027,16 +1066,20 @@ impl Component for List {
                     let script = MigrationScript::new(path, content);
 
                     // Use the service to execute
-                    match migration_service.execute_script(&script, &dispatcher).await {
+                    match migration_service.execute_script(&script, &tx).await {
                         Ok(_) => {
                             // Service handles notifications, just trigger next script
-                            dispatcher.dispatch(Action::ScriptRun(skip_errors));
+                            if let Err(e) = tx.send(Action::ScriptRun(skip_errors)) {
+                                log::error!("Action channel closed: {}", e);
+                            }
                         }
                         Err(e) => {
                             log::error!("Script execution failed: {}", e);
                             // Error notifications already sent by service
                             if skip_errors {
-                                dispatcher.dispatch(Action::ScriptRun(skip_errors));
+                                if let Err(e) = tx.send(Action::ScriptRun(skip_errors)) {
+                                    log::error!("Action channel closed: {}", e);
+                                }
                             }
                         }
                     }

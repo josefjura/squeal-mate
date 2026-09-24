@@ -84,7 +84,6 @@ The application follows a component-based TUI architecture with:
 
 **Service Layer** (Application orchestration):
 - **src/services/migration_service.rs**: High-level migration operations
-- **src/services/action_dispatcher.rs**: Async action dispatching helper
 
 **UI Layer** (Components):
 - **src/ui/component.rs**: Component trait definition

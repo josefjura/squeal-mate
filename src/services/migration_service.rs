@@ -2,11 +2,17 @@
 
 use crate::action::Action;
 use crate::domain::{
-    DomainResult, ExecutionTracker, MigrationRepository, MigrationScript, ScriptExecutor,
-    ScriptPath, ScriptStatus,
+    DomainError, DomainResult, ExecutionTracker, MigrationRepository, MigrationScript,
+    ScriptExecutor, ScriptPath, ScriptStatus,
 };
-use crate::services::ActionDispatcher;
 use std::sync::Arc;
+use tokio::sync::mpsc::{error::SendError, UnboundedSender};
+
+impl From<SendError<Action>> for DomainError {
+    fn from(_: SendError<Action>) -> Self {
+        DomainError::ActionChannelClosed
+    }
+}
 
 /// Service for managing migration operations
 pub struct MigrationService {
@@ -33,10 +39,10 @@ impl MigrationService {
     pub async fn execute_script(
         &self,
         script: &MigrationScript,
-        dispatcher: &ActionDispatcher,
+        tx: &UnboundedSender<Action>,
     ) -> DomainResult<()> {
         // Notify that execution is starting
-        dispatcher.dispatch(Action::ScriptRunning(script.path.to_string()));
+        tx.send(Action::ScriptRunning(script.path.to_string()))?;
 
         // Execute the script
         let result = self.executor.execute(script).await?;
@@ -54,24 +60,24 @@ impl MigrationService {
         let entry_status = crate::entries::EntryStatus::from(updated_status);
 
         // Update the entry status in the UI
-        dispatcher.dispatch(Action::EntryStatusChanged(
+        tx.send(Action::EntryStatusChanged(
             script.path.to_string(),
             entry_status,
-        ));
+        ))?;
 
         // Notify completion (for execution log)
         if result.success {
-            dispatcher.dispatch(Action::ScriptFinished(
+            tx.send(Action::ScriptFinished(
                 script.path.to_string(),
                 result.elapsed_ms,
                 result.checksum.value(),
-            ));
+            ))?;
         } else {
-            dispatcher.dispatch(Action::ScriptError(
+            tx.send(Action::ScriptError(
                 script.path.to_string(),
                 result.error.unwrap_or_else(|| "Unknown error".to_string()),
                 Some(result.checksum.value()),
-            ));
+            ))?;
         }
 
         Ok(())
@@ -79,15 +85,18 @@ impl MigrationService {
 
     /// Get database status for all scripts and dispatch status updates
     /// Does NOT check for file modifications - use check_for_changes() for that
-    pub fn calculate_statuses(&self, scripts: Vec<ScriptPath>, dispatcher: &ActionDispatcher) {
+    pub fn calculate_statuses(&self, scripts: Vec<ScriptPath>, tx: &UnboundedSender<Action>) {
         let tracker = self.tracker.clone();
-        let disp = dispatcher.clone();
+        let tx = tx.clone();
         let total = scripts.len();
 
         tokio::spawn(async move {
             for (index, script_path) in scripts.iter().enumerate() {
                 // Send progress update
-                disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
+                if let Err(e) = tx.send(Action::StatusCalculationProgress(index + 1, total)) {
+                    log::error!("Action channel closed: {}", e);
+                    return;
+                }
 
                 // Get status from database only (no CRC checking)
                 match tracker.get_database_status(script_path).await {
@@ -95,10 +104,13 @@ impl MigrationService {
                         // Convert ScriptStatus to EntryStatus (using From trait)
                         let entry_status = crate::entries::EntryStatus::from(status);
 
-                        disp.dispatch(Action::EntryStatusChanged(
+                        if let Err(e) = tx.send(Action::EntryStatusChanged(
                             script_path.to_string(),
                             entry_status,
-                        ));
+                        )) {
+                            log::error!("Action channel closed: {}", e);
+                            return;
+                        }
                     }
                     Err(e) => {
                         log::error!("Failed to get status for {}: {}", script_path, e);
@@ -110,16 +122,19 @@ impl MigrationService {
 
     /// Check for file modifications by comparing CRC checksums
     /// Only checks scripts that have been executed before (not NeverRun or Skipped)
-    pub fn check_for_changes(&self, scripts: Vec<ScriptPath>, dispatcher: &ActionDispatcher) {
+    pub fn check_for_changes(&self, scripts: Vec<ScriptPath>, tx: &UnboundedSender<Action>) {
         let tracker = self.tracker.clone();
         let repo = self.repository.clone();
-        let disp = dispatcher.clone();
+        let tx = tx.clone();
         let total = scripts.len();
 
         tokio::spawn(async move {
             for (index, script_path) in scripts.iter().enumerate() {
                 // Send progress update
-                disp.dispatch(Action::StatusCalculationProgress(index + 1, total));
+                if let Err(e) = tx.send(Action::StatusCalculationProgress(index + 1, total)) {
+                    log::error!("Action channel closed: {}", e);
+                    return;
+                }
 
                 // Read the script to get its current checksum
                 match repo.read_script(script_path).await {
@@ -128,10 +143,13 @@ impl MigrationService {
                             Ok(status) => {
                                 // Only update if status is Modified
                                 if status == ScriptStatus::Modified {
-                                    disp.dispatch(Action::EntryStatusChanged(
+                                    if let Err(e) = tx.send(Action::EntryStatusChanged(
                                         script_path.to_string(),
                                         crate::entries::EntryStatus::Changed,
-                                    ));
+                                    )) {
+                                        log::error!("Action channel closed: {}", e);
+                                        return;
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -194,12 +212,11 @@ mod tests {
         MigrationService::new(Arc::new(repository), Arc::new(executor), Arc::new(tracker))
     }
 
-    fn dispatcher() -> (
-        ActionDispatcher,
+    fn channel() -> (
+        UnboundedSender<Action>,
         tokio::sync::mpsc::UnboundedReceiver<Action>,
     ) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        (ActionDispatcher::new(tx), rx)
+        tokio::sync::mpsc::unbounded_channel()
     }
 
     #[tokio::test]
@@ -207,10 +224,10 @@ mod tests {
         let executor = FakeScriptExecutor::new();
         let tracker = FakeExecutionTracker::new();
         let svc = service(FakeMigrationRepository::new(), executor, tracker);
-        let (disp, mut rx) = dispatcher();
+        let (tx, mut rx) = channel();
         let script = script("migration.sql", "SELECT 1;");
 
-        svc.execute_script(&script, &disp).await.unwrap();
+        svc.execute_script(&script, &tx).await.unwrap();
 
         assert!(matches!(
             rx.recv().await,
@@ -235,10 +252,10 @@ mod tests {
             Arc::new(FakeScriptExecutor::new()),
             tracker.clone(),
         );
-        let (disp, _rx) = dispatcher();
+        let (tx, _rx) = channel();
         let script = script("migration.sql", "SELECT 1;");
 
-        svc.execute_script(&script, &disp).await.unwrap();
+        svc.execute_script(&script, &tx).await.unwrap();
 
         let recorded = tracker.recorded_execution(&script.path);
         assert!(recorded.is_some());
@@ -256,10 +273,10 @@ mod tests {
         ));
         let tracker = FakeExecutionTracker::new();
         let svc = service(FakeMigrationRepository::new(), executor, tracker);
-        let (disp, mut rx) = dispatcher();
+        let (tx, mut rx) = channel();
         let script = script("migration.sql", "SELECT 1;");
 
-        svc.execute_script(&script, &disp).await.unwrap();
+        svc.execute_script(&script, &tx).await.unwrap();
 
         rx.recv().await; // ScriptRunning
         rx.recv().await; // EntryStatusChanged
@@ -283,9 +300,9 @@ mod tests {
             FakeScriptExecutor::new(),
             tracker,
         );
-        let (disp, mut rx) = dispatcher();
+        let (tx, mut rx) = channel();
 
-        svc.calculate_statuses(vec![path_a, path_b], &disp);
+        svc.calculate_statuses(vec![path_a, path_b], &tx);
 
         let mut statuses = Vec::new();
         for _ in 0..4 {
@@ -319,9 +336,9 @@ mod tests {
         tracker.set_status(&changed.path, ScriptStatus::Modified);
 
         let svc = service(repository, FakeScriptExecutor::new(), tracker);
-        let (disp, mut rx) = dispatcher();
+        let (tx, mut rx) = channel();
 
-        svc.check_for_changes(vec![unchanged.path.clone(), changed.path.clone()], &disp);
+        svc.check_for_changes(vec![unchanged.path.clone(), changed.path.clone()], &tx);
 
         let mut changed_paths = Vec::new();
         for _ in 0..3 {
@@ -372,5 +389,20 @@ mod tests {
         let result = svc.test_connection().await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn execute_script_reports_closed_action_channel() {
+        let svc = service(
+            FakeMigrationRepository::new(),
+            FakeScriptExecutor::new(),
+            FakeExecutionTracker::new(),
+        );
+        let (tx, rx) = channel();
+        drop(rx);
+
+        let result = svc.execute_script(&script("a.sql", "SELECT 1"), &tx).await;
+
+        assert!(matches!(result, Err(DomainError::ActionChannelClosed)));
     }
 }
