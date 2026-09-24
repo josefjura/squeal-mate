@@ -1191,7 +1191,7 @@ impl Component for List {
         let title = if self.is_searching {
             "Searching for next Not Run..."
         } else {
-            "Press h for help"
+            ""
         };
 
         let list_draw = ratatui::widgets::List::new(items)

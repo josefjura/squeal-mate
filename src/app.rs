@@ -2,13 +2,13 @@ use crate::{
     action::{Action, PanelFocus},
     infrastructure::Settings,
     keymap::key_to_action,
-    screen::{Mode, Screen},
     tui,
+    ui::Component,
 };
 
 use color_eyre::eyre;
 use ratatui::prelude::Rect;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Clone)]
 pub enum ScriptState {
@@ -112,44 +112,48 @@ impl AppState {
         self.selected.extend(new_items);
         self.selected.sort()
     }
-
-    /// Get the count of completed scripts (finished or error) and total scripts
-    pub fn execution_progress(&self) -> (usize, usize) {
-        let total = self.selected.len();
-        let completed = self
-            .selected
-            .iter()
-            .filter(|s| matches!(s.state, ScriptState::Finished | ScriptState::Error))
-            .count();
-        (completed, total)
-    }
 }
 
+type Root = Box<dyn Component + Send + Sync>;
+
 pub struct App {
-    pub current_screen: Mode,
     pub exit: bool,
     pub suspend: bool,
     pub tick_rate: f64,
     pub frame_rate: f64,
-    pub screens: Vec<Screen>,
+    pub root: Root,
     pub config: Settings,
     pub state: AppState,
-    pub focused_panel: PanelFocus, // Track which panel is focused in unified view
+    pub focused_panel: PanelFocus,
 }
 
 impl App {
-    pub fn new(screens: Vec<Screen>, config: Settings) -> Self {
+    pub fn new(root: Root, config: Settings) -> Self {
         Self {
-            current_screen: Mode::Unified, // Start with unified view
             exit: false,
             suspend: false,
             frame_rate: 30.0,
             tick_rate: 1.0,
-            screens,
+            root,
             config,
             state: AppState::new(),
-            focused_panel: PanelFocus::FileTree, // Default to file tree
+            focused_panel: PanelFocus::FileTree,
         }
+    }
+
+    fn draw(
+        &mut self,
+        tui: &mut tui::Tui,
+        action_tx: &UnboundedSender<Action>,
+    ) -> eyre::Result<()> {
+        tui.draw(|f| {
+            if let Err(e) = self.root.draw(f, f.area(), &self.state) {
+                action_tx
+                    .send(Action::Error(format!("Failed to draw: {:?}", e)))
+                    .unwrap();
+            }
+        })?;
+        Ok(())
     }
 
     pub async fn run(&mut self) -> eyre::Result<()> {
@@ -161,23 +165,9 @@ impl App {
         // tui.mouse(true);
         tui.enter()?;
 
-        for screen in self.screens.iter_mut() {
-            for component in screen.components.iter_mut() {
-                component.register_action_handler(action_tx.clone())?;
-            }
-        }
-
-        for screen in self.screens.iter_mut() {
-            for component in screen.components.iter_mut() {
-                component.register_config_handler(self.config.clone())?;
-            }
-        }
-
-        for screen in self.screens.iter_mut() {
-            for component in screen.components.iter_mut() {
-                component.init(tui.size()?)?;
-            }
-        }
+        self.root.register_action_handler(action_tx.clone())?;
+        self.root.register_config_handler(self.config.clone())?;
+        self.root.init(tui.size()?)?;
 
         loop {
             if let Some(e) = tui.next().await {
@@ -186,113 +176,40 @@ impl App {
                     tui::Event::Tick => action_tx.send(Action::Tick)?,
                     tui::Event::Render => action_tx.send(Action::Render)?,
                     tui::Event::Resize(x, y) => action_tx.send(Action::Resize(x, y))?,
-                    tui::Event::SwitchMode(mode) => action_tx.send(Action::SwitchMode(mode))?,
                     tui::Event::Key(key) => {
-                        if let Some(action) = key_to_action(
-                            self.current_screen,
-                            self.focused_panel,
-                            key.code,
-                            key.modifiers,
-                        ) {
+                        if let Some(action) =
+                            key_to_action(self.focused_panel, key.code, key.modifiers)
+                        {
                             action_tx.send(action)?
                         }
                     }
                     _ => {}
                 }
 
-                for screen in self.screens.iter_mut() {
-                    for component in screen.components.iter_mut() {
-                        if let Some(action) = component.handle_events(Some(e.clone()))? {
-                            action_tx.send(action)?;
-                        }
-                    }
+                if let Some(action) = self.root.handle_events(Some(e.clone()))? {
+                    action_tx.send(action)?;
                 }
             }
 
             while let Ok(action) = action_rx.try_recv() {
-                if action != Action::Tick && action != Action::Render {
-                    //log::debug!("{action:?}");
-                }
                 match action {
-                    Action::Tick => {
-                        //self.last_tick_key_events.drain(..);
-                    }
                     Action::Quit => self.exit = true,
                     Action::Suspend => self.suspend = true,
                     Action::Resume => self.suspend = false,
-                    Action::SwitchMode(mode) => self.current_screen = mode,
                     Action::PanelFocusChanged(focus) => self.focused_panel = focus,
                     Action::Resize(w, h) => {
                         tui.resize(Rect::new(0, 0, w, h))?;
-                        let screen = self
-                            .screens
-                            .iter_mut()
-                            .find(|f| f.mode == self.current_screen);
-                        if let Some(screen) = screen {
-                            tui.draw(|f| {
-                                for component in screen.components.iter_mut() {
-                                    let r = component.draw(f, f.area(), &self.state);
-                                    if let Err(e) = r {
-                                        action_tx
-                                            .send(Action::Error(format!("Failed to draw: {:?}", e)))
-                                            .unwrap();
-                                    }
-                                }
-                            })?;
-                        }
+                        self.draw(&mut tui, &action_tx)?;
                     }
-                    Action::Render => {
-                        let screen = self
-                            .screens
-                            .iter_mut()
-                            .find(|f| f.mode == self.current_screen);
-                        if let Some(screen) = screen {
-                            tui.draw(|f| {
-                                for component in screen.components.iter_mut() {
-                                    let r = component.draw(f, f.area(), &self.state);
-                                    if let Err(e) = r {
-                                        action_tx
-                                            .send(Action::Error(format!("Failed to draw: {:?}", e)))
-                                            .unwrap();
-                                    }
-                                }
-                            })?;
-                        }
-                    }
+                    Action::Render => self.draw(&mut tui, &action_tx)?,
                     _ => {}
                 }
 
-                if let Action::EntryStatusChanged(_, _) = action {
-                    for screen in self.screens.iter_mut() {
-                        for component in screen.components.iter_mut() {
-                            if action != Action::Tick && action != Action::Render {
-                                log::debug!("Running: {action:?} {:?}", screen.mode);
-                            }
-                            if let Some(action) =
-                                component.update(&mut self.state, action.clone())?
-                            {
-                                action_tx.send(action)?
-                            };
-                        }
-                    }
-                } else {
-                    let screen = self
-                        .screens
-                        .iter_mut()
-                        .find(|f| f.mode == self.current_screen);
-
-                    if let Some(screen) = screen {
-                        for component in screen.components.iter_mut() {
-                            if action != Action::Tick && action != Action::Render {
-                                log::debug!("Running: {action:?} {:?}", screen.mode);
-                            }
-                            if let Some(action) =
-                                component.update(&mut self.state, action.clone())?
-                            {
-                                action_tx.send(action)?
-                            };
-                        }
-                    }
+                if action != Action::Tick && action != Action::Render {
+                    log::debug!("Running: {action:?}");
+                }
+                if let Some(action) = self.root.update(&mut self.state, action)? {
+                    action_tx.send(action)?
                 }
             }
             if self.suspend {

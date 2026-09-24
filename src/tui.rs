@@ -21,8 +21,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::screen::Mode;
-
 pub type IO = std::io::Stdout;
 pub fn io() -> IO {
     std::io::stdout()
@@ -44,7 +42,6 @@ pub enum Event {
     Key(KeyEvent),
     Mouse(MouseEvent),
     Resize(u16, u16),
-    SwitchMode(Mode),
 }
 
 pub struct Tui {

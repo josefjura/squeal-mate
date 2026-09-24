@@ -1,16 +1,12 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
-use crate::{
-    action::{Action, PanelFocus},
-    screen::Mode,
-};
+use crate::action::{Action, PanelFocus};
 
-/// Maps a raw key event to an `Action`, given the current mode and panel focus.
+/// Maps a raw key event to an `Action`, given the current panel focus.
 ///
 /// Pure function: no TUI, channel, or async dependency, so the keymap can be
-/// exercised directly with plain `KeyCode`/`Mode`/`PanelFocus` values.
+/// exercised directly with plain `KeyCode`/`PanelFocus` values.
 pub(crate) fn key_to_action(
-    mode: Mode,
     focus: PanelFocus,
     code: KeyCode,
     modifiers: KeyModifiers,
@@ -23,17 +19,11 @@ pub(crate) fn key_to_action(
         }
     }
 
-    match code {
-        KeyCode::Char('q') => return Some(Action::Quit),
-        KeyCode::Char('?') => return Some(Action::ToggleHelp),
-        _ => {}
+    if code == KeyCode::Char('q') {
+        return Some(Action::Quit);
     }
 
-    // In Unified mode, navigation/selection only applies when the file tree
-    // panel is focused; in the other modes it's always available.
-    let file_tree_active = mode != Mode::Unified || focus == PanelFocus::FileTree;
-
-    if file_tree_active {
+    if focus == PanelFocus::FileTree {
         match code {
             KeyCode::Up | KeyCode::Char('k') => return Some(Action::CursorUp),
             KeyCode::Down | KeyCode::Char('j') => return Some(Action::CursorDown),
@@ -54,18 +44,14 @@ pub(crate) fn key_to_action(
         }
     }
 
-    // Clear output is available in FileTree and ExecutionLog panels in
-    // Unified mode, and unconditionally in the other modes.
-    let clear_output_active =
-        mode != Mode::Unified || matches!(focus, PanelFocus::FileTree | PanelFocus::ExecutionLog);
-    if clear_output_active && code == KeyCode::Char('c') {
+    if matches!(focus, PanelFocus::FileTree | PanelFocus::ExecutionLog)
+        && code == KeyCode::Char('c')
+    {
         return Some(Action::ClearOutput);
     }
 
-    match (mode, code) {
-        (Mode::FileChooser, KeyCode::Tab) => Some(Action::SwitchMode(Mode::ScriptRunner)),
-        (Mode::ScriptRunner, KeyCode::Tab) => Some(Action::SwitchMode(Mode::FileChooser)),
-        (Mode::Unified, KeyCode::Tab) => Some(Action::FocusNextPanel),
+    match code {
+        KeyCode::Tab => Some(Action::FocusNextPanel),
         _ => None,
     }
 }
@@ -74,23 +60,19 @@ pub(crate) fn key_to_action(
 mod tests {
     use super::*;
 
+    const ALL_FOCUS: [PanelFocus; 3] = [
+        PanelFocus::FileTree,
+        PanelFocus::ScriptPreview,
+        PanelFocus::ExecutionLog,
+    ];
+
     #[test]
-    fn quit_and_help_work_everywhere() {
-        for mode in [Mode::Unified, Mode::FileChooser, Mode::ScriptRunner] {
-            for focus in [
-                PanelFocus::FileTree,
-                PanelFocus::ScriptPreview,
-                PanelFocus::ExecutionLog,
-            ] {
-                assert_eq!(
-                    key_to_action(mode, focus, KeyCode::Char('q'), KeyModifiers::NONE),
-                    Some(Action::Quit)
-                );
-                assert_eq!(
-                    key_to_action(mode, focus, KeyCode::Char('?'), KeyModifiers::NONE),
-                    Some(Action::ToggleHelp)
-                );
-            }
+    fn quit_works_in_every_panel() {
+        for focus in ALL_FOCUS {
+            assert_eq!(
+                key_to_action(focus, KeyCode::Char('q'), KeyModifiers::NONE),
+                Some(Action::Quit)
+            );
         }
     }
 
@@ -98,7 +80,6 @@ mod tests {
     fn ctrl_c_and_ctrl_z_are_always_available() {
         assert_eq!(
             key_to_action(
-                Mode::Unified,
                 PanelFocus::ScriptPreview,
                 KeyCode::Char('c'),
                 KeyModifiers::CONTROL
@@ -107,7 +88,6 @@ mod tests {
         );
         assert_eq!(
             key_to_action(
-                Mode::FileChooser,
                 PanelFocus::FileTree,
                 KeyCode::Char('z'),
                 KeyModifiers::CONTROL
@@ -117,28 +97,17 @@ mod tests {
     }
 
     #[test]
-    fn unified_navigation_requires_file_tree_focus() {
+    fn navigation_requires_file_tree_focus() {
         assert_eq!(
-            key_to_action(
-                Mode::Unified,
-                PanelFocus::FileTree,
-                KeyCode::Down,
-                KeyModifiers::NONE
-            ),
+            key_to_action(PanelFocus::FileTree, KeyCode::Down, KeyModifiers::NONE),
             Some(Action::CursorDown)
         );
         assert_eq!(
-            key_to_action(
-                Mode::Unified,
-                PanelFocus::ScriptPreview,
-                KeyCode::Down,
-                KeyModifiers::NONE
-            ),
+            key_to_action(PanelFocus::ScriptPreview, KeyCode::Down, KeyModifiers::NONE),
             None
         );
         assert_eq!(
             key_to_action(
-                Mode::Unified,
                 PanelFocus::ExecutionLog,
                 KeyCode::Char('r'),
                 KeyModifiers::NONE
@@ -148,43 +117,13 @@ mod tests {
     }
 
     #[test]
-    fn file_chooser_and_script_runner_navigation_ignores_focus() {
-        for mode in [Mode::FileChooser, Mode::ScriptRunner] {
-            for focus in [
-                PanelFocus::FileTree,
-                PanelFocus::ScriptPreview,
-                PanelFocus::ExecutionLog,
-            ] {
-                assert_eq!(
-                    key_to_action(mode, focus, KeyCode::Up, KeyModifiers::NONE),
-                    Some(Action::CursorUp)
-                );
-                assert_eq!(
-                    key_to_action(mode, focus, KeyCode::Char('R'), KeyModifiers::NONE),
-                    Some(Action::ScriptRun(true))
-                );
-                assert_eq!(
-                    key_to_action(mode, focus, KeyCode::Char('C'), KeyModifiers::NONE),
-                    Some(Action::CheckForChanges)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn clear_output_respects_unified_panel_restriction() {
+    fn clear_output_respects_panel_restriction() {
         assert_eq!(
-            key_to_action(
-                Mode::Unified,
-                PanelFocus::FileTree,
-                KeyCode::Char('c'),
-                KeyModifiers::NONE
-            ),
+            key_to_action(PanelFocus::FileTree, KeyCode::Char('c'), KeyModifiers::NONE),
             Some(Action::ClearOutput)
         );
         assert_eq!(
             key_to_action(
-                Mode::Unified,
                 PanelFocus::ExecutionLog,
                 KeyCode::Char('c'),
                 KeyModifiers::NONE
@@ -193,67 +132,30 @@ mod tests {
         );
         assert_eq!(
             key_to_action(
-                Mode::Unified,
                 PanelFocus::ScriptPreview,
                 KeyCode::Char('c'),
                 KeyModifiers::NONE
             ),
             None
         );
-        assert_eq!(
-            key_to_action(
-                Mode::FileChooser,
-                PanelFocus::ScriptPreview,
-                KeyCode::Char('c'),
-                KeyModifiers::NONE
-            ),
-            Some(Action::ClearOutput)
-        );
     }
 
     #[test]
-    fn tab_switches_or_focuses_depending_on_mode() {
-        assert_eq!(
-            key_to_action(
-                Mode::FileChooser,
-                PanelFocus::FileTree,
-                KeyCode::Tab,
-                KeyModifiers::NONE
-            ),
-            Some(Action::SwitchMode(Mode::ScriptRunner))
-        );
-        assert_eq!(
-            key_to_action(
-                Mode::ScriptRunner,
-                PanelFocus::FileTree,
-                KeyCode::Tab,
-                KeyModifiers::NONE
-            ),
-            Some(Action::SwitchMode(Mode::FileChooser))
-        );
-        assert_eq!(
-            key_to_action(
-                Mode::Unified,
-                PanelFocus::FileTree,
-                KeyCode::Tab,
-                KeyModifiers::NONE
-            ),
-            Some(Action::FocusNextPanel)
-        );
+    fn tab_cycles_panel_focus() {
+        for focus in ALL_FOCUS {
+            assert_eq!(
+                key_to_action(focus, KeyCode::Tab, KeyModifiers::NONE),
+                Some(Action::FocusNextPanel)
+            );
+        }
     }
 
     #[test]
     fn other_control_combos_fall_through_to_normal_matching() {
         // Only Ctrl+z/Ctrl+c are special-cased; any other Ctrl-modified key
-        // is matched exactly like its unmodified counterpart, matching the
-        // original inline match arms which never checked modifiers there.
+        // is matched exactly like its unmodified counterpart.
         assert_eq!(
-            key_to_action(
-                Mode::Unified,
-                PanelFocus::FileTree,
-                KeyCode::Up,
-                KeyModifiers::CONTROL
-            ),
+            key_to_action(PanelFocus::FileTree, KeyCode::Up, KeyModifiers::CONTROL),
             Some(Action::CursorUp)
         );
     }
@@ -261,12 +163,7 @@ mod tests {
     #[test]
     fn unmapped_key_returns_none() {
         assert_eq!(
-            key_to_action(
-                Mode::Unified,
-                PanelFocus::FileTree,
-                KeyCode::Char('z'),
-                KeyModifiers::NONE
-            ),
+            key_to_action(PanelFocus::FileTree, KeyCode::Char('z'), KeyModifiers::NONE),
             None
         );
     }

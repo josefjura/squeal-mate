@@ -9,14 +9,11 @@ mod error;
 mod infrastructure;
 mod keymap;
 mod repository;
-mod screen;
 mod script_memory;
 mod services;
 mod tui;
 mod ui;
 mod utils;
-
-use crate::screen::{Mode, Screen};
 
 use crate::app::App;
 use crate::ui::list::List;
@@ -34,8 +31,6 @@ use std::env;
 use std::io::{self, stdout};
 use std::path::Path;
 use std::{io::Write, path::PathBuf, str::FromStr};
-use ui::help::Help;
-use ui::script_status::ScriptStatus;
 use ui::{
     command_bar::CommandBar, execution_log::ExecutionLog, script_preview::ScriptPreview,
     UnifiedView,
@@ -173,46 +168,17 @@ async fn start_tui(config: Settings, connection: Database, force: bool) -> eyre:
 
         eprintln!("🎨 Loading UI components...");
 
-        // Create List component (uses simple FileExplorer for UI browsing)
         let mut list = List::new(path.clone())?;
         list.set_migration_service(migration_service.clone());
-        // Note: refresh_entries() will be called in init() after dispatcher is set up
 
-        // Clone for unified view
-        let mut list_for_unified = List::new(path.clone())?;
-        list_for_unified.set_migration_service(migration_service.clone());
-
-        let script_status = ScriptStatus::new();
-        let execution_log_for_runner = ExecutionLog::new();
-
-        // Create unified view components
         let unified_view = UnifiedView::new(
-            Box::new(list_for_unified),
+            Box::new(list),
             Box::new(ScriptPreview::new(path.clone())),
             Box::new(ExecutionLog::new()),
             Box::new(CommandBar::new()),
         );
 
-        let mut app = App::new(
-            vec![
-                // New unified view (default)
-                Screen::new(Mode::Unified, vec![Box::new(unified_view)]),
-                // Keep old screens for now (can switch with Tab)
-                Screen::new(
-                    Mode::FileChooser,
-                    vec![Box::new(list), Box::new(Help::new())],
-                ),
-                Screen::new(
-                    Mode::ScriptRunner,
-                    vec![
-                        Box::new(execution_log_for_runner),
-                        Box::new(script_status),
-                        Box::new(Help::new()),
-                    ],
-                ),
-            ],
-            config,
-        );
+        let mut app = App::new(Box::new(unified_view), config);
 
         app.run().await?;
         execute!(

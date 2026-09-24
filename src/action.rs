@@ -1,4 +1,4 @@
-use crate::{app::Script, entries::EntryStatus, screen::Mode};
+use crate::{app::Script, entries::EntryStatus};
 
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
@@ -7,13 +7,11 @@ pub enum Action {
     Tick,
     Render,
     Resize(u16, u16),
-    SwitchMode(Mode),
     Suspend,
     Resume,
     Quit,
     Refresh,
     Error(String),
-    Help,
 
     // Cursor actions
     CursorUp,
@@ -28,10 +26,6 @@ pub enum Action {
     DirectoryOpenSelected,
     DirectoryExpand,   // Right arrow: expand directory (open only, don't toggle)
     DirectoryCollapse, // Left arrow: collapse directory or go to parent
-
-    // Help
-    ToggleHelp,
-    CloseHelp,
 
     // Async actions
     ScriptRun(bool),

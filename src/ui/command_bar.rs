@@ -48,20 +48,18 @@ impl CommandBar {
                     ("c", "clear output"),
                     ("C", "check changes"),
                     ("tab", "switch panel"),
-                    ("?", "help"),
                     ("q", "quit"),
                 ]
             }
             Some(PanelFocus::ScriptPreview) => {
                 // Script preview commands (read-only)
-                vec![("tab", "switch panel"), ("?", "help"), ("q", "quit")]
+                vec![("tab", "switch panel"), ("q", "quit")]
             }
             Some(PanelFocus::ExecutionLog) => {
                 // Execution log commands (could add scrolling later)
                 vec![
                     ("c", "clear output"),
                     ("tab", "switch panel"),
-                    ("?", "help"),
                     ("q", "quit"),
                 ]
             }

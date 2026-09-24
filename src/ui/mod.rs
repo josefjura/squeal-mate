@@ -4,9 +4,7 @@
 //! Components delegate business logic to services.
 
 pub mod component;
-pub mod help;
 pub mod list;
-pub mod script_status;
 pub mod tree_state;
 
 // Unified view components
