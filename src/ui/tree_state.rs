@@ -517,10 +517,7 @@ mod tests {
 
         // Root is always shown; dir_a and dir_b start collapsed, so their
         // children are not included, but root.sql is a direct child.
-        let paths: Vec<String> = flattened
-            .iter()
-            .map(|n| n.entry.path.to_string())
-            .collect();
+        let paths: Vec<String> = flattened.iter().map(|n| n.entry.path.to_string()).collect();
         assert_eq!(paths, vec![".", "dir_a", "dir_b", "root.sql"]);
     }
 

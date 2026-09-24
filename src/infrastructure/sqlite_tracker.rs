@@ -133,7 +133,9 @@ impl ExecutionTracker for SqliteTracker {
         Ok(())
     }
 
-    async fn get_all_executed_scripts(&self) -> DomainResult<std::collections::HashSet<ScriptPath>> {
+    async fn get_all_executed_scripts(
+        &self,
+    ) -> DomainResult<std::collections::HashSet<ScriptPath>> {
         let scripts = self
             .db
             .get_all_executed_scripts()
