@@ -111,7 +111,7 @@ impl AppState {
         let new_items: Vec<Script> = scripts
             .iter()
             .filter(|s| !self.selected.iter().any(|r| r.relative_path == **s))
-            .map(|s| Script::none(s))
+            .map(Script::none)
             .collect();
 
         self.selected.extend(new_items);
